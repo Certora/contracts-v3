@@ -3299,8 +3299,14 @@ describe('BancorNetwork Flow', () => {
             }
 
             actual.tknBalances['vault'] = integerToDecimal(await baseToken.balanceOf(bancorVault.address), tknDecimals);
-            actual.tknBalances['wallet'] = integerToDecimal(await baseToken.balanceOf(externalWallet.address), tknDecimals);
-            actual.bntBalances['vault'] = integerToDecimal(await networkToken.balanceOf(bancorVault.address), bntDecimals);
+            actual.tknBalances['wallet'] = integerToDecimal(
+                await baseToken.balanceOf(externalWallet.address),
+                tknDecimals
+            );
+            actual.bntBalances['vault'] = integerToDecimal(
+                await networkToken.balanceOf(bancorVault.address),
+                bntDecimals
+            );
             actual.bnbntBalances['protocol'] = integerToDecimal(
                 await networkPoolToken.balanceOf(networkTokenPool.address),
                 bnbntDecimals
