@@ -1380,7 +1380,7 @@ describe('Profile @profile', () => {
         testRewardsMatrix(toWei(100_000), toWei(200_000));
     });
 
-    describe('migrate liquidity', () => {
+    describe.only('migrate liquidity', () => {
         let networkTokenGovernance: TokenGovernance;
         let govTokenGovernance: TokenGovernance;
         let network: TestBancorNetwork;
@@ -1514,6 +1514,22 @@ describe('Profile @profile', () => {
                     .addLiquidity(poolToken.address, reserveToken.address, amount, { value });
             };
 
+            const getPosition = (protectedLiquidity: any) => {
+                return {
+                    provider: protectedLiquidity[0],
+                    poolToken: protectedLiquidity[1],
+                    reserveToken: protectedLiquidity[2],
+                    poolAmount: protectedLiquidity[3],
+                    reserveAmount: protectedLiquidity[4],
+                    reserveRateN: protectedLiquidity[5],
+                    reserveRateD: protectedLiquidity[6],
+                    timestamp: protectedLiquidity[7]
+                };
+            };
+
+            const filter = (position: any, poolToken: any, reserveToken: any) =>
+                position.poolToken === poolToken.address && position.reserveToken === reserveToken.address;
+
             for (const numOfPositions of [1, 2, 5, 10]) {
                 for (const tokenSymbol of [TokenSymbol.TKN, TokenSymbol.ETH]) {
                     const isNativeToken = tokenSymbol === TokenSymbol.ETH;
@@ -1534,10 +1550,18 @@ describe('Profile @profile', () => {
 
                         it('verifies that the caller can migrate positions', async () => {
                             await liquidityProtection.setTime(now + duration.seconds(1));
-                            const protectionIds = await liquidityProtectionStore.protectedLiquidityIds(owner.address);
+                            const positionIds = await liquidityProtectionStore.protectedLiquidityIds(owner.address);
+                            const protectedLiquidityIds = await liquidityProtectionStore.protectedLiquidityIds(owner.address);
+                            const protectedLiquidities = await Promise.all(protectedLiquidityIds.map((id) => liquidityProtectionStore.protectedLiquidity(id)));
+                            const positions = protectedLiquidities.map((protectedLiquidity) => getPosition(protectedLiquidity));
+                            const migrationUnit = {
+                                poolToken: poolToken.address,
+                                reserveToken: baseToken.address,
+                                positionIds: positionIds.filter((_, i) => filter(positions[i], poolToken, baseToken))
+                            };
                             await profiler.profile(
                                 `migrate ${numOfPositions} positions of ${tokenSymbol}`,
-                                liquidityProtection.migratePositions(protectionIds)
+                                liquidityProtection.migratePositions([migrationUnit])
                             );
                         });
                     });
@@ -1564,10 +1588,18 @@ describe('Profile @profile', () => {
 
                     it('verifies that the caller can migrate positions', async () => {
                         await liquidityProtection.setTime(now + duration.seconds(1));
-                        const protectionIds = await liquidityProtectionStore.protectedLiquidityIds(owner.address);
+                        const positionIds = await liquidityProtectionStore.protectedLiquidityIds(owner.address);
+                        const protectedLiquidityIds = await liquidityProtectionStore.protectedLiquidityIds(owner.address);
+                        const protectedLiquidities = await Promise.all(protectedLiquidityIds.map((id) => liquidityProtectionStore.protectedLiquidity(id)));
+                        const positions = protectedLiquidities.map((protectedLiquidity) => getPosition(protectedLiquidity));
+                        const migrationUnit = {
+                            poolToken: poolToken.address,
+                            reserveToken: networkToken.address,
+                            positionIds: positionIds.filter((_, i) => filter(positions[i], poolToken, networkToken))
+                        };
                         await profiler.profile(
                             `migrate ${numOfPositions} positions of ${TokenSymbol.BNT}`,
-                            liquidityProtection.migratePositions(protectionIds)
+                            liquidityProtection.migratePositions([migrationUnit])
                         );
                     });
                 });

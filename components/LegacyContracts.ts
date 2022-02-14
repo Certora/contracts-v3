@@ -30,7 +30,7 @@ import {
     TestStandardPoolConverterFactory,
     TokenHolder__factory,
     TokenHolder
-} from '@bancor/contracts-solidity';
+} from '../../contracts-solidity2';
 
 /* eslint-disable camelcase */
 import {

@@ -2934,7 +2934,7 @@ describe('BancorNetwork', () => {
             }
         }
     });
-
+/*
     describe('migrate liquidity', () => {
         let networkTokenGovernance: TokenGovernance;
         let govTokenGovernance: TokenGovernance;
@@ -3454,7 +3454,7 @@ describe('BancorNetwork', () => {
             );
         }
     });
-
+*/
     describe('pending withdrawals', () => {
         let poolToken: PoolToken;
         let networkInfo: BancorNetworkInfo;
