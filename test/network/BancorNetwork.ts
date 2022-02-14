@@ -26,7 +26,7 @@ import {
     TestStandardPoolConverter,
     TokenGovernance
 } from '../../components/LegacyContracts';
-import { TradeAmountsStructOutput } from '../../typechain-types/TestPoolCollection';
+import { TradeAmountAndFeeStructOutput } from '../../typechain-types/TestPoolCollection';
 import { FeeType, MAX_UINT256, PPM_RESOLUTION, ZERO_ADDRESS, ZERO_BYTES } from '../../utils/Constants';
 import { permitContractSignature } from '../../utils/Permit';
 import { NATIVE_TOKEN_ADDRESS, TokenData, TokenSymbol, DEFAULT_DECIMALS } from '../../utils/TokenData';
@@ -932,7 +932,7 @@ describe('BancorNetwork', () => {
             expect(await targetPoolCollection.poolCount()).to.equal(reserveTokenAddresses.length);
 
             for (const reserveTokenAddress of reserveTokenAddresses) {
-                const isNative = reserveTokenAddress === NATIVE_TOKEN_ADDRESS;
+                const isNativeToken = reserveTokenAddress === NATIVE_TOKEN_ADDRESS;
 
                 expect(await network.collectionByPool(reserveTokenAddress)).to.equal(targetPoolCollection.address);
 
@@ -981,7 +981,7 @@ describe('BancorNetwork', () => {
                     network
                 );
 
-                if (isNative) {
+                if (isNativeToken) {
                     transactionCost = await getTransactionCost(res);
                 }
 
@@ -1005,7 +1005,7 @@ describe('BancorNetwork', () => {
                     network
                 );
 
-                if (isNative) {
+                if (isNativeToken) {
                     transactionCost = await getTransactionCost(res2);
                 }
 
@@ -1972,7 +1972,7 @@ describe('BancorNetwork', () => {
                 amount
             );
 
-            // when specifying the target amount, the send value (i.e., the amount to trade) is represented by the
+            // when providing the target amount, the send value (i.e., the amount to trade) is represented by the
             // maximum source amount
             if (!value) {
                 value = BigNumber.from(0);
@@ -2114,8 +2114,8 @@ describe('BancorNetwork', () => {
 
             const prevMasterPoolStakedBalance = await masterPool.stakedBalance();
 
-            let hop1!: TradeAmountsStructOutput;
-            let hop2!: TradeAmountsStructOutput;
+            let hop1!: TradeAmountAndFeeStructOutput;
+            let hop2!: TradeAmountAndFeeStructOutput;
 
             let limit: BigNumber;
 
@@ -2191,10 +2191,10 @@ describe('BancorNetwork', () => {
 
             let sourceAmount: BigNumber;
             let targetAmount: BigNumber;
-            const feeAmount = hop2.feeAmount;
+            const tradingFeeAmount = hop2.tradingFeeAmount;
 
             if (bySourceAmount) {
-                // when specifying the source amount, the input amount represents the source amount we are willing to trade
+                // when providing the source amount, the input amount represents the source amount we are willing to trade
                 sourceAmount = BigNumber.from(amount);
                 targetAmount = await networkInfo.tradeOutputBySourceAmount(
                     sourceToken.address,
@@ -2203,7 +2203,7 @@ describe('BancorNetwork', () => {
                 );
                 expect(targetAmount).to.equal(hop2.amount);
             } else {
-                // when specifying the target amount, the input amount represents the target amount we are looking to receive
+                // when providing the target amount, the input amount represents the target amount we are looking to receive
                 sourceAmount = await networkInfo.tradeInputByTargetAmount(
                     sourceToken.address,
                     targetToken.address,
@@ -2253,7 +2253,7 @@ describe('BancorNetwork', () => {
 
                 await expect(res)
                     .to.emit(network, 'FeesCollected')
-                    .withArgs(contextId, targetToken.address, FeeType.Trading, feeAmount);
+                    .withArgs(contextId, targetToken.address, FeeType.Trading, tradingFeeAmount);
             } else if (isTargetNetworkToken) {
                 await expect(res)
                     .to.emit(network, 'TokensTraded')
@@ -2269,9 +2269,9 @@ describe('BancorNetwork', () => {
 
                 await expect(res)
                     .to.emit(network, 'FeesCollected')
-                    .withArgs(contextId, targetToken.address, FeeType.Trading, feeAmount);
+                    .withArgs(contextId, targetToken.address, FeeType.Trading, tradingFeeAmount);
 
-                expect(masterPoolStakedBalance).to.equal(prevMasterPoolStakedBalance.add(feeAmount));
+                expect(masterPoolStakedBalance).to.equal(prevMasterPoolStakedBalance.add(tradingFeeAmount));
             } else {
                 await expect(res)
                     .to.emit(network, 'TokensTraded')
@@ -2281,8 +2281,8 @@ describe('BancorNetwork', () => {
                         sourceToken.address,
                         networkToken.address,
                         sourceAmount,
-                        // when specifying the source amount, the target amount represents how many network tokens we
-                        // have received, while when specifying the source target, it represents how many source tokens
+                        // when providing the source amount, the target amount represents how many network tokens we
+                        // have received, while when providing the source target, it represents how many source tokens
                         // we were required to trade
                         bySourceAmount ? hop1.amount : hop2.amount,
                         traderAddress
@@ -2290,9 +2290,9 @@ describe('BancorNetwork', () => {
 
                 await expect(res)
                     .to.emit(network, 'FeesCollected')
-                    .withArgs(contextId, networkToken.address, FeeType.Trading, hop1.feeAmount);
+                    .withArgs(contextId, networkToken.address, FeeType.Trading, hop1.tradingFeeAmount);
 
-                expect(masterPoolStakedBalance).to.equal(prevMasterPoolStakedBalance.add(hop1.feeAmount));
+                expect(masterPoolStakedBalance).to.equal(prevMasterPoolStakedBalance.add(hop1.tradingFeeAmount));
 
                 await expect(res)
                     .to.emit(network, 'TokensTraded')
@@ -2301,8 +2301,8 @@ describe('BancorNetwork', () => {
                         targetToken.address,
                         networkToken.address,
                         targetToken.address,
-                        // when specifying the source amount, the source amount represents how many network tokens we
-                        // were required to trade, while when specifying the target amount, it represents how many
+                        // when providing the source amount, the source amount represents how many network tokens we
+                        // were required to trade, while when providing the target amount, it represents how many
                         // target tokens we have received by trading network tokens for them
                         bySourceAmount ? hop1.amount : hop2.amount,
                         targetAmount,
@@ -2311,7 +2311,7 @@ describe('BancorNetwork', () => {
 
                 await expect(res)
                     .to.emit(network, 'FeesCollected')
-                    .withArgs(contextId, targetToken.address, FeeType.Trading, feeAmount);
+                    .withArgs(contextId, targetToken.address, FeeType.Trading, tradingFeeAmount);
             }
 
             // ensure that the correct amount was transferred from the trader to the vault
@@ -3002,12 +3002,12 @@ describe('BancorNetwork', () => {
             const addProtectedLiquidity = async (
                 poolToken: DSToken,
                 reserveToken: IERC20,
-                isNative: boolean,
+                isNativeToken: boolean,
                 amount: BigNumber,
                 from: SignerWithAddress
             ) => {
                 let value = BigNumber.from(0);
-                if (isNative) {
+                if (isNativeToken) {
                     value = amount;
                 } else {
                     await reserveToken.connect(from).approve(liquidityProtection.address, amount);
@@ -3145,12 +3145,12 @@ describe('BancorNetwork', () => {
             };
 
             for (const tokenSymbol of [TokenSymbol.TKN, TokenSymbol.ETH]) {
-                const isNative = tokenSymbol == TokenSymbol.ETH;
+                const isNativeToken = tokenSymbol === TokenSymbol.ETH;
                 describe(tokenSymbol, () => {
                     beforeEach(async () => {
-                        await initLegacySystem(isNative);
+                        await initLegacySystem(isNativeToken);
 
-                        await addProtectedLiquidity(poolToken, baseToken, isNative, BigNumber.from(1000), owner);
+                        await addProtectedLiquidity(poolToken, baseToken, isNativeToken, BigNumber.from(1000), owner);
                     });
 
                     it('verifies that the caller cannot migrate a position more than once in the same transaction', async () => {
@@ -3174,8 +3174,8 @@ describe('BancorNetwork', () => {
                         const protectionId = (await liquidityProtectionStore.protectedLiquidityIds(owner.address))[0];
                         const protection = await getProtection(protectionId);
 
-                        const prevPoolStats = await getPoolStats(poolToken, baseToken, isNative);
-                        const prevProviderStats = await getProviderStats(owner, poolToken, baseToken, isNative);
+                        const prevPoolStats = await getPoolStats(poolToken, baseToken, isNativeToken);
+                        const prevProviderStats = await getProviderStats(owner, poolToken, baseToken, isNativeToken);
 
                         const prevSystemBalance = await liquidityProtectionSystemStore.systemBalance(poolToken.address);
 
@@ -3189,13 +3189,13 @@ describe('BancorNetwork', () => {
                         const prevGovBalance = await govToken.balanceOf(owner.address);
 
                         const res = await liquidityProtection.migratePositions([protectionId]);
-                        const transactionCost = isNative ? await getTransactionCost(res) : BigNumber.from(0);
+                        const transactionCost = isNativeToken ? await getTransactionCost(res) : BigNumber.from(0);
 
                         // verify protected liquidities
                         expect(await liquidityProtectionStore.protectedLiquidityIds(owner.address)).to.be.empty;
 
                         // verify stats
-                        const poolStats = await getPoolStats(poolToken, baseToken, isNative);
+                        const poolStats = await getPoolStats(poolToken, baseToken, isNativeToken);
                         expect(poolStats.totalPoolAmount).to.equal(
                             prevPoolStats.totalPoolAmount.sub(protection.poolAmount)
                         );
@@ -3203,7 +3203,7 @@ describe('BancorNetwork', () => {
                             prevPoolStats.totalReserveAmount.sub(protection.reserveAmount)
                         );
 
-                        const providerStats = await getProviderStats(owner, poolToken, baseToken, isNative);
+                        const providerStats = await getProviderStats(owner, poolToken, baseToken, isNativeToken);
                         expect(providerStats.totalProviderAmount).to.equal(
                             prevProviderStats.totalProviderAmount.sub(protection.reserveAmount)
                         );
