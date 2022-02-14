@@ -1422,10 +1422,10 @@ describe('Profile @profile', () => {
 
             const INITIAL_LIQUIDITY = MIN_LIQUIDITY_FOR_TRADING.mul(FUNDING_RATE.d).div(FUNDING_RATE.n).mul(2);
 
-            const initLegacySystem = async (isNative: boolean) => {
+            const initLegacySystem = async (isNativeToken: boolean) => {
                 [owner, provider] = await ethers.getSigners();
 
-                baseToken = (await createToken(new TokenData(isNative ? TokenSymbol.ETH : TokenSymbol.TKN))) as IERC20;
+                baseToken = (await createToken(new TokenData(isNativeToken ? TokenSymbol.ETH : TokenSymbol.TKN))) as IERC20;
 
                 ({
                     checkpointStore,
@@ -1459,7 +1459,7 @@ describe('Profile @profile', () => {
                 await poolCollection.setDepositLimit(baseToken.address, DEPOSIT_LIMIT);
 
                 // ensure that the trading is enabled with sufficient funding
-                if (isNative) {
+                if (isNativeToken) {
                     await network.deposit(baseToken.address, INITIAL_LIQUIDITY, { value: INITIAL_LIQUIDITY });
                 } else {
                     await baseToken.approve(network.address, INITIAL_LIQUIDITY);
@@ -1472,7 +1472,7 @@ describe('Profile @profile', () => {
                 await networkToken.approve(converter.address, reserve2Amount);
 
                 let value = BigNumber.from(0);
-                if (isNative) {
+                if (isNativeToken) {
                     value = reserve1Amount;
                 } else {
                     await baseToken.approve(converter.address, reserve1Amount);
@@ -1498,12 +1498,12 @@ describe('Profile @profile', () => {
             const addProtectedLiquidity = async (
                 poolToken: DSToken,
                 reserveToken: IERC20,
-                isNative: boolean,
+                isNativeToken: boolean,
                 amount: BigNumber,
                 from: SignerWithAddress
             ) => {
                 let value = BigNumber.from(0);
-                if (isNative) {
+                if (isNativeToken) {
                     value = amount;
                 } else {
                     await reserveToken.connect(from).approve(liquidityProtection.address, amount);
@@ -1516,16 +1516,16 @@ describe('Profile @profile', () => {
 
             for (const numOfPositions of [1, 2, 5, 10]) {
                 for (const tokenSymbol of [TokenSymbol.TKN, TokenSymbol.ETH]) {
-                    const isNative = tokenSymbol == TokenSymbol.ETH;
+                    const isNativeToken = tokenSymbol === TokenSymbol.ETH;
                     describe(tokenSymbol, () => {
                         beforeEach(async () => {
-                            await initLegacySystem(isNative);
+                            await initLegacySystem(isNativeToken);
 
                             for (let i = 1; i <= numOfPositions; i++) {
                                 await addProtectedLiquidity(
                                     poolToken,
                                     baseToken,
-                                    isNative,
+                                    isNativeToken,
                                     BigNumber.from(1000 * i),
                                     owner
                                 );
