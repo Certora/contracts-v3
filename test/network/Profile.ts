@@ -66,7 +66,8 @@ describe('Profile @profile', () => {
     let deployer: SignerWithAddress;
     let stakingRewardsProvider: SignerWithAddress;
 
-    const FUNDING_RATE = { n: 1, d: 2 };
+    const NETWORK_TOKEN_FUNDING_RATE = 1;
+    const BASE_TOKEN_FUNDING_RATE = 2;
     const FUNDING_LIMIT = toWei(10_000_000);
     const DEPOSIT_LIMIT = toWei(1_000_000_000);
     const WITHDRAWAL_FEE = toPPM(5);
@@ -100,7 +101,9 @@ describe('Profile @profile', () => {
         const testDeposits = (tokenData: TokenData) => {
             let token: TokenWithAddress;
 
-            const INITIAL_LIQUIDITY = MIN_LIQUIDITY_FOR_TRADING.mul(FUNDING_RATE.d).div(FUNDING_RATE.n).mul(2);
+            const INITIAL_LIQUIDITY = MIN_LIQUIDITY_FOR_TRADING.mul(BASE_TOKEN_FUNDING_RATE)
+                .div(NETWORK_TOKEN_FUNDING_RATE)
+                .mul(2);
 
             beforeEach(async () => {
                 if (tokenData.isNetworkToken()) {
@@ -123,7 +126,11 @@ describe('Profile @profile', () => {
                         await network.deposit(token.address, INITIAL_LIQUIDITY);
                     }
 
-                    await poolCollection.enableTrading(token.address, FUNDING_RATE);
+                    await poolCollection.enableTrading(
+                        token.address,
+                        NETWORK_TOKEN_FUNDING_RATE,
+                        BASE_TOKEN_FUNDING_RATE
+                    );
                 }
 
                 await setTime(await latest());
@@ -497,7 +504,11 @@ describe('Profile @profile', () => {
                 }
 
                 if (!tokenData.isNetworkToken()) {
-                    await poolCollection.enableTrading(token.address, FUNDING_RATE);
+                    await poolCollection.enableTrading(
+                        token.address,
+                        NETWORK_TOKEN_FUNDING_RATE,
+                        BASE_TOKEN_FUNDING_RATE
+                    );
                 }
             });
 
@@ -537,8 +548,8 @@ describe('Profile @profile', () => {
                             'when the matched target network liquidity is above the minimum liquidity for trading',
                             () => {
                                 beforeEach(async () => {
-                                    const extraLiquidity = MIN_LIQUIDITY_FOR_TRADING.mul(FUNDING_RATE.d)
-                                        .div(FUNDING_RATE.n)
+                                    const extraLiquidity = MIN_LIQUIDITY_FOR_TRADING.mul(BASE_TOKEN_FUNDING_RATE)
+                                        .div(NETWORK_TOKEN_FUNDING_RATE)
                                         .mul(10_000);
 
                                     await transfer(deployer, token, masterVault, extraLiquidity);
@@ -972,13 +983,15 @@ describe('Profile @profile', () => {
                     tokenData: sourceTokenData,
                     balance: toWei(1_000_000),
                     requestedLiquidity: toWei(1_000_000).mul(1000),
-                    fundingRate: FUNDING_RATE
+                    networkTokenRate: NETWORK_TOKEN_FUNDING_RATE,
+                    baseTokenRate: BASE_TOKEN_FUNDING_RATE
                 },
                 {
                     tokenData: targetTokenData,
                     balance: toWei(5_000_000),
                     requestedLiquidity: toWei(5_000_000).mul(1000),
-                    fundingRate: FUNDING_RATE
+                    networkTokenRate: NETWORK_TOKEN_FUNDING_RATE,
+                    baseTokenRate: BASE_TOKEN_FUNDING_RATE
                 },
                 toPPM(20),
                 toWei(1000)
@@ -1000,7 +1013,8 @@ describe('Profile @profile', () => {
                                             tradingFeePPM: sourceTokenData.isNetworkToken()
                                                 ? undefined
                                                 : toPPM(tradingFeePercent),
-                                            fundingRate: FUNDING_RATE
+                                            networkTokenRate: NETWORK_TOKEN_FUNDING_RATE,
+                                            baseTokenRate: BASE_TOKEN_FUNDING_RATE
                                         },
                                         {
                                             tokenData: new TokenData(targetSymbol),
@@ -1009,7 +1023,8 @@ describe('Profile @profile', () => {
                                             tradingFeePPM: targetTokenData.isNetworkToken()
                                                 ? undefined
                                                 : toPPM(tradingFeePercent),
-                                            fundingRate: FUNDING_RATE
+                                            networkTokenRate: NETWORK_TOKEN_FUNDING_RATE,
+                                            baseTokenRate: BASE_TOKEN_FUNDING_RATE
                                         },
                                         toPPM(networkFeePercent),
                                         BigNumber.from(amount)
@@ -1022,14 +1037,16 @@ describe('Profile @profile', () => {
                                                 balance: sourceBalance,
                                                 requestedLiquidity: sourceBalance.mul(1000),
                                                 tradingFeePPM: toPPM(tradingFeePercent),
-                                                fundingRate: FUNDING_RATE
+                                                networkTokenRate: NETWORK_TOKEN_FUNDING_RATE,
+                                                baseTokenRate: BASE_TOKEN_FUNDING_RATE
                                             },
                                             {
                                                 tokenData: new TokenData(targetSymbol),
                                                 balance: targetBalance,
                                                 requestedLiquidity: targetBalance.mul(1000),
                                                 tradingFeePPM: toPPM(tradingFeePercent2),
-                                                fundingRate: FUNDING_RATE
+                                                networkTokenRate: NETWORK_TOKEN_FUNDING_RATE,
+                                                baseTokenRate: BASE_TOKEN_FUNDING_RATE
                                             },
                                             toPPM(networkFeePercent),
                                             BigNumber.from(amount)
@@ -1072,7 +1089,8 @@ describe('Profile @profile', () => {
                         tokenData,
                         balance: BALANCE,
                         requestedLiquidity: BALANCE.mul(1000),
-                        fundingRate: FUNDING_RATE
+                        networkTokenRate: NETWORK_TOKEN_FUNDING_RATE,
+                        baseTokenRate: BASE_TOKEN_FUNDING_RATE
                     },
                     deployer,
                     network,
@@ -1144,7 +1162,8 @@ describe('Profile @profile', () => {
                     tokenData: new TokenData(TokenSymbol.TKN),
                     balance: BALANCE,
                     requestedLiquidity: BALANCE.mul(1000),
-                    fundingRate: FUNDING_RATE
+                    networkTokenRate: NETWORK_TOKEN_FUNDING_RATE,
+                    baseTokenRate: BASE_TOKEN_FUNDING_RATE
                 },
                 provider as any as SignerWithAddress,
                 network,
@@ -1225,7 +1244,8 @@ describe('Profile @profile', () => {
                     tokenData,
                     balance: providerStake,
                     requestedLiquidity: tokenData.isNetworkToken() ? max(providerStake, totalRewards).mul(1000) : 0,
-                    fundingRate: FUNDING_RATE
+                    networkTokenRate: NETWORK_TOKEN_FUNDING_RATE,
+                    baseTokenRate: BASE_TOKEN_FUNDING_RATE
                 },
                 deployer,
                 network,

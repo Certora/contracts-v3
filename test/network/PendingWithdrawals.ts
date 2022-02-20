@@ -8,7 +8,7 @@ import Contracts, {
     TestPendingWithdrawals,
     TestPoolCollection
 } from '../../components/Contracts';
-import { ZERO_ADDRESS, FeeType, DEFAULT_LOCK_DURATION } from '../../utils/Constants';
+import { ZERO_ADDRESS, DEFAULT_LOCK_DURATION } from '../../utils/Constants';
 import { TokenData, TokenSymbol, DEFAULT_DECIMALS } from '../../utils/TokenData';
 import { toWei } from '../../utils/Types';
 import { expectRole, expectRoles, Roles } from '../helpers/AccessControl';
@@ -26,6 +26,9 @@ const { formatBytes32String } = utils;
 describe('PendingWithdrawals', () => {
     let deployer: SignerWithAddress;
     let nonOwner: SignerWithAddress;
+
+    const NETWORK_TOKEN_FUNDING_RATE = 1;
+    const BASE_TOKEN_FUNDING_RATE = 2;
 
     shouldHaveGap('PendingWithdrawals', '_lockDuration');
 
@@ -248,7 +251,8 @@ describe('PendingWithdrawals', () => {
                                 tokenData: new TokenData(TokenSymbol.TKN),
                                 balance: toWei(1_000_000),
                                 requestedLiquidity: toWei(1_000_000).mul(1000),
-                                fundingRate: { n: 1, d: 2 }
+                                networkTokenRate: NETWORK_TOKEN_FUNDING_RATE,
+                                baseTokenRate: BASE_TOKEN_FUNDING_RATE
                             },
                             provider as any as SignerWithAddress,
                             network,
@@ -318,7 +322,8 @@ describe('PendingWithdrawals', () => {
                             tokenData: new TokenData(TokenSymbol.TKN),
                             balance: toWei(1_000_000),
                             requestedLiquidity: toWei(1_000_000).mul(1000),
-                            fundingRate: { n: 1, d: 2 }
+                            networkTokenRate: NETWORK_TOKEN_FUNDING_RATE,
+                            baseTokenRate: BASE_TOKEN_FUNDING_RATE
                         },
                         provider1,
                         network,
@@ -443,7 +448,8 @@ describe('PendingWithdrawals', () => {
                             tokenData: new TokenData(TokenSymbol.TKN),
                             balance: toWei(1_000_000),
                             requestedLiquidity: toWei(1_000_000).mul(1000),
-                            fundingRate: { n: 1, d: 2 }
+                            networkTokenRate: NETWORK_TOKEN_FUNDING_RATE,
+                            baseTokenRate: BASE_TOKEN_FUNDING_RATE
                         },
                         provider,
                         network,
@@ -590,17 +596,12 @@ describe('PendingWithdrawals', () => {
                                 const feeAmount = toWei(100_000);
 
                                 if (tokenData.isNetworkToken()) {
-                                    await network.onNetworkTokenFeesCollectedT(
-                                        reserveToken.address,
-                                        feeAmount,
-                                        FeeType.Trading
-                                    );
+                                    await network.onNetworkTokenFeesCollectedT(reserveToken.address, feeAmount, true);
                                 } else {
                                     await network.onPoolCollectionFeesCollectedT(
                                         poolCollection.address,
                                         reserveToken.address,
-                                        feeAmount,
-                                        FeeType.Trading
+                                        feeAmount
                                     );
                                 }
                             });
