@@ -1460,7 +1460,7 @@ describe('Profile @profile', () => {
             let owner: SignerWithAddress;
             let provider: SignerWithAddress;
 
-            const INITIAL_LIQUIDITY = MIN_LIQUIDITY_FOR_TRADING.mul(FUNDING_RATE.d).div(FUNDING_RATE.n).mul(2);
+            const INITIAL_LIQUIDITY = MIN_LIQUIDITY_FOR_TRADING.mul(BASE_TOKEN_FUNDING_RATE).div(NETWORK_TOKEN_FUNDING_RATE).mul(2);
 
             const initLegacySystem = async (isNativeToken: boolean) => {
                 [owner, provider] = await ethers.getSigners();
@@ -1507,7 +1507,7 @@ describe('Profile @profile', () => {
                     await network.deposit(baseToken.address, INITIAL_LIQUIDITY);
                 }
 
-                await poolCollection.enableTrading(baseToken.address, FUNDING_RATE);
+                await poolCollection.enableTrading(baseToken.address, NETWORK_TOKEN_FUNDING_RATE, BASE_TOKEN_FUNDING_RATE);
 
                 await networkToken.approve(converter.address, reserve2Amount);
 
