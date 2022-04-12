@@ -31,3 +31,10 @@ scTopics
 
 .env
 tenderly.yaml
+
+node_modules
+
+# Certora
+.certora*
+.last_confs
+certora_*
