@@ -11,9 +11,6 @@ methods {
     poolTokenToUnderlying(address, uint256) returns(uint256) => DISPATCHER(true)
 
     _bntPool() returns(address) envfree
-
-    returnToken(address) returns(address) envfree
-    poolValidity(address) returns(bool) envfree
 }
 
 rule sanity(method f)

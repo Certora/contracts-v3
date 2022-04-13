@@ -1,3 +1,13 @@
 {
-    "topics": []
+    "topics": [
+        {
+            "name": "solc",
+            "messages": [
+                {
+                    "message": "ParserError: Expected identifier but got '('",
+                    "location": []
+                }
+            ]
+        }
+    ]
 }

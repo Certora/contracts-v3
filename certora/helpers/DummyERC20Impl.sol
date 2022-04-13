@@ -1,57 +1,79 @@
-// SPDX-License-Identifier: agpl-3.0
+// SPDX-License-Identifier: MIT
+// OpenZeppelin Contracts (last updated v4.5.0) (token/ERC20/ERC20.sol)
+
 pragma solidity ^0.8.0;
 
-// with mint
-contract DummyERC20Impl {
-    uint256 t;
-    mapping (address => uint256) b;
-    mapping (address => mapping (address => uint256)) a;
+interface IERC20 {
+    function totalSupply() external view returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
+    function allowance(address owner, address spender) external view returns (uint256);
 
-    string public name;
-    string public symbol;
-    uint public decimals;
+    function transfer(address recipient, uint256 amount) external returns (bool);
+    function approve(address spender, uint256 amount) external returns (bool);
+    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+}
 
-    function myAddress() public returns (address) {
-        return address(this);
+
+contract DummyERC20Impl is IERC20 {
+
+    string public constant name = "ERC20Basic";
+    string public constant symbol = "ERC";
+    uint8 public constant decimals = 18;
+    address private _owner;
+
+
+    mapping(address => uint256) balances;
+
+    mapping(address => mapping (address => uint256)) allowed;
+
+    uint256 _totalSupply;
+
+
+    constructor() {
+    _owner = msg.sender;
     }
 
-    function add(uint a, uint b) internal pure returns (uint256) {
-        uint c = a +b;
-        require (c >= a);
-        return c;
-    }
-    function sub(uint a, uint b) internal pure returns (uint256) {
-        require (a>=b);
-        return a-b;
+    function totalSupply() public override view returns (uint256) {
+    return _totalSupply;
     }
 
-    function totalSupply() external view returns (uint256) {
-        return t;
+    function balanceOf(address tokenOwner) public override view returns (uint256) {
+        return balances[tokenOwner];
     }
-    function balanceOf(address account) external view returns (uint256) {
-        return b[account];
-    }
-    function transfer(address recipient, uint256 amount) external returns (bool) {
-        b[msg.sender] = sub(b[msg.sender], amount);
-        b[recipient] = add(b[recipient], amount);
+
+    function transfer(address receiver, uint256 numTokens) public override returns (bool) {
+        balances[msg.sender] = balances[msg.sender] - numTokens;
+        balances[receiver] = balances[receiver] + numTokens;
+
         return true;
     }
-    function allowance(address owner, address spender) external view returns (uint256) {
-        return a[owner][spender];
-    }
-    function approve(address spender, uint256 amount) external returns (bool) {
-        a[msg.sender][spender] = amount;
+
+    function approve(address delegate, uint256 numTokens) public override returns (bool) {
+        allowed[msg.sender][delegate] = numTokens;
+
         return true;
     }
 
-    function transferFrom(
-        address sender,
-        address recipient,
-        uint256 amount
-    ) external returns (bool) {
-        b[sender] = sub(b[sender], amount);
-        b[recipient] = add(b[recipient], amount);
-        a[sender][msg.sender] = sub(a[sender][msg.sender], amount);
+    function allowance(address owner, address delegate) public override view returns (uint) {
+        return allowed[owner][delegate];
+    }
+
+    function transferFrom(address owner, address buyer, uint256 numTokens) public override returns (bool) {
+        balances[owner] = balances[owner] - numTokens;
+        allowed[owner][msg.sender] = allowed[owner][msg.sender] - numTokens;
+        balances[buyer] = balances[buyer] + numTokens;
+
         return true;
     }
+
+    function mint(address account, uint256 amount) public virtual {
+        _totalSupply += amount;
+        balances[account] += amount;
+    }
+
+    function burn(address account, uint256 amount) public virtual {
+        balances[account] -= amount;
+        _totalSupply -= amount;
+    }
+
 }
