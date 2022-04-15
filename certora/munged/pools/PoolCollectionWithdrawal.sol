@@ -106,28 +106,28 @@ library PoolCollectionWithdrawal {
 
         uint256 y = (x * (M - n)) / M;
 
-        // if ((e * (M - n)) / M > b + c) {
-        //     uint256 f = (e * (M - n)) / M - (b + c);
-        //     uint256 g = e - (b + c);
-        //     if (isStable(b, c, e, x) && affordableDeficit(b, e, f, g, m, n, x)) {
-        //         output = arbitrageDeficit(a, b, e, f, m, x, y);
-        //     } else if (a > 0) {
-        //         output = defaultDeficit(a, b, c, e, y);
-        //         (output.t, output.u) = externalProtection(a, b, e, g, y, w);
-        //     } else {
-        //         output.s = (y * c) / e;
-        //         (output.t, output.u) = externalProtection(a, b, e, g, y, w);
-        //     }
-        // } else {
-        //     uint256 f = MathEx.subMax0(b + c, e);
-        //     if (f > 0 && isStable(b, c, e, x) && affordableSurplus(b, e, f, m, n, x)) {
-        //         output = arbitrageSurplus(a, b, e, f, m, n, x, y);
-        //     } else if (a > 0) {
-        //         output = defaultSurplus(a, b, c, y);
-        //     } else {
-        //         output.s = y;
-        //     }
-        // }
+        if ((e * (M - n)) / M > b + c) {
+            uint256 f = (e * (M - n)) / M - (b + c);
+            uint256 g = e - (b + c);
+            if (isStable(b, c, e, x) && affordableDeficit(b, e, f, g, m, n, x)) {
+                output = arbitrageDeficit(a, b, e, f, m, x, y);
+            } else if (a > 0) {
+                output = defaultDeficit(a, b, c, e, y);
+                (output.t, output.u) = externalProtection(a, b, e, g, y, w);
+            } else {
+                output.s = (y * c) / e;
+                (output.t, output.u) = externalProtection(a, b, e, g, y, w);
+            }
+        } else {
+            uint256 f = MathEx.subMax0(b + c, e);
+            if (f > 0 && isStable(b, c, e, x) && affordableSurplus(b, e, f, m, n, x)) {
+                output = arbitrageSurplus(a, b, e, f, m, n, x, y);
+            } else if (a > 0) {
+                output = defaultSurplus(a, b, c, y);
+            } else {
+                output.s = y;
+            }
+        }
 
         output.v = x - y;
     }

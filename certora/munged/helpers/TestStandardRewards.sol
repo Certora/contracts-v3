@@ -7,8 +7,8 @@ import { ITokenGovernance } from "@bancor/token-governance/contracts/ITokenGover
 
 import { Time } from "../utility/Time.sol";
 
-import { ProgramData } from "../staking-rewards/interfaces/IStandardStakingRewards.sol";
-import { StandardStakingRewards } from "../staking-rewards/StandardStakingRewards.sol";
+import { ProgramData } from "../rewards/interfaces/IStandardRewards.sol";
+import { StandardRewards } from "../rewards/StandardRewards.sol";
 
 import { IBancorNetwork } from "../network/interfaces/IBancorNetwork.sol";
 import { INetworkSettings } from "../network/interfaces/INetworkSettings.sol";
@@ -21,22 +21,14 @@ import { IExternalRewardsVault } from "../vaults/interfaces/IExternalRewardsVaul
 
 import { TestTime } from "./TestTime.sol";
 
-contract TestStandardStakingRewards is StandardStakingRewards, TestTime {
+contract TestStandardRewards is StandardRewards, TestTime {
     constructor(
         IBancorNetwork initNetwork,
         INetworkSettings initNetworkSettings,
         ITokenGovernance initBNTGovernance,
         IBNTPool initBNTPool,
         IExternalRewardsVault initExternalRewardsVault
-    )
-        StandardStakingRewards(
-            initNetwork,
-            initNetworkSettings,
-            initBNTGovernance,
-            initBNTPool,
-            initExternalRewardsVault
-        )
-    {}
+    ) StandardRewards(initNetwork, initNetworkSettings, initBNTGovernance, initBNTPool, initExternalRewardsVault) {}
 
     function nextProgramId() external view returns (uint256) {
         return _nextProgramId;
@@ -54,21 +46,15 @@ contract TestStandardStakingRewards is StandardStakingRewards, TestTime {
         return _providerRewards[provider][id];
     }
 
-    function claimRewardsWithAmounts(uint256[] calldata ids, uint256 maxAmount) external returns (uint256[] memory) {
+    function claimRewardsWithAmounts(uint256[] calldata ids) external returns (uint256[] memory) {
         uint256[] memory amounts = new uint256[](ids.length);
 
-        for (uint256 i = 0; i < ids.length && maxAmount > 0; i++) {
+        for (uint256 i = 0; i < ids.length; i++) {
             uint256 id = ids[i];
 
             ProgramData memory p = _programs[id];
 
-            ClaimData memory claimData = _claimRewards(msg.sender, p, maxAmount);
-
-            amounts[i] = claimData.amount;
-
-            if (maxAmount != type(uint256).max) {
-                maxAmount -= claimData.amount;
-            }
+            amounts[i] = _claimRewards(msg.sender, p).reward;
         }
 
         return amounts;

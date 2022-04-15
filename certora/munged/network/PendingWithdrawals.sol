@@ -35,13 +35,13 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
     uint32 private constant DEFAULT_LOCK_DURATION = 7 days;
 
     // the network contract
-    IBancorNetwork public immutable _network;              // HARNESS: private -> public
+    IBancorNetwork private immutable _network;
 
     // the BNT contract
     IERC20 private immutable _bnt;
 
     // the BNT pool contract
-    IBNTPool public immutable _bntPool;                     // HARNESS: private -> public
+    IBNTPool private immutable _bntPool;
 
     // the lock duration
     uint32 private _lockDuration;
