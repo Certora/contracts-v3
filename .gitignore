@@ -33,3 +33,10 @@ scTopics
 tenderly.yaml
 
 scripts/test-network.ts
+
+node_modules
+
+# Certora
+.certora*
+.last_confs
+certora_*
