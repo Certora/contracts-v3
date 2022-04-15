@@ -8,7 +8,7 @@ const { FORKING: isForking }: EnvOptions = process.env as any as EnvOptions;
 
 const counters = {
     [DeploymentNetwork.Hardhat]: 0,
-    [DeploymentNetwork.Localhost]: 1
+    [DeploymentNetwork.Localhost]: 0
 };
 
 const mainnet = (address: string, fallback?: string) => ({
@@ -20,8 +20,8 @@ const mainnet = (address: string, fallback?: string) => ({
 
 const TestNamedAccounts = {
     ethWhale: { ...mainnet('0xda9dfa130df4de4673b89022ee50ff26f6ea73cf', ZERO_ADDRESS) },
-    linkWhale: { ...mainnet('0xc6bed363b30df7f35b601a5547fe56cd31ec63da', ZERO_ADDRESS) },
-    daiWhale: { ...mainnet('0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503', ZERO_ADDRESS) }
+    linkWhale: { ...mainnet('0xc6bed363b30df7f35b601a5547fe56cd31ec63da') },
+    daiWhale: { ...mainnet('0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503') }
 };
 
 const TokenNamedAccounts = {
@@ -31,7 +31,7 @@ const TokenNamedAccounts = {
 
 const LegacyNamedAccounts = {
     liquidityProtection: { ...mainnet('0x853c2D147a1BD7edA8FE0f58fb3C5294dB07220e', ZERO_ADDRESS) },
-    stakingRewards: { ...mainnet('0x318fEA7e45A7D3aC5999DA7e1055F5982eEB3E67', ZERO_ADDRESS) }
+    legacyStakingRewards: { ...mainnet('0x318fEA7e45A7D3aC5999DA7e1055F5982eEB3E67', ZERO_ADDRESS) }
 };
 
 const UniswapNamedAccounts = {

@@ -1,6 +1,6 @@
 import { ArtifactData } from '../components/ContractBuilder';
 import {
-    AutoCompoundingStakingRewards,
+    AutoCompoundingRewards,
     BancorNetwork,
     BancorNetworkInfo,
     BancorPortal,
@@ -20,7 +20,7 @@ import {
     PoolToken,
     PoolTokenFactory,
     ProxyAdmin,
-    StandardStakingRewards,
+    StandardRewards,
     TestERC20Token,
     TransparentUpgradeableProxyImmutable
 } from '../components/Contracts';
@@ -64,13 +64,14 @@ enum LegacyInstanceName {
 }
 
 enum NewInstanceName {
-    AutoCompoundingStakingRewards = 'AutoCompoundingStakingRewards',
+    AutoCompoundingRewards = 'AutoCompoundingRewards',
     BancorNetworkInfo = 'BancorNetworkInfo',
     BancorNetworkProxy = 'BancorNetworkProxy',
     BancorNetwork = 'BancorNetwork',
     BancorPortal = 'BancorPortal',
     BancorV1Migration = 'BancorV1Migration',
     BNTPoolToken = 'BNTPoolToken',
+    BNTPoolProxy = 'BNTPoolProxy',
     BNTPool = 'BNTPool',
     ExternalProtectionVault = 'ExternalProtectionVault',
     ExternalRewardsVault = 'ExternalRewardsVault',
@@ -81,27 +82,33 @@ enum NewInstanceName {
     PoolMigrator = 'PoolMigrator',
     PoolTokenFactory = 'PoolTokenFactory',
     ProxyAdmin = 'ProxyAdmin',
-    StandardStakingRewards = 'StandardStakingRewards'
+    StandardRewards = 'StandardRewards'
 }
 
 enum TestInstanceName {
     MockUniswapV2Factory = 'MockUniswapV2Factory',
     MockUniswapV2Pair = 'MockUniswapV2Pair',
-    MockUniswapV2Router02 = 'MockUniswapV2Router02',
+    MockUniswapV2Router02 = 'MockUniswapV2Router02'
+}
+
+export enum TestTokenInstanceName {
     TestToken1 = 'TestToken1',
     TestToken2 = 'TestToken2',
     TestToken3 = 'TestToken3',
     TestToken4 = 'TestToken4',
-    TestToken5 = 'TestToken5'
+    TestToken5 = 'TestToken5',
+    TestToken6 = 'TestToken6',
+    TestToken7 = 'TestToken7'
 }
 
 export const InstanceName = {
     ...LegacyInstanceName,
     ...NewInstanceName,
-    ...TestInstanceName
+    ...TestInstanceName,
+    ...TestTokenInstanceName
 };
 
-export type InstanceName = LegacyInstanceName | NewInstanceName | TestInstanceName;
+export type InstanceName = LegacyInstanceName | NewInstanceName | TestInstanceName | TestTokenInstanceName;
 
 const DeployedLegacyContracts = {
     BNT: deployed<BNT>(InstanceName.BNT),
@@ -114,13 +121,14 @@ const DeployedLegacyContracts = {
 };
 
 const DeployedNewContracts = {
-    AutoCompoundingStakingRewards: deployed<AutoCompoundingStakingRewards>(InstanceName.AutoCompoundingStakingRewards),
+    AutoCompoundingRewards: deployed<AutoCompoundingRewards>(InstanceName.AutoCompoundingRewards),
     BancorNetworkInfo: deployed<BancorNetworkInfo>(InstanceName.BancorNetworkInfo),
     BancorNetworkProxy: deployed<TransparentUpgradeableProxyImmutable>(InstanceName.BancorNetworkProxy),
     BancorNetwork: deployed<BancorNetwork>(InstanceName.BancorNetwork),
     BancorPortal: deployed<BancorPortal>(InstanceName.BancorPortal),
     BancorV1Migration: deployed<BancorV1Migration>(InstanceName.BancorV1Migration),
     BNTPoolToken: deployed<PoolToken>(InstanceName.BNTPoolToken),
+    BNTPoolProxy: deployed<TransparentUpgradeableProxyImmutable>(InstanceName.BNTPoolProxy),
     BNTPool: deployed<BNTPool>(InstanceName.BNTPool),
     ExternalProtectionVault: deployed<ExternalProtectionVault>(InstanceName.ExternalProtectionVault),
     ExternalRewardsVault: deployed<ExternalRewardsVault>(InstanceName.ExternalRewardsVault),
@@ -131,7 +139,7 @@ const DeployedNewContracts = {
     PoolMigrator: deployed<PoolMigrator>(InstanceName.PoolMigrator),
     PoolTokenFactory: deployed<PoolTokenFactory>(InstanceName.PoolTokenFactory),
     ProxyAdmin: deployed<ProxyAdmin>(InstanceName.ProxyAdmin),
-    StandardStakingRewards: deployed<StandardStakingRewards>(InstanceName.StandardStakingRewards)
+    StandardRewards: deployed<StandardRewards>(InstanceName.StandardRewards)
 };
 
 const DeployedTestContracts = {
@@ -142,7 +150,9 @@ const DeployedTestContracts = {
     TestToken2: deployed<TestERC20Token>(InstanceName.TestToken2),
     TestToken3: deployed<TestERC20Token>(InstanceName.TestToken3),
     TestToken4: deployed<TestERC20Token>(InstanceName.TestToken4),
-    TestToken5: deployed<TestERC20Token>(InstanceName.TestToken5)
+    TestToken5: deployed<TestERC20Token>(InstanceName.TestToken5),
+    TestToken6: deployed<TestERC20Token>(InstanceName.TestToken6),
+    TestToken7: deployed<TestERC20Token>(InstanceName.TestToken7)
 };
 
 export const DeployedContracts = {
