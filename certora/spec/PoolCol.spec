@@ -13,7 +13,7 @@ methods {
     mint(address, uint256) => DISPATCHER(true)
     burnFromVault(uint256) => DISPATCHER(true)
     isTokenWhitelisted(address) returns(bool) => DISPATCHER(true)
-    createPoolToken(address) returns(address) => DISPATCHER(true)
+    // createPoolToken(address) returns(address) => DISPATCHER(true)
     latestPoolCollection(uint16) returns(address) => DISPATCHER(true)
     transferOwnership(address) => DISPATCHER(true)
     burn(uint256) => DISPATCHER(true)

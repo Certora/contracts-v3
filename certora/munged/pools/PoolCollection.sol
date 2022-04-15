@@ -1030,7 +1030,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
      * @dev returns a storage reference to pool data
      */
     function _poolStorage(Token pool) private view returns (Pool storage) {
-        Pool storage data = _poolData[pool];
+        Pool storage data = _poolData[pool];                    // poolTokenA and B with using, 
         if (address(data.poolToken) == address(0)) {
             revert DoesNotExist();
         }

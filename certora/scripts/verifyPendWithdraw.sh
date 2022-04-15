@@ -9,4 +9,4 @@ python3 ../../EVMVerifier/scripts/certoraRun.py  certora/harness/PendingWithdraw
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin @bancor=node_modules/@bancor \
-    --msg "PendingWithdrawals sum check"
+    --msg "PendingWithdrawals sum check no poolTokenToUnderlying 1"

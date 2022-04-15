@@ -4,9 +4,9 @@ using BancorNetwork as BN
 using PoolCollection as PC
 
 methods {
-    poolTokenToUnderlying(uint256) returns(uint256) => DISPATCHER(true)
+    // poolTokenToUnderlying(uint256) returns(uint256) => DISPATCHER(true)
     collectionByPool(address) returns(address) => DISPATCHER(true)
-    isPoolValid(address) returns(bool) envfree => DISPATCHER(true)
+    // isPoolValid(address) returns(bool) envfree => DISPATCHER(true)
     reserveToken() returns(address) envfree => DISPATCHER(true)
     poolTokenToUnderlying(address, uint256) returns(uint256) => DISPATCHER(true)
 
