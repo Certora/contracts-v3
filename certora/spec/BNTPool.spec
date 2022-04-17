@@ -1,6 +1,8 @@
 import "../helpers/erc20.spec"
 
-using TokenGovernance as TG
+using DummyERC20bnt as dummyBNT
+using DummyTokenGovernanceA as bntGovern
+using DummyTokenGovernanceB as vbntGovern
 
 methods {
     networkFeePPM() returns(uint32) envfree => DISPATCHER(true)
@@ -13,12 +15,23 @@ methods {
     acceptOwnership() envfree => DISPATCHER(true)
     destroy(address, uint256) => DISPATCHER(true)
     issue(address, uint256) => DISPATCHER(true)
+
+    _bnt() returns(address) envfree
     _bntGovernance() returns(address) envfree
+    _vbntGovernance() returns(address) envfree
 }
+
+
+function preSet(){
+	require _bnt() == dummyBNT;
+    // require _bntGovernance() == bntGovern;
+    // require _vbntGovernance() == vbntGovern;
+}
+
 
 rule sanity(method f)
 {
-    // require _bntGovernance() == TG;
+    preSet();
 	env e;
 	calldataarg args;
 	f(e,args);

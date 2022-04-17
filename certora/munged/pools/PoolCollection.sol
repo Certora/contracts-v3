@@ -159,7 +159,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     IPoolMigrator private immutable _poolMigrator;
 
     // a mapping between tokens and their pools
-    mapping(Token => Pool) internal _poolData;
+    mapping(Token => Pool) public _poolData;                                        // HARNESS: internal -> public
 
     // the set of all pools which are managed by this pool collection
     EnumerableSet.AddressSet private _pools;

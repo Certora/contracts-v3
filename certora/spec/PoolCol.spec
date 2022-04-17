@@ -1,5 +1,11 @@
 import "../helpers/erc20.spec"
 
+
+using DummyERC20A as tokenA
+using DummyERC20B as tokenB
+using DummyPoolTokenA as ptA
+using DummyPoolTokenA as ptB
+
 methods {
     renounceFunding(bytes32, address, uint256) => DISPATCHER(true)
     requestFunding(bytes32, address, uint256) => DISPATCHER(true)
@@ -22,8 +28,14 @@ methods {
     receive() => DISPATCHER(true)
 }
 
+// function setUp() {
+//     require _poolData(tokenA).poolToken == ptA || _poolData(tokenA).poolToken == ptB;
+//     require _poolData(tokenB).poolToken == ptA || _poolData(tokenB).poolToken == ptB;
+// }
+
 rule sanity(method f)
 {
+    // setUp();
 	env e;
 	calldataarg args;
 	f(e,args);
