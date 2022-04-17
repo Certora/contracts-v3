@@ -5,14 +5,14 @@ python3 ../../EVMVerifier/scripts/certoraRun.py  certora/munged/pools/BNTPool.so
     certora/helpers/DummyTokenGovernanceA.sol certora/helpers/DummyTokenGovernanceB.sol \
     --verify BNTPool:certora/spec/BNTPool.spec \
     --link BNTPool:_poolToken=PoolToken \
-    MasterVault:_bntGovernance=DummyTokenGovernanceA \
-    MasterVault:_vbntGovernance=DummyTokenGovernanceB \
+    BNTPool:_bntGovernance=DummyTokenGovernanceA \
+    BNTPool:_vbntGovernance=DummyTokenGovernanceB \
     BNTPool:_masterVault=MasterVault \
     --solc solc8.13 \
     --staging \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin @bancor=node_modules/@bancor \
-    --msg "BNTPool with trying to fix withdraw sum check"
+    --msg "BNTPool no immutable sum check"
 
     #      certora/harness/OwnedHarness.sol           node_modules/@bancor/token-governance/contracts/TokenGovernance.sol

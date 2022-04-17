@@ -28,10 +28,10 @@ methods {
     receive() => DISPATCHER(true)
 }
 
-// function setUp() {
-//     require _poolData(tokenA).poolToken == ptA || _poolData(tokenA).poolToken == ptB;
-//     require _poolData(tokenB).poolToken == ptA || _poolData(tokenB).poolToken == ptB;
-// }
+function setUp() {
+    require _poolData(tokenA).poolToken == ptA || _poolData(tokenA).poolToken == ptB;
+    require _poolData(tokenB).poolToken == ptA || _poolData(tokenB).poolToken == ptB;
+}
 
 rule sanity(method f)
 {

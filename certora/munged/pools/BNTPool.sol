@@ -60,10 +60,10 @@ contract BNTPool is IBNTPool, Vault {
     INetworkSettings private immutable _networkSettings;
 
     // the master vault contract
-    IMasterVault public immutable _masterVault;                // HARNESS: private -> public
+    IMasterVault public _masterVault;                // HARNESS: private -> public
 
     // the BNT pool token
-    IPoolToken public immutable _poolToken;                   // HARNESS: internal -> public
+    IPoolToken public _poolToken;                   // HARNESS: internal -> public
 
     // the total staked BNT balance in the network
     uint256 private _stakedBalance;
