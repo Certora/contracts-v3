@@ -47,7 +47,7 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
     uint32 private _lockDuration;             
 
     // a mapping between accounts and their pending withdrawal requests
-    uint256 private _nextWithdrawalRequestId;
+    uint256 public _nextWithdrawalRequestId; // HARNESS: private -> public
     mapping(address => EnumerableSetUpgradeable.UintSet) private _withdrawalRequestIdsByProvider;
     mapping(uint256 => WithdrawalRequest) private _withdrawalRequests;
 
@@ -344,7 +344,7 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
     /**
      * @dev returns the pool token value in tokens
      */
-    function _poolTokenToUnderlying(Token pool, uint256 poolTokenAmount) private view returns (uint256) {
+    function _poolTokenToUnderlying(Token pool, uint256 poolTokenAmount) public view returns (uint256) {
         if (pool.isEqual(_bnt)) {
             return _bntPool.poolTokenToUnderlying(poolTokenAmount);
         }

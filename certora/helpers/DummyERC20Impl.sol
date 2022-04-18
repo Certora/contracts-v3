@@ -54,4 +54,15 @@ contract DummyERC20Impl {
         a[sender][msg.sender] = sub(a[sender][msg.sender], amount);
         return true;
     }
+
+    function _burn(address account, uint256 amount) internal virtual {
+        require(account != address(0), "ERC20: burn from the zero address");
+
+        uint256 accountBalance = b[account];
+        require(accountBalance >= amount, "ERC20: burn amount exceeds balance");
+        unchecked {
+            b[account] = accountBalance - amount;
+        }
+        t -= amount;
+    }
 }
