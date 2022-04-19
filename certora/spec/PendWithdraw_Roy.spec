@@ -10,42 +10,50 @@ methods {
     isPoolValid(address) returns(bool) => DISPATCHER(true)
     collectionByPool(address) returns(address) => DISPATCHER(true)
     nextWithdrawalRequestId() returns(uint256) envfree
-    initWithdrawal(address,address,uint256) envfree 
-    _initWithdrawal(address,address,uint256) envfree 
+    
     reserveToken() returns(address) envfree => DISPATCHER(true)
     withdrawalRequestCount(address) envfree
-    // 
-    poolTokenToUnderlying(uint256) returns(uint256) => DISPATCHER(true)
-    poolTokenToUnderlying(address, uint256) returns(uint256) => DISPATCHER(true)
     // BNT Pool
-    _poolTokenToUnderlying(uint256) returns(uint256) => DISPATCHER(true)
+    poolTokenToUnderlying(uint256) returns(uint256) => DISPATCHER(true)
     // Pool collection
-    _poolTokenToUnderlying(uint256,uint256,uint256) returns (uint256) => DISPATCHER(true)
+    poolTokenToUnderlying(address, uint256) returns(uint256) => DISPATCHER(true)
     //
     _bntPool() returns(address) envfree
-    completeWithdrawal(bytes32,address,uint256) envfree
+    completeWithdrawal(bytes32,address,uint256)
+    initWithdrawal(address,address,uint256) 
     returnToken(address) returns(address) envfree
     poolValidity(address) returns(bool) envfree
-    _burn(address, uint256) envfree => DISPATCHER(true)
     burn(uint256) => DISPATCHER(true)
-    mulDivF(uint256 x,uint256 y,uint256 z) returns (uint256) envfree => MulDivSum(x,y,z)
+    //mulDivF(uint256 x,uint256 y,uint256 z) returns (uint256) envfree => MulDivSum(x,y,z)
 }
 
+// A preconditioner for a valid request.
+// @note : Probably requires additions (valid pool token address),
+// requiring different than zero address might be superfluous.
 function ValidRequest(address provider, address poolToken,
     address reserveToken, uint32 createdAt, uint256 poolTokenAmount, 
     uint256 reserveTokenAmount)
    {
+       // Maybe
        require (
-       provider!=0 && poolToken!=0 && reserveToken!=0 &&
-       provider!=poolToken && provider!=reserveToken && poolToken!=reserveToken);
+            provider != 0 && poolToken != 0 && reserveToken != 0 &&
+            provider != poolToken && 
+            provider != reserveToken && 
+            poolToken != reserveToken);
    }
-
+// Summarization for mulDivF (currently not in use)
 function MulDivSum(uint256 x,uint256 y,uint256 z) returns uint256 {
   require(z >0);
-  uint256 w = (x*y)/z;
+  uint256 w = (x * y) / z;
   return w;
 }
-
+////////////////////////////////////
+/*
+    ********** RULES ***************
+*/
+////////////////////////////////////
+// Conversion from pool token to any underlying token is 
+// monotonically increasing with amount1
 rule poolTokenToUnderlyingMono(uint256 amount1,uint256 amount2){
     env e;
     require amount2 > amount1 && amount1 >0;
@@ -53,7 +61,9 @@ rule poolTokenToUnderlyingMono(uint256 amount1,uint256 amount2){
     uint Under2 = poolTokenToUnderlying(e,amount2);
     assert Under1 < Under2;
 }
-
+// Given a previous withdrawal request with id (id),
+// no further call to InitWithdrawal can override the previous withdrawal.
+// In other words, any new withdrawal request must have an ID different than (id).
 rule InitWithdrawalNoOverride(uint id)
 {
     env e;
@@ -70,17 +80,15 @@ rule InitWithdrawalNoOverride(uint id)
     // require that request is valid.
     ValidRequest(provider,poolToken,reserveToken,createdAt,
     poolTokenAmount,reserveTokenAmount);
-    require id <= nextWithdrawalRequestId();
+    require id < nextWithdrawalRequestId();
     // If initWithdrawal completed successfully, it must not override 
     // the previously defined request.
-    id2 = sinvoke initWithdrawal(provider2,poolToken2,poolTokenAmount2);
-    // Without this require, rule fails. 
-    // This requirement is suspiciously too restrictive.
-    require id2==nextWithdrawalRequestId();
+    id2 = initWithdrawal(e,provider2,poolToken2,poolTokenAmount2);
     assert id2 != id;
 }
 
-// Passed
+// Init withdrawal must register the details of the request correctly,
+// by creating a WithdrawalRequest object in the withdrawalRequest mapping.
 rule initWithdrawalIntegrity()
 {
     env e;
@@ -95,11 +103,10 @@ rule initWithdrawalIntegrity()
     // The initWithdrawal function is a callee from BancorNetwork
     // where the argument is message sender. We can safely assume that 
     // providerInit is a valid non-zero address.
-    // If implementation changes, we should check it with 
-    // Bancor Network.
+    // If implementation changes, we should check it in BancorNetwork.sol
     require providerInit !=0;
 
-    id = invoke initWithdrawal(providerInit,poolTokenInit,poolTokenAmountInit);
+    id = initWithdrawal@withrevert(e,providerInit,poolTokenInit,poolTokenAmountInit);
     bool WithdrawRevert = lastReverted;
     
     assert (poolTokenInit==0 || poolTokenAmountInit==0)
@@ -115,15 +122,16 @@ rule initWithdrawalIntegrity()
         ,"initWithdrawal did not register request as expected");
     
 }
-
+// Withdrawal request cannot be completed more than once.
 rule NoDoubleWithdrawal(bytes32 contID, address provider, uint256 id)
 {
-    invoke completeWithdrawal(contID,provider,id);
-    require(!lastReverted);
-    invoke completeWithdrawal(contID,provider,id);
+    env e;
+    completeWithdrawal(e,contID,provider,id);
+    completeWithdrawal@withrevert(e,contID,provider,id);
     assert lastReverted;
 }
-// Passed
+// initWithdrawal must increase nextWithdrawalRequestId by one.
+// If reverts, for any reason, the next ID musn't change.
 rule ChangeNextWithdrawalId()
 {
     env e;
@@ -131,13 +139,15 @@ rule ChangeNextWithdrawalId()
     address user;
     address pool;
     uint amount;
-    uint id1 =  nextWithdrawalRequestId();
-    invoke initWithdrawal(user, pool, amount);
+    uint id1 = nextWithdrawalRequestId();
+    initWithdrawal@withrevert(e,user, pool, amount);
     bool reverted = lastReverted;
     uint id2 = nextWithdrawalRequestId();
-    assert !reverted => id1+1==id2;
-    assert reverted => id1==id2;
+    assert !reverted => id1+1 == id2;
+    assert reverted => id1 == id2;
 }
+
+// Attempt to use struct in CVL - IGNORE
 /*
 rule StructWithdrawalRequest(uint id)
 {
@@ -148,21 +158,9 @@ rule StructWithdrawalRequest(uint id)
     require var == MAIN.withdrawalRequest(e,id) ;
     assert var.provider == 0;
 }*/
-
-rule CheckwithdrawalRequest(uint id)
-{
-    env e;
-    address provider;
-    address poolToken; 
-    address reserveToken; 
-    uint32 createdAt; 
-    uint256 poolTokenAmount;
-    uint256 reserveTokenAmount; 
-    provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
-    reserveTokenAmount = currentContract.withdrawalRequest(e,id);
-    assert provider==0;
-}
-// Passed
+//
+// Any cancelled request with a given id, must not be associated
+// to any provider (including the original).
 rule CancelWithdrawalIntegrity(uint id, address pro)
 {
     env e;
@@ -177,14 +175,14 @@ rule CancelWithdrawalIntegrity(uint id, address pro)
     reserveTokenAmount1 = currentContract.withdrawalRequest(e,id);
     //
     require provider1 == pro;
-    sinvoke cancelWithdrawal(e,provider1, id);
+    cancelWithdrawal(e,provider1, id);
     //
     provider2, poolToken2, reserveToken2, createdAt2, poolTokenAmount2, 
     reserveTokenAmount2 = currentContract.withdrawalRequest(e,id);
     assert provider2 == 0;
     //
 }
-
+// Checks which functions change nextWithdrawalRequestId
 rule nextWithIDVaries(method f)
 {
     env e;
@@ -193,27 +191,42 @@ rule nextWithIDVaries(method f)
     f(e,args);
     uint id2 = nextWithdrawalRequestId();
     assert id1<=id2, "nextWithdrawalRequestId decreased unexpectedly";
-    assert ( (id1+1==id2) => ( 
-    f.selector == initWithdrawal(address,address,uint256).selector ||
-    f.selector == _initWithdrawal(address,address,uint256).selector),
-    "Function ${f} changed nextWithdrawalRequestId by 1");
+    assert ( 
+        (id1+1==id2) => 
+        f.selector == initWithdrawal(address,address,uint256).selector,
+        "Function ${f} changed nextWithdrawalRequestId by 1");
     require id1+1 != id2;
     assert id1==id2, "nextWithdrawalRequestId changed unexepectedly";
 }
-
-rule WithdrawalCountConsistent(address provider)
+// After a successful initWithdrawal request for provider,
+// his/hers request count must increase by one
+rule WithdrawalCountConsistent_Init(address provider)
 {
     address pool;
+    env e;
     uint amount;
-    uint ReqCount = withdrawalRequestCount(provider);
-    sinvoke initWithdrawal(provider, pool, amount);
-    assert withdrawalRequestCount(provider) == ReqCount+1;
+    uint ReqCountBefore = withdrawalRequestCount(provider);
+    require ReqCountBefore < max_uint ; // Neglecting overflow case
+    initWithdrawal(e,provider, pool, amount);
+    uint ReqCountAfter = withdrawalRequestCount(provider);
+    assert ReqCountAfter == ReqCountBefore+1;
 }
-
+// After a successful cancelWithdrawal request for provider,
+// his/hers request count must decrease by one
+rule WithdrawalCountConsistent_Cancel(address provider, uint id)
+{
+    env e;
+    uint ReqCountBefore = withdrawalRequestCount(provider); 
+    //require ReqCountBefore > 0; // Checking for underflow is not necessary in this case.
+    cancelWithdrawal(e,provider,id);
+    uint ReqCountAfter = withdrawalRequestCount(provider);
+    assert ReqCountAfter == ReqCountBefore-1;
+}
+// SANITY
 rule sanity(method f)
 {   
-	env e;
-	calldataarg args;
+    env e;
+    calldataarg args;
     f(e, args);
-	assert false;
+    assert false;
 }
