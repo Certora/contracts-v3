@@ -24,4 +24,11 @@ contract PendingWithdrawalsHarness is PendingWithdrawals {
         return _network.isPoolValid(pool);
     }
 
+    function withdrawalRequestSpecificId(address provider, uint arrayInd) 
+    public view returns(uint)
+    {
+         uint256[] memory ids =  this.withdrawalRequestIds(provider);
+         return ids[arrayInd];
+    }
+        
 }
