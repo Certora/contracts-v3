@@ -47,7 +47,7 @@ function ValidRequest(address provider, address poolToken,
             poolToken != reserveToken);
    }
 // Preconditioner for valid index of provider requests array.
-function ValidInd_Request(address provider, uint ind) returns (bool)
+function ValidInd_Request(address provider, uint ind) returns bool
 {
     return ind < withdrawalRequestCount(provider);
 }
