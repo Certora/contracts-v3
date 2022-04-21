@@ -228,7 +228,8 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
         if (provider != request.provider) {
             revert AccessDenied();
         }
-
+        // Insert bug to check NoImmediateWithrawal
+        //uint32 currentTime = 2;
         uint32 currentTime = _time();
         if (!_canWithdrawAt(currentTime, request.createdAt)) {
             revert WithdrawalNotAllowed();
@@ -344,7 +345,7 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
     /**
      * @dev returns the pool token value in tokens
      */
-    function _poolTokenToUnderlying(Token pool, uint256 poolTokenAmount) public view returns (uint256) {
+    function _poolTokenToUnderlying(Token pool, uint256 poolTokenAmount) private view returns (uint256) {
         if (pool.isEqual(_bnt)) {
             return _bntPool.poolTokenToUnderlying(poolTokenAmount);
         }

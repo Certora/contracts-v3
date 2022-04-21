@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: agpl-3.0
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.13;
 
 // with mint
 contract DummyERC20Impl {
@@ -11,18 +11,20 @@ contract DummyERC20Impl {
     string public symbol;
     uint public decimals;
 
-    function myAddress() public returns (address) {
+    // Function can be set as view.
+    function myAddress() public view returns (address) {
         return address(this);
     }
-
-    function add(uint a, uint b) internal pure returns (uint256) {
-        uint c = a +b;
-        require (c >= a);
-        return c;
+    // (a,b) -> (x,y) (Not an error, but for clarity)
+    function add(uint x, uint y) internal pure returns (uint256) {
+        uint z = x+y;
+        require (z >= x);
+        return z;
     }
-    function sub(uint a, uint b) internal pure returns (uint256) {
-        require (a>=b);
-        return a-b;
+    // (a,b) -> (x,y) (Not an error, but for clarity)
+    function sub(uint x, uint y) internal pure returns (uint256) {
+        require (x>=y);
+        return x-y;
     }
 
     function totalSupply() external view returns (uint256) {
@@ -53,16 +55,5 @@ contract DummyERC20Impl {
         b[recipient] = add(b[recipient], amount);
         a[sender][msg.sender] = sub(a[sender][msg.sender], amount);
         return true;
-    }
-
-    function _burn(address account, uint256 amount) internal virtual {
-        require(account != address(0), "ERC20: burn from the zero address");
-
-        uint256 accountBalance = b[account];
-        require(accountBalance >= amount, "ERC20: burn amount exceeds balance");
-        unchecked {
-            b[account] = accountBalance - amount;
-        }
-        t -= amount;
     }
 }
