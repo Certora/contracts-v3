@@ -15,23 +15,23 @@ methods {
     acceptOwnership() envfree => DISPATCHER(true)
     destroy(address, uint256) => DISPATCHER(true)
     issue(address, uint256) => DISPATCHER(true)
-
-    _bnt() returns(address) envfree
-    _bntGovernance() returns(address) envfree
-    _vbntGovernance() returns(address) envfree
+    // 
+    // _bnt() returns(address) envfree
+    // _bntGovernance() returns(address) envfree
+    // _vbntGovernance() returns(address) envfree
 }
 
 
-function preSet(){
-	require _bnt() == dummyBNT;
-    // require _bntGovernance() == bntGovern;
-    // require _vbntGovernance() == vbntGovern;
-}
+// function preSet(){
+// 	// require _bnt() == dummyBNT;
+//     // require _bntGovernance() == bntGovern;
+//     // require _vbntGovernance() == vbntGovern;
+// }
 
 
 rule sanity(method f)
 {
-    preSet();
+    // preSet();
 	env e;
 	calldataarg args;
 	f(e,args);

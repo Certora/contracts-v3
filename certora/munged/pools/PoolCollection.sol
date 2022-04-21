@@ -138,19 +138,19 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     IBancorNetwork private immutable _network;
 
     // the address of the BNT token
-    IERC20 private immutable _bnt;
+    IERC20 public _bnt;                                                         // HARNESS: private -> public, removed "immutable"
 
     // the network settings contract
     INetworkSettings private immutable _networkSettings;
 
     // the master vault contract
-    IMasterVault private immutable _masterVault;
+    IMasterVault public _masterVault;                                           // HARNESS: private -> public, removed "immutable"
 
     // the BNT pool contract
     IBNTPool internal immutable _bntPool;
 
     // the address of the external protection vault
-    IExternalProtectionVault private immutable _externalProtectionVault;
+    IExternalProtectionVault public _externalProtectionVault;                   // HARNESS: private -> public, removed "immutable"
 
     // the pool token factory contract
     IPoolTokenFactory private immutable _poolTokenFactory;
@@ -159,7 +159,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     IPoolMigrator private immutable _poolMigrator;
 
     // a mapping between tokens and their pools
-    mapping(Token => Pool) public _poolData;                                        // HARNESS: internal -> public
+    mapping(Token => Pool) public _poolData;                                    // HARNESS: internal -> public
 
     // the set of all pools which are managed by this pool collection
     EnumerableSet.AddressSet private _pools;

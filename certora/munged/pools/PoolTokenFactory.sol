@@ -110,7 +110,7 @@ contract PoolTokenFactory is IPoolTokenFactory, Upgradeable, Utils {
     function createPoolToken(Token token) external validAddress(address(token)) returns (IPoolToken) {
         string memory customSymbol = _tokenSymbolOverrides[token];
         string memory tokenSymbol = bytes(customSymbol).length != 0 ? customSymbol : token.symbol();
-
+        
         uint8 customDecimals = _tokenDecimalsOverrides[token];
         uint8 tokenDecimals = customDecimals != 0 ? customDecimals : token.decimals();
 

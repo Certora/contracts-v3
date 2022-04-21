@@ -29,26 +29,30 @@ contract PendingWithdrawalsHarness is PendingWithdrawals {
         return poolToken.burn(amount);
     }
 
-    
-    function createWithdrawalRequest(address provider,IPoolToken poolToken
-    ,Token reserveToken,uint32 createdAt,uint256 poolTokenAmount,
-    uint256 reserveTokenAmount) public pure returns (WithdrawalRequest memory)
-    {
-    return WithdrawalRequest({provider: provider, poolToken: poolToken, 
-    reserveToken: reserveToken, 
-    createdAt: createdAt, 
-    poolTokenAmount: poolTokenAmount, 
-    reserveTokenAmount: reserveTokenAmount}); 
+    function createWithdrawalRequest(
+        address provider,
+        IPoolToken poolToken,
+        Token reserveToken,
+        uint32 createdAt,
+        uint256 poolTokenAmount,
+        uint256 reserveTokenAmount
+    ) public pure returns (WithdrawalRequest memory) {
+        return WithdrawalRequest({
+            provider: provider, 
+            poolToken: poolToken, 
+            reserveToken: reserveToken, 
+            createdAt: createdAt, 
+            poolTokenAmount: poolTokenAmount, 
+            reserveTokenAmount: reserveTokenAmount
+        }); 
     }
     
 
-    function completedWithdrawalAmount(CompletedWithdrawal memory compWith)
-    public pure returns (uint){
+    function completedWithdrawalAmount(CompletedWithdrawal memory compWith) public pure returns (uint){
         return compWith.poolTokenAmount; 
     }
     
-    function completedWithdrawalPool(CompletedWithdrawal memory compWith)
-    public pure returns (IPoolToken){
+    function completedWithdrawalPool(CompletedWithdrawal memory compWith) public pure returns (IPoolToken){
         return compWith.poolToken; 
     }
 

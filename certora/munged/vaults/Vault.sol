@@ -23,16 +23,16 @@ abstract contract Vault is IVault, Upgradeable, PausableUpgradeable, ReentrancyG
     using TokenLibrary for Token;
 
     // the address of the BNT token
-    IERC20 public immutable _bnt;                           // HARNESS: internal -> public
+    IERC20 public _bnt;                                     // HARNESS: internal -> public, removed "immutable"
 
     // the address of the BNT token governance
-    ITokenGovernance public _bntGovernance;       // HARNESS: internal -> public
+    ITokenGovernance public _bntGovernance;                 // HARNESS: internal -> public, removed "immutable"
 
     // the address of the VBNT token
     IERC20 public immutable _vbnt;                          // HARNESS: internal -> public
 
     // the address of the VBNT token governance
-    ITokenGovernance public _vbntGovernance;      // HARNESS: internal -> public
+    ITokenGovernance public _vbntGovernance;                // HARNESS: internal -> public, removed "immutable"
 
     // solhint-disable func-name-mixedcase
 
