@@ -56,6 +56,14 @@ interface IPendingWithdrawals is IUpgradeable {
      * @dev returns the pending withdrawal request with the specified ID
      */
     function withdrawalRequest(uint256 id) external view returns (WithdrawalRequest memory);
+    
+    /**
+     * Certora (Roy): 
+     * Returns the specific ID of a request of provider, by the arrayInd index
+     * corresponding to the provider's list of requests.
+     */
+    function withdrawalRequestSpecificId(address provider, uint arrayInd) 
+    external view returns(uint);
 
     /**
      * @dev initiates liquidity withdrawal

@@ -15,6 +15,9 @@ contract PendingWithdrawalsHarness is PendingWithdrawals {
     function returnToken(IPoolToken poolToken) external view returns (Token) {
         return poolToken.reserveToken();
     }
+    function poolTotalSupply(IPoolToken poolToken) external view returns (uint256) {
+        return poolToken.totalSupply();
+    }
     // Added a getter (also made the variable public, see contract)
     function nextWithdrawalRequestId() external view returns (uint256){
         return _nextWithdrawalRequestId;
@@ -22,11 +25,6 @@ contract PendingWithdrawalsHarness is PendingWithdrawals {
 
     function poolValidity(Token pool) external view returns (bool) {
         return _network.isPoolValid(pool);
-    }
-
-    function withdrawalRequestSpecificId(address provider, uint arrayInd) public view returns(uint) {
-        uint256[] memory ids =  this.withdrawalRequestIds(provider);
-        return ids[arrayInd];
     }
         
 }

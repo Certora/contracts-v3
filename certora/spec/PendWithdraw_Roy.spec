@@ -8,11 +8,11 @@ using ERC20 as erc20
 using PendingWithdrawalsHarness as MAIN
 
 methods {
-    
     nextWithdrawalRequestId() returns(uint256) envfree
     withdrawalRequestCount(address) envfree
     lockDuration() returns(uint32) envfree
     _bntPool() returns(address) envfree
+    poolTotalSupply(address) returns(uint256) envfree
     completeWithdrawal(bytes32,address,uint256)
     initWithdrawal(address,address,uint256) 
     returnToken(address) returns(address) envfree
@@ -50,6 +50,32 @@ function ValidRequest(address provider, address poolToken,
 function ValidInd_Request(address provider, uint ind) returns bool
 {
     return ind < withdrawalRequestCount(provider);
+}
+// Number of pool tokens in withdrawal request.
+function RequestPoolTokens(env e, uint id) returns uint256 {
+    address provider;
+    address poolToken;
+    address reserveToken;
+    uint32 createdAt;
+    uint256 poolTokenAmount;
+    uint256 reserveTokenAmount;
+    provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
+    reserveTokenAmount = currentContract.withdrawalRequest(e,id);
+    require poolToken == ptA;
+    return poolTokenAmount;
+}
+// Pool token total supply in withdrawal request.
+function RequestPoolTokenTotalSupply(env e, uint id) returns uint256 {
+    address provider;
+    address poolToken;
+    address reserveToken;
+    uint32 createdAt;
+    uint256 poolTokenAmount;
+    uint256 reserveTokenAmount;
+    provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
+    reserveTokenAmount = currentContract.withdrawalRequest(e,id);
+    require poolToken == ptA;
+    return poolTotalSupply(poolToken);
 }
 // Summarization for mulDivF (currently not in use)
 function MulDivSummary(uint256 x,uint256 y,uint256 z) returns uint256 {
@@ -193,8 +219,8 @@ rule StructWithdrawalRequest(uint id)
     assert var.provider == 0;
 }*/
 //
-// Any cancelled request with a given id, must not be associated
-// to any provider (including the original).
+// Any cancelled request with a given id, cannot be associated
+// with any provider (including the original).
 // Current status: PASSES
 rule CancelWithdrawalIntegrity(uint id, address pro)
 {
@@ -365,23 +391,26 @@ rule checkSpecificId(address provider)
     uint256 Amount;
     // Count1 is the current number of requests for provider.
     uint Count1 = withdrawalRequestCount(provider);
-    require Count1 < 100;
+    require Count1 < 100000; //max_uint-1;
     // Now, adding a request to the end of the list.
     // List should be now Count1+1 items long.
     uint id1 = initWithdrawal(e,provider,poolToken,Amount);
     // Thus, the index Count1+2 must be out of bounds.
-    withdrawalRequestSpecificId@withrevert(provider,Count1+2);
+    withdrawalRequestSpecificId@withrevert(provider,Count1+1);
     assert lastReverted;
     // Adding another one.
     uint id2 = initWithdrawal(e,provider,poolToken,Amount);
+    assert withdrawalRequestCount(provider) == Count1+2,
+    " Request count should have increased by two";
     // In total, we added two subsequent requests. Validating that
-    // function gets them properly.
-    assert id1 == withdrawalRequestSpecificId(provider,Count1+1);
-    assert id2 == withdrawalRequestSpecificId(provider,Count1+2);
+    // function gets them properly.    
+    assert id1 == withdrawalRequestSpecificId@withrevert(provider,Count1);
+    assert id2 == withdrawalRequestSpecificId@withrevert(provider,Count1+1);
 }
-/*
-// No two identical Ids for provider
-// WORK IN PROGRESS
+
+// No two identical IDs for provider
+// Current status: FAILS
+// Preserved violated for completeWithdrawal.
 invariant NoIdenticalIDs(address provider, uint ind1, uint ind2)
     (
         ValidInd_Request(provider,ind1) &&
@@ -393,13 +422,107 @@ invariant NoIdenticalIDs(address provider, uint ind1, uint ind2)
         withdrawalRequestSpecificId(provider,ind1) != 
         withdrawalRequestSpecificId(provider,ind2)
     )
+    
+    {
+        preserved
+        {
+            require
+                (withdrawalRequestSpecificId(provider,ind1) !=0 &&
+                withdrawalRequestSpecificId(provider,ind2) !=0);
+        }
+    }
+    
+
+// Withdrawal request details must not vary but only after
+// initialize, cancel or complete a withdrawal.
+// Current status : PASSES
+rule RequestDetailsInvariance(uint id, method f)
 {
-    uint count = withdrawalRequestCount(provider);
-    require ind1 <= count && ind2 <= count;
-    uint id1 = withdrawalRequestSpecificId(provider,ind1);
-    uint id2 = withdrawalRequestSpecificId(provider,ind2);
+    bool ValidFunction = (
+        f.selector == cancelWithdrawal(address,uint).selector ||
+        f.selector == completeWithdrawal(bytes32,address,uint256).selector ||
+        f.selector == initWithdrawal(address,address,uint256).selector);
+
+    env e; calldataarg args;
+    address provider; address providerAfter;
+    address poolToken; address poolTokenAfter;  
+    address reserveToken; address reserveTokenAfter;
+    uint32 createdAt; uint32 createdAtAfter; 
+    uint256 poolTokenAmount; uint256 poolTokenAmountAfter;
+    uint256 reserveTokenAmount; uint256 reserveTokenAmountAfter;
+    //
+    provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
+    reserveTokenAmount = currentContract.withdrawalRequest(e,id);
+    f(e,args);
+    providerAfter, poolTokenAfter, reserveTokenAfter, createdAtAfter,
+    poolTokenAmountAfter,reserveTokenAmountAfter =
+    currentContract.withdrawalRequest(e,id);
+    //
+    assert !(provider == providerAfter &&
+        poolToken == poolTokenAfter &&
+        reserveToken == reserveTokenAfter &&
+        poolTokenAmount == poolTokenAmountAfter &&
+        reserveTokenAmount == reserveTokenAmountAfter) => ValidFunction,
+        "The details of a withdrawal request changed unexpectedly
+        after invoking ${f}";
 }
-*/
+
+// For every request, the number of registered pool tokens cannot be larger
+// than the total supply.
+// Current status: FAILS
+// Not deductive: Violated for initWithdrawal and completeWithdrawal.
+// WORK IN PROGRESS
+invariant PoolTokenLessThanSupply(env e, uint id)
+   RequestPoolTokens(e,id) <= RequestPoolTokenTotalSupply(e,id)
+   {
+       preserved initWithdrawal
+       (address provider, address poolToken,uint256 poolTokenAmount) with (env e2) {
+           require poolToken == ptA;
+
+       }
+   }
+   
+// Any change of status of some request cannot affect another one.
+// One can prove this rule also for completeWithdrawal.
+// Current status: PASSES (both functions)
+rule IndependentRequests(uint id1, uint id2, method f) filtered{f->
+f.selector == cancelWithdrawal(address,uint).selector}
+//f.selector == completeWithdrawal(bytes32,address,uint256).selector}
+{
+    env e;
+    require id1 != id2;
+    address provider1; address provider2;
+    address poolToken1; address poolToken2;  
+    address reserveToken1; address reserveToken2;
+    uint32 createdAt1; uint32 createdAt2; 
+    uint256 poolTokenAmount1; uint256 poolTokenAmount2;
+    uint256 reserveTokenAmount1; uint256 reserveTokenAmount2;
+    provider1, poolToken1, reserveToken1, createdAt1, poolTokenAmount1, 
+    reserveTokenAmount1 = currentContract.withdrawalRequest(e,id1);
+    provider2, poolToken2, reserveToken2, createdAt2, poolTokenAmount2, 
+    reserveTokenAmount2 = currentContract.withdrawalRequest(e,id2);
+    // Choose a function:
+        cancelWithdrawal(e,provider1,id1);
+    // Or:
+    //    bytes32 contID;
+    //    completeWithdrawal(e,contID,provider1,id1);
+    address provider3;
+    address poolToken3; 
+    address reserveToken3; 
+    uint32 createdAt3; 
+    uint256 poolTokenAmount3; 
+    uint256 reserveTokenAmount3;
+    provider3, poolToken3, reserveToken3, createdAt3, poolTokenAmount3, 
+    reserveTokenAmount3 = currentContract.withdrawalRequest(e,id2);
+    assert provider2 == provider3 &&
+        poolToken2 == poolToken3 &&
+        reserveToken2 == reserveToken3 &&
+        poolTokenAmount2 == poolTokenAmount3 &&
+        reserveTokenAmount2 == reserveTokenAmount3,
+        "The details of a different withdrawal request changed unexpectedly
+        aftre invoking ${f} on request id = ${id1}";
+}
+
 // Reachability
 // Current status: FAILS for all functions.
 rule reachability(method f)

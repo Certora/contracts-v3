@@ -13,9 +13,9 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     --solc solc8.13 \
     --staging \
     --optimistic_loop \
-    --rule checkSpecificId \
+    --rule NoIdenticalIDs \
     --send_only \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "checkSpecificId"
+    --msg "NoIdenticalIDs"

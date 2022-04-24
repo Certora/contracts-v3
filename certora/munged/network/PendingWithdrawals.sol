@@ -185,6 +185,16 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
         return _withdrawalRequests[id];
     }
 
+    /** 
+     * @inheritdoc IPendingWithdrawals
+     */
+    function withdrawalRequestSpecificId(address provider, uint arrayInd) 
+    external view returns(uint)
+    {
+         uint256[] memory ids = _withdrawalRequestIdsByProvider[provider].values();
+         return ids[arrayInd];
+    }
+
     /**
      * @inheritdoc IPendingWithdrawals
      */
