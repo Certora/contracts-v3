@@ -9,15 +9,17 @@ methods {
     renounceFunding(bytes32, address, uint256) => DISPATCHER(true)
     // requestFunding(bytes32, address, uint256) => DISPATCHER(true)
     // availableFunding(address) returns(uint256) => DISPATCHER(true)
-    // poolFundingLimit(address) returns(uint256) => DISPATCHER(true)
+    poolFundingLimit(address) returns(uint256) => DISPATCHER(true)
     minLiquidityForTrading() returns(uint256) => DISPATCHER(true)
     networkFeePPM() returns(uint32) envfree => DISPATCHER(true)
     withdrawalFeePPM() returns(uint32) => DISPATCHER(true)
     acceptOwnership() => DISPATCHER(true)
     withdrawFunds(address, address, uint256) => DISPATCHER(true)   
     isTokenWhitelisted(address) returns(bool) => DISPATCHER(true)
-    // createPoolToken(address) returns(address) => DISPATCHER(true)       // caused issues
-    latestPoolCollection(uint16) returns(address) => DISPATCHER(true)
+    destroy(address, uint256) => DISPATCHER(true)
+    createPoolToken(address) returns(address) => DISPATCHER(true)       // caused issues
+    // latestPoolCollection(uint16) returns(address) => DISPATCHER(true) lets have it nondet
+    issue(address, uint256) => DISPATCHER(true)
     transferOwnership(address) => DISPATCHER(true)
     burn(uint256) => DISPATCHER(true)
     burn(address, uint256) => DISPATCHER(true)
@@ -57,4 +59,22 @@ rule sanity(method f)
 	calldataarg args;
 	santasLittleHelper(f, e);
 	assert false;
+}
+
+rule more_poolTokens_less_TKN(method f){
+    env e;
+    require e.msg.sender != currentContract && e.msg.sender != _masterVault(e);
+    calldataarg args;
+    setUp();
+
+    uint256 tkn_balance = tokenA.balanceOf(e,e.msg.sender);
+    uint256 poolToken_balance = ptA.balanceOf(e,e.msg.sender);
+
+    f(e,args);
+
+    uint256 tkn_balance2 = tokenA.balanceOf(e,e.msg.sender);
+    uint256 poolToken_balance2 = ptA.balanceOf(e,e.msg.sender);
+
+    assert tkn_balance2 > tkn_balance <=> poolToken_balance > poolToken_balance2;
+    assert tkn_balance2 < tkn_balance <=> poolToken_balance < poolToken_balance2;
 }

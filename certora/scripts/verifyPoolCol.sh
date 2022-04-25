@@ -1,12 +1,17 @@
-python3 ../../EVMVerifier/scripts/certoraRun.py  certora/harness/PoolCollectionHarness.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
-    certora/munged/network/NetworkSettings.sol certora/munged/pools/BNTPool.sol certora/munged/network/BancorNetwork.sol \
+    certoraRun.py  node_modules/@bancor/token-governance/contracts/tests/MintableToken.sol certora/harness/PoolCollectionHarness.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
+     certora/munged/pools/BNTPool.sol certora/munged/network/NetworkSettings.sol certora/munged/network/BancorNetwork.sol \
     certora/munged/pools/PoolTokenFactory.sol certora/munged/pools/PoolToken.sol certora/helpers/DummyERC20bnt.sol \
     certora/helpers/DummyPoolTokenA.sol certora/helpers/DummyPoolTokenB.sol certora/munged/vaults/MasterVault.sol \
+    certora/helpers/DummyTokenGovernanceA.sol certora/helpers/DummyTokenGovernanceB.sol \
     certora/munged/vaults/ExternalProtectionVault.sol \
     --verify PoolCollectionHarness:certora/spec/PoolCol.spec \
     --link  PoolCollectionHarness:_bnt=DummyERC20bnt \
             PoolCollectionHarness:_masterVault=MasterVault \
+            PoolCollectionHarness:_bntPool=BNTPool \
             PoolCollectionHarness:_externalProtectionVault=ExternalProtectionVault \
+            BNTPool:_masterVault=MasterVault \
+            MasterVault:_bntGovernance=DummyTokenGovernanceA \
+            MasterVault:_vbntGovernance=DummyTokenGovernanceB \
     --solc solc8.13 \
     --staging \
     --optimistic_loop \
@@ -14,6 +19,7 @@ python3 ../../EVMVerifier/scripts/certoraRun.py  certora/harness/PoolCollectionH
     --packages @openzeppelin=node_modules/@openzeppelin @bancor=node_modules/@bancor \
     --msg "PoolCol sum check with links"
 
+# certora/munged/network/NetworkSettings.sol PoolCollectionHarness:_network=BancorNetwork \ 
 # python3 ../../EVMVerifier/scripts/certoraRun.py  certora/munged/pools/PoolCollection.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
 #     certora/munged/pools/BNTPool.sol certora/munged/network/NetworkSettings.sol certora/munged/pools/PoolToken.sol \
 #     certora/munged/vaults/MasterVault.sol certora/harness/ERC20BurnableHarness.sol \
