@@ -15,9 +15,16 @@ contract PendingWithdrawalsHarness is PendingWithdrawals {
     function returnToken(IPoolToken poolToken) external view returns (Token) {
         return poolToken.reserveToken();
     }
+    
     function poolTotalSupply(IPoolToken poolToken) external view returns (uint256) {
         return poolToken.totalSupply();
     }
+    
+    function poolTokenBalance(IPoolToken poolToken, address account) external view 
+    returns (uint256) {
+        return poolToken.balanceOf(account);
+    }
+
     // Added a getter (also made the variable public, see contract)
     function nextWithdrawalRequestId() external view returns (uint256){
         return _nextWithdrawalRequestId;
