@@ -164,6 +164,9 @@ library MathEx {
         uint256 y,
         uint256 z
     ) internal pure returns (uint256) {
+        require (z!=0);
+        return x * y / z;
+/*
         Uint512 memory xy = mul512(x, y);
 
         // if `x * y < 2 ^ 256`
@@ -188,6 +191,7 @@ library MathEx {
         uint256 q = _div512(n, p); // `n` is divisible by `p` because `n` is divisible by `z` and `z` is divisible by `p`
         uint256 r = _inv256(z / p); // `z / p = 1 mod 2` hence `inverse(z / p) = 1 mod 2 ^ 256`
         return _unsafeMul(q, r); // `q * r = (n / p) * inverse(z / p) = n / z`
+*/
     }
 
     /**

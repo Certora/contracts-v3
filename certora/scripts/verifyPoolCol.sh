@@ -1,3 +1,8 @@
+if [[ "$1" ]]
+then
+    RULE="--rule $1"
+fi
+
     certoraRun.py  node_modules/@bancor/token-governance/contracts/tests/MintableToken.sol certora/harness/PoolCollectionHarness.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
      certora/munged/pools/BNTPool.sol certora/munged/network/NetworkSettings.sol certora/munged/network/BancorNetwork.sol \
     certora/munged/pools/PoolTokenFactory.sol certora/munged/pools/PoolToken.sol certora/helpers/DummyERC20bnt.sol \
@@ -14,11 +19,13 @@
             MasterVault:_vbntGovernance=DummyTokenGovernanceB \
     --solc solc8.13 \
     --staging \
+    $RULE  \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin @bancor=node_modules/@bancor \
-    --msg "PoolCol sum check with links"
+    --msg "PoolCol - $RULE"
 
+#    --rule_sanity advanced \
 # certora/munged/network/NetworkSettings.sol PoolCollectionHarness:_network=BancorNetwork \ 
 # python3 ../../EVMVerifier/scripts/certoraRun.py  certora/munged/pools/PoolCollection.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
 #     certora/munged/pools/BNTPool.sol certora/munged/network/NetworkSettings.sol certora/munged/pools/PoolToken.sol \

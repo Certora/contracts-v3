@@ -17,7 +17,7 @@ methods {
     withdrawFunds(address, address, uint256) => DISPATCHER(true)   
     isTokenWhitelisted(address) returns(bool) => DISPATCHER(true)
     destroy(address, uint256) => DISPATCHER(true)
-    createPoolToken(address) returns(address) => DISPATCHER(true)       // caused issues
+    createPoolToken(address) returns(address) => NONDET       // caused issues
     // latestPoolCollection(uint16) returns(address) => DISPATCHER(true) lets have it nondet
     issue(address, uint256) => DISPATCHER(true)
     transferOwnership(address) => DISPATCHER(true)
@@ -63,18 +63,38 @@ rule sanity(method f)
 
 rule more_poolTokens_less_TKN(method f){
     env e;
-    require e.msg.sender != currentContract && e.msg.sender != _masterVault(e);
+    require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
     calldataarg args;
     setUp();
 
-    uint256 tkn_balance = tokenA.balanceOf(e,e.msg.sender);
-    uint256 poolToken_balance = ptA.balanceOf(e,e.msg.sender);
+    uint256 tkn_balance1 = tokenA.balanceOf(e,e.msg.sender);
+    uint256 poolToken_balance1 = ptA.balanceOf(e,e.msg.sender);
 
     f(e,args);
 
     uint256 tkn_balance2 = tokenA.balanceOf(e,e.msg.sender);
     uint256 poolToken_balance2 = ptA.balanceOf(e,e.msg.sender);
 
-    assert tkn_balance2 > tkn_balance <=> poolToken_balance > poolToken_balance2;
-    assert tkn_balance2 < tkn_balance <=> poolToken_balance < poolToken_balance2;
+    assert tkn_balance2 > tkn_balance1 <=> poolToken_balance2 < poolToken_balance1;
+    assert tkn_balance2 < tkn_balance1 <=> poolToken_balance2 > poolToken_balance1;
 }
+
+/*
+rule tradeChangeExchangeRate(){
+    env e;
+        
+    bytes32 contextId;
+    Token sourceToken;
+    Token targetToken;
+    uint256 sourceAmount;
+    uint256 minReturnAmount;
+
+    uint256 amount1; uint256 amount2;
+    uint256 tradingFeeAmount1; uint256 tradingFeeAmount2;
+    uint256 networkFeeAmount1; uint256 networkFeeAmount2;
+
+    amount1,tradingFeeAmount1,networkFeeAmount1 = tradeBySourcePoolCollectionT(contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
+    amount2,tradingFeeAmount2,networkFeeAmount2 = tradeBySourcePoolCollectionT(contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
+    
+    assert amount1 != amount2;
+}*/

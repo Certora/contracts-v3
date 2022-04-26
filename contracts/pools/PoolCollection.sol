@@ -343,7 +343,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         _setDefaultTradingFeePPM(newDefaultTradingFeePPM);
     }
     
-    IPoolToken public tmpPoolToken;
+    // IPoolToken public tmpPoolToken;
 
     /**
      * @inheritdoc IPoolCollection
@@ -353,8 +353,8 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
             revert NotWhitelisted();
         }
 
-        // IPoolToken newPoolToken = IPoolToken(_poolTokenFactory.createPoolToken(token));
-    IPoolToken newPoolToken = tmpPoolToken;
+        IPoolToken newPoolToken = IPoolToken(_poolTokenFactory.createPoolToken(token));
+    // IPoolToken newPoolToken = tmpPoolToken;
 
         newPoolToken.acceptOwnership();
 

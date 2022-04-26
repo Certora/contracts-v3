@@ -15,6 +15,17 @@ contract PoolCollectionHarness is PoolCollection{
         IPoolTokenFactory initPoolTokenFactory,
         IPoolMigrator initPoolMigrator
     ) PoolCollection(initNetwork, initBNT, initNetworkSettings, initMasterVault, initBNTPool, initExternalProtectionVault, initPoolTokenFactory, initPoolMigrator) {}
-
-    
+/*
+    function tradeBySourcePoolCollectionT(
+        // IPoolCollection poolCollection,
+        bytes32 contextId,
+        Token sourceToken,
+        Token targetToken,
+        uint256 sourceAmount,
+        uint256 minReturnAmount
+    ) public returns (uint256,uint256,uint256) {
+        TradeAmountAndFee memory result = tradeBySourceAmount(contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
+        return (result.amount, result.tradingFeeAmount, result.networkFeeAmount);
+    }
+*/
 }
