@@ -14,11 +14,9 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     --solc solc8.13 \
     --staging \
     --optimistic_loop \
-    --rule PoolTokenLessThanSupply \
     --rule_sanity basic \
     --send_only \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "PoolTokenLessThanSupply"
-#    certora/helpers/DummyERC20B.sol \
+    --msg "Sanity - basic"

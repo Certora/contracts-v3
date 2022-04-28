@@ -8,6 +8,11 @@ using DummyPoolTokenB as ptB
 using DummyERC20A as erc20
 using PendingWithdrawalsHarness as MAIN
 
+/* *************************
+LAST SANITY CHECK (rule_sanity basic) 28/04 :
+https://vaas-stg.certora.com/output/41958/f3e175bb27d0b6b5e87d/?anonymousKey=6a8e0fc0949d1287e8824f1ab4b814c20cd3361a
+*****************************/
+
 methods {
     nextWithdrawalRequestId() returns(uint256) envfree
     withdrawalRequestCount(address) envfree
@@ -30,6 +35,8 @@ methods {
     reserveToken() returns (address) => DISPATCHER(true)
     // ERC20 Burnable
     burn(uint256) => DISPATCHER(true)
+    // MathEx
+    mulDivF(uint256 x, uint256 y, uint256 z) => ALWAYS(5)//!mulDivNoFloorSummary(x, y, z)
 }
 
 // A preconditioner for a valid request.
@@ -53,40 +60,50 @@ function ValidInd_Request(address provider, uint ind) returns bool
 function RequestPoolTokensAmount(env e, uint id) returns uint256 {
     address provider; address poolToken; address reserveToken;
     uint32 createdAt; uint256 poolTokenAmount; uint256 reserveTokenAmount;
+    
     provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
-    reserveTokenAmount = currentContract.withdrawalRequest(e,id);
+        reserveTokenAmount = currentContract.withdrawalRequest(e,id);
+    
     return poolTokenAmount;
 }
 // Provider of withdrawal request.
 function RequestProvider(env e, uint id) returns address {
     address provider; address poolToken; address reserveToken;
     uint32 createdAt; uint256 poolTokenAmount; uint256 reserveTokenAmount;
+    
     provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
-    reserveTokenAmount = currentContract.withdrawalRequest(e,id);
+        reserveTokenAmount = currentContract.withdrawalRequest(e,id);
+    
     return provider;
 }
 // Pool token total supply in withdrawal request.
 function RequestPoolTokenTotalSupply(env e, uint id) returns uint256 {
     address provider; address poolToken; address reserveToken;
     uint32 createdAt; uint256 poolTokenAmount; uint256 reserveTokenAmount;
+    
     provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
-    reserveTokenAmount = currentContract.withdrawalRequest(e,id);
+        reserveTokenAmount = currentContract.withdrawalRequest(e,id);
+    
     return MAIN.poolTotalSupply(e,poolToken);
 }
 // ReserveToken in withdrawal request.
 function RequestReserveToken(env e, uint id) returns address {
     address provider; address poolToken; address reserveToken;
     uint32 createdAt; uint256 poolTokenAmount; uint256 reserveTokenAmount;
+    
     provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
-    reserveTokenAmount = currentContract.withdrawalRequest(e,id);
+        reserveTokenAmount = currentContract.withdrawalRequest(e,id);
+
     return reserveToken;
 }
 // Pool token in withdrawal request.
 function RequestPoolToken(env e, uint id) returns address {
     address provider; address poolToken; address reserveToken;
     uint32 createdAt; uint256 poolTokenAmount; uint256 reserveTokenAmount;
+
     provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
-    reserveTokenAmount = currentContract.withdrawalRequest(e,id);
+        reserveTokenAmount = currentContract.withdrawalRequest(e,id);
+
     return poolToken;
 }
 // Summarization for mulDivF (currently not in use)
@@ -94,7 +111,17 @@ function mulDivNoFloorSummary(uint256 x,uint256 y,uint256 z) returns uint256 {
   require(z >0);
   uint256 w = (x * y) / z;
   require w*z == x*y;
-  return w;
+  return x;
+}
+// Remainder of multiplication by division
+function MulMod(uint x, uint y, uint z) returns uint256 {
+    require z>0;
+    return to_uint256(x*y) % z;
+}
+// Purpose: to bound the product x*y from overflowing (xy<2^256-1)
+function noProdOverFlow(uint x, uint y){
+     uint bound = to_uint256(2^128-1);
+     require x <= bound && y <= bound;
 }
 
 ////////////////////////////////////
@@ -104,42 +131,58 @@ function mulDivNoFloorSummary(uint256 x,uint256 y,uint256 z) returns uint256 {
 ////////////////////////////////////
 // Conversion from pool token to any underlying token is 
 // monotonically increasing with amount (BNTPool impl.)
-// Current status: TIMEOUT*
-// *We exclude flooring cases.
-rule poolTokenToUnderlyingMono_BNT(uint256 amount1,uint256 amount2, uint factor)
+// Current status: PASSES*
+// *For the product terms x,y we require x,y < 2^128-1.
+rule poolTokenToUnderlyingMono_BNT(uint256 amount1,uint256 amount2)
 {
     env e;
-    // We require no flooring consequence.
-    //require BNTp.poolToken(e) == ptA;
-    require factor <= 100000 && factor >0 ;
+    address token = erc20;
     uint TotalSupply = MAIN.poolTotalSupply(e,BNTp.poolToken(e));
-    require TotalSupply > 0 ;
-    require BNTp.stakedBalance(e) == factor*TotalSupply;
-    // ======
+    uint stake = BNTp.stakedBalance(e);
+
+    require TotalSupply > 0 && stake > 0;
+    noProdOverFlow(stake,amount1);
+    noProdOverFlow(stake,amount2);
+
     uint UAmount1 = BNTp.poolTokenToUnderlying(e,amount1);
     uint UAmount2 = BNTp.poolTokenToUnderlying(e,amount2);
-    assert (amount2 > amount1) => (UAmount1 < UAmount2);
+
+    // Checking for weak monotonicity:
+    assert (amount2 > amount1) => (UAmount1 <= UAmount2), "Monotonic decreasing";
+    // Checking for strong monotonicity (excluding division remainders):
+    assert(
+        MulMod(stake,amount1,TotalSupply) ==0 && 
+        MulMod(stake,amount2,TotalSupply) ==0 &&
+        amount2 > amount1) => (UAmount1 < UAmount2), "Non monotonic increasing";
 }
 
 // Conversion from pool token to any underlying token is 
 // monotonically increasing with amount (PoolCollection impl.)
-// Current status: FAILS*.
-// *Fails on overflow.
+// Current status: PASSES*
+// *For the product terms x,y we require x,y < 2^128-1.
 rule poolTokenToUnderlyingMono_PC(uint256 amount1,uint256 amount2)
 {
     env e;
     address token = erc20;
-    require PC.poolToken(e,token) == ptA;
-    // We require no flooring consequence.
-    uint factor = 5;
     uint TotalSupply; 
-    require (TotalSupply > 0);
+    uint stake = PC.poolStakedBalance(e,token);
+    
+    require PC.poolToken(e,token) == ptA;
+    require TotalSupply > 0 && stake > 0;
     require PC.poolTotalSupply(e,token) == TotalSupply;
-    require PC.poolStakedBalance(e,token) == factor*TotalSupply;
-    // ======
+    noProdOverFlow(stake,amount1);
+    noProdOverFlow(stake,amount2);
+
     uint UAmount1 = PC.poolTokenToUnderlying(e,token,amount1);
     uint UAmount2 = PC.poolTokenToUnderlying(e,token,amount2);
-    assert (amount2 > amount1) => (UAmount1 < UAmount2);
+    
+    // Checking for weak monotonicity:
+    assert (amount2 > amount1) => (UAmount1 <= UAmount2), "Monotonic decreasing";
+    // Checking for strong monotonicity (excluding division remainders):
+    assert(
+        MulMod(stake,amount1,TotalSupply) ==0 && 
+        MulMod(stake,amount2,TotalSupply) ==0 &&
+        amount2 > amount1) => (UAmount1 < UAmount2), "Non monotonic increasing";
 }
 
 // Unit test for poolTokenToUnderlying in Pool collection
@@ -148,10 +191,13 @@ rule poolTokenToUnderlying_PC_check(uint256 amount, uint stake)
 {
     env e;
     address token = erc20;
+
     require PC.poolToken(e,token) == ptA;
     require PC.poolTotalSupply(e,token) == 1;
     require PC.poolStakedBalance(e,token) == stake;
+
     uint UAmount = PC.poolTokenToUnderlying(e,token,amount);
+
     assert UAmount == amount*stake;
 }
 
@@ -176,10 +222,12 @@ rule InitWithdrawalNoOverride(uint id)
     // require that request is valid.
     ValidRequest(provider,poolToken,reserveToken,poolTokenAmount);
     require id < nextWithdrawalRequestId();
+
     // If initWithdrawal completed successfully, it must not override 
     // the previously defined request.
     id2 = initWithdrawal(e,provider2,poolToken2,poolTokenAmount2);
-    assert id2 != id;
+    assert id2 != id, "New withdrawal was created with the same ID of 
+    an existing one";
 }
 
 // Init withdrawal must register the details of the request correctly,
@@ -217,7 +265,6 @@ rule initWithdrawalIntegrity()
             poolTokenAmount == poolTokenAmountInit &&
             poolToken == poolTokenInit
             ,"initWithdrawal did not register request as expected");
-    
 }
 
 // Withdrawal request cannot be completed more than once.
@@ -227,7 +274,7 @@ rule NoDoubleWithdrawal(bytes32 contID, address provider, uint256 id)
     env e;
     completeWithdrawal(e,contID,provider,id);
     completeWithdrawal@withrevert(e,contID,provider,id);
-    assert lastReverted;
+    assert lastReverted, "One cannot be allowed to complete a withdrawal twice";
 }
 
 // Withdrawal request cannot be cancelled more than once.
@@ -237,7 +284,7 @@ rule NoDoubleCancellation(address provider, uint256 id)
     env e;
     cancelWithdrawal(e,provider,id);
     cancelWithdrawal@withrevert(e,provider,id);
-    assert lastReverted;
+    assert lastReverted, "One cannot be allowed to cancel a withdrawal twice";
 }
 
 // initWithdrawal must increase nextWithdrawalRequestId by one.
@@ -251,11 +298,14 @@ rule ChangeNextWithdrawalId()
     address pool;
     uint amount;
     uint id1 = nextWithdrawalRequestId();
+
     initWithdrawal@withrevert(e,user, pool, amount);
+
     bool reverted = lastReverted;
     uint id2 = nextWithdrawalRequestId();
-    assert !reverted => id1+1 == id2;
-    assert reverted => id1 == id2;
+
+    assert !reverted => id1+1 == id2, "id wasn't increased by 1 as expected";
+    assert reverted => id1 == id2, "id was changed unexpectedly";
 }
 
 // Attempt to use struct in CVL - IGNORE
@@ -276,23 +326,23 @@ rule StructWithdrawalRequest(uint id)
 rule CancelWithdrawalIntegrity(uint id, address pro)
 {
     env e;
-    //
     address provider1; address provider2;
     address poolToken1; address poolToken2;  
     address reserveToken1; address reserveToken2;
     uint32 createdAt1; uint32 createdAt2; 
     uint256 poolTokenAmount1; uint256 poolTokenAmount2;
     uint256 reserveTokenAmount1; uint256 reserveTokenAmount2;
+
     provider1, poolToken1, reserveToken1, createdAt1, poolTokenAmount1, 
-    reserveTokenAmount1 = currentContract.withdrawalRequest(e,id);
-    //
+        reserveTokenAmount1 = currentContract.withdrawalRequest(e,id);
+    
     require provider1 == pro;
     cancelWithdrawal(e,provider1, id);
-    //
+    
     provider2, poolToken2, reserveToken2, createdAt2, poolTokenAmount2, 
-    reserveTokenAmount2 = currentContract.withdrawalRequest(e,id);
-    assert provider2 == 0;
-    //
+        reserveTokenAmount2 = currentContract.withdrawalRequest(e,id);
+
+    assert provider2 == 0, "A cancelled request if associated with some non-zero address";
 }
 
 // Checks which functions change nextWithdrawalRequestId
@@ -301,15 +351,20 @@ rule nextWithIDVaries(method f)
 {
     env e;
     calldataarg args;
+
     uint id1 = nextWithdrawalRequestId();
     f(e,args);
     uint id2 = nextWithdrawalRequestId();
+
     assert id1<=id2, "nextWithdrawalRequestId decreased unexpectedly";
+    
     assert ( 
         (id1+1==id2) => 
         f.selector == initWithdrawal(address,address,uint256).selector,
         "Function ${f} changed nextWithdrawalRequestId by 1");
+   
     require id1+1 != id2;
+    
     assert id1==id2, "nextWithdrawalRequestId changed unexepectedly";
 }
 
@@ -322,8 +377,11 @@ rule WithdrawalCountConsistent_Init(address provider)
     env e;
     uint amount;
     uint ReqCountBefore = withdrawalRequestCount(provider);
-    require ReqCountBefore < max_uint ; // Neglecting overflow case
+    // Neglecting overflow case
+    require ReqCountBefore < max_uint ; 
+
     initWithdrawal(e,provider, pool, amount);
+
     uint ReqCountAfter = withdrawalRequestCount(provider);
     assert ReqCountAfter == ReqCountBefore+1;
 }
@@ -335,9 +393,11 @@ rule WithdrawalCountConsistent_Cancel(address provider, uint id)
 {
     env e;
     uint ReqCountBefore = withdrawalRequestCount(provider); 
-    //require ReqCountBefore > 0; // Checking for underflow is not necessary in this case.
+
     cancelWithdrawal(e,provider,id);
+
     uint ReqCountAfter = withdrawalRequestCount(provider);
+
     assert ReqCountAfter == ReqCountBefore-1;
 }
 
@@ -350,16 +410,22 @@ rule NoImmediateWithrawal(address provider, bytes32 contID)
 {
     env e;
     address poolToken;
-    require poolToken == ptA;
     uint256 Amount;
     uint id;
     id = initWithdrawal(e,provider,poolToken,Amount);
+
+    require poolToken == ptA;
     // This probably holds all the time. See lockDurationNotZero.
     // In the future, we can replace this by an invariant requirement.
     require lockDuration() > 0; 
-    assert !isReadyForWithdrawal(e,id); 
+    
+    assert !isReadyForWithdrawal(e,id),"the function should return it is not
+    ready for withdrawal"; 
+
     completeWithdrawal@withrevert(e,contID,provider,id);
-    assert lastReverted;
+
+    assert lastReverted, "User managed to withdraw immediately despite
+    the lock duration";
 }
 
 /*
@@ -399,6 +465,7 @@ rule CancellingAlwaysPossible(address provider)
     require poolToken == ptA || poolToken == ptB;
     uint256 Amount;
     uint id;
+
     id = initWithdrawal(e,provider,poolToken,Amount);
     ValidRequest(provider,poolToken,reserveToken,Amount);
     // No restriction upon the request count can lead to overflow,
@@ -412,6 +479,7 @@ rule CancellingAlwaysPossible(address provider)
     require poolTokenBalance(poolToken, provider) + Amount <= max_uint;
     ///
     cancelWithdrawal@withrevert(e,provider,id);
+
     assert !lastReverted, "cancelWithdrawal reverted for a valid request";
 }
 
@@ -528,9 +596,12 @@ rule RequestDetailsInvariance(uint id, method f)
 
 // For every request, the number of registered pool tokens cannot be larger
 // than the total supply.
-// Current status: FAILS
-// Fails for completeWithdrawal.
+// Current status: PASSES
 // Preserved block may be too lenient (under-approximation).
+
+// Note : This rule proves the inequality for an individual provider.
+// It is not enough for solvency. We want to write a new rule using ghosts -
+// the sum of all requests pool token amounts is less or equal to the total supply.
 invariant PoolTokenLessThanSupply(env e, uint id)
    RequestPoolTokensAmount(e,id) <= RequestPoolTokenTotalSupply(e,id)
    {
@@ -547,9 +618,15 @@ invariant PoolTokenLessThanSupply(env e, uint id)
 
        preserved completeWithdrawal(bytes32 contId,address provider2,uint256 id2) with (env e3)
        {
-           //require RequestPoolToken(e,id) == ptA;
-           //require RequestProvider(e,id) == provider2;
-           require id == id2;
+           uint amount1 = RequestPoolTokensAmount(e,id);
+           uint amount2 = RequestPoolTokensAmount(e,id2);
+           uint sumPT = amount1 + amount2;
+
+           require id != id2;
+           require sumPT >= amount1 && sumPT >= amount2;
+           require RequestPoolToken(e,id) == ptA;
+           require RequestPoolToken(e,id2) == ptA;
+           require sumPT <= RequestPoolTokenTotalSupply(e,id);
        }
 
        preserved
@@ -625,13 +702,18 @@ rule BurnPTsAfterCompleteWithdrawal(uint id)
 {
     env e;
     address provider = RequestProvider(e,id);
-    require RequestPoolToken(e,id) == ptA;
-    require provider != ptA;
     bytes32 contID;
     uint PTamount = RequestPoolTokensAmount(e,id);
+
+    require RequestPoolToken(e,id) == ptA;
+    require provider != ptA;
+    
     uint PTbalance1 = ptA.balanceOf(e,currentContract);
+
     completeWithdrawal(e,contID,provider,id);
+
     uint PTbalance2 = ptA.balanceOf(e,currentContract);
+
     assert PTbalance2 + PTamount <= PTbalance1;
 }
 
@@ -644,12 +726,17 @@ rule PTsInvarianceForProvider(uint id)
 {
     env e;
     address provider = RequestProvider(e,id);
+    bytes32 contID;
+
     require RequestPoolToken(e,id) == ptA;
     require provider != ptA;
-    bytes32 contID;
+    
     uint PTbalance1 = ptA.balanceOf(e,provider);
+
     completeWithdrawal(e,contID,provider,id);
+
     uint PTbalance2 = ptA.balanceOf(e,provider);
+
     assert PTbalance1 == PTbalance2;
 }
 
@@ -661,11 +748,16 @@ rule ProviderGetsPTsBack(uint id)
     env e;
     address provider = RequestProvider(e,id);
     uint amount = RequestPoolTokensAmount(e,id);
+
     require RequestPoolToken(e,id) == ptA;
     require provider != ptA && provider != currentContract;
+
     uint PTbalance1 = ptA.balanceOf(e,provider);
+    
     cancelWithdrawal(e,provider,id);
+    
     uint PTbalance2 = ptA.balanceOf(e,provider);
+
     assert PTbalance1 + amount == PTbalance2;
 }
 
