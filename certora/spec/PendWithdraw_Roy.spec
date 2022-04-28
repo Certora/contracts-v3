@@ -2,7 +2,7 @@ import "../helpers/erc20.spec"
 
 using BancorNetwork as BN
 using BNTPool as BNTp
-using PoolCollection as PC
+using PoolCollectionHarness as PC
 using DummyPoolTokenA as ptA
 using DummyPoolTokenB as ptB
 using DummyERC20A as erc20
@@ -545,19 +545,17 @@ invariant PoolTokenLessThanSupply(env e, uint id)
            require poolTotalSupply(e,poolToken) >= poolTokenAmount;
        }
 
+       preserved completeWithdrawal(bytes32 contId,address provider2,uint256 id2) with (env e3)
+       {
+           //require RequestPoolToken(e,id) == ptA;
+           //require RequestProvider(e,id) == provider2;
+           require id == id2;
+       }
+
        preserved
        {
            require RequestPoolToken(e,id) == ptA;
        }
-        /*
-       preserved completeWithdrawal
-       (bytes32 contID, address provider, uint id2)  with (env e3)
-       {
-           //require RequestPoolToken(e,id) == ptA;
-           require id2 == id;
-           require provider == RequestProvider(e,id2);
-       }
-       */
    }
    
 // Any change of status of some request cannot affect another one.
