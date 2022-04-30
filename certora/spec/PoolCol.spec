@@ -78,14 +78,31 @@ rule more_poolTokens_less_TKN(method f){
     assert tkn_balance2 > tkn_balance1 <=> poolToken_balance2 < poolToken_balance1;
     assert tkn_balance2 < tkn_balance1 <=> poolToken_balance2 > poolToken_balance1;
 }
-
 /*
+rule more_poolTokens_less_TKN2(method f){
+    env e;
+    require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
+    calldataarg args;
+    setUp();
+
+    uint256 tkn_balance1 = tokenA.balanceOf(e,e.msg.sender);
+    uint256 poolToken_balance1 = ptA.balanceOf(e,e.msg.sender);
+
+    f(e,args);
+
+    uint256 tkn_balance2 = tokenA.balanceOf(e,e.msg.sender);
+    uint256 poolToken_balance2 = ptA.balanceOf(e,e.msg.sender);
+
+    assert tkn_balance2 > tkn_balance1 <=> poolToken_balance2 < poolToken_balance1;
+    assert tkn_balance2 < tkn_balance1 <=> poolToken_balance2 > poolToken_balance1;
+}*/
+
 rule tradeChangeExchangeRate(){
     env e;
         
     bytes32 contextId;
-    Token sourceToken;
-    Token targetToken;
+    address sourceToken = ptA;
+    address targetToken = ptB;
     uint256 sourceAmount;
     uint256 minReturnAmount;
 
@@ -93,8 +110,46 @@ rule tradeChangeExchangeRate(){
     uint256 tradingFeeAmount1; uint256 tradingFeeAmount2;
     uint256 networkFeeAmount1; uint256 networkFeeAmount2;
 
-    amount1,tradingFeeAmount1,networkFeeAmount1 = tradeBySourcePoolCollectionT(contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
-    amount2,tradingFeeAmount2,networkFeeAmount2 = tradeBySourcePoolCollectionT(contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
+    amount1,tradingFeeAmount1,networkFeeAmount1 = tradeBySource(e,contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
+    amount2,tradingFeeAmount2,networkFeeAmount2 = tradeBySource(e,contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
     
+    // the returned amount from the second trade should be different from the first
     assert amount1 != amount2;
-}*/
+    assert false;
+}
+
+invariant tradingEnabledImplLiquidity(address pool, env e)
+    getPoolDataTradingEnabled(e,pool) => 
+                                        //  getPoolDataBaseTokenLiquidity(e,pool) > 0 &&
+                                        //  getPoolDataBntTradingLiquidity(e,pool) > 0 &&
+                                        //  getPoolDataStakedBalance(e,pool) > 0 &&
+                                        //  poolTotalSupply(e,pool) > 0 //&&
+                                         poolValidity(e,pool)
+
+
+rule tradeAllBaseTokensShouldFail(){
+    env e;
+
+    bytes32 contextId;
+    address sourceToken;
+    address targetToken;
+    uint256 targetAmount = getPoolDataBaseTokenLiquidity(e,targetToken);
+    uint256 maxSourceAmount = 2^255;
+
+    uint256 amount;
+    uint256 tradingFeeAmount;
+    uint256 networkFeeAmount;
+
+    amount,tradingFeeAmount,networkFeeAmount = tradeByTarget(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
+
+
+    assert  amount < targetAmount;
+    assert false;
+}
+
+// rule poolTokenValueMonotonic(){
+//     env e1; env e2;
+
+//     uint poolTokenValue = 
+
+// }

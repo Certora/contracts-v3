@@ -378,7 +378,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     /**
      * @inheritdoc IPoolCollection
      */
-    function isPoolValid(Token pool) external view returns (bool) {
+    function isPoolValid(Token pool) public view returns (bool) {
         return address(_poolData[pool].poolToken) != address(0);
     }
 
@@ -689,7 +689,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         uint256 sourceAmount,
         uint256 minReturnAmount
     )
-        external
+        public
         only(address(_network))
         greaterThanZero(sourceAmount)
         greaterThanZero(minReturnAmount)
@@ -1043,7 +1043,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     /**
      * @dev returns a storage reference to pool data
      */
-    function _poolStorage(Token pool) private view returns (Pool storage) {
+    function _poolStorage(Token pool) internal view returns (Pool storage) {
         Pool storage data = _poolData[pool];
         if (address(data.poolToken) == address(0)) {
             revert DoesNotExist();

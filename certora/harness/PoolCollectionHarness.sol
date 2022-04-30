@@ -15,8 +15,8 @@ contract PoolCollectionHarness is PoolCollection{
         IPoolTokenFactory initPoolTokenFactory,
         IPoolMigrator initPoolMigrator
     ) PoolCollection(initNetwork, initBNT, initNetworkSettings, initMasterVault, initBNTPool, initExternalProtectionVault, initPoolTokenFactory, initPoolMigrator) {}
-/*
-    function tradeBySourcePoolCollectionT(
+
+    function tradeBySource(
         // IPoolCollection poolCollection,
         bytes32 contextId,
         Token sourceToken,
@@ -27,5 +27,41 @@ contract PoolCollectionHarness is PoolCollection{
         TradeAmountAndFee memory result = tradeBySourceAmount(contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
         return (result.amount, result.tradingFeeAmount, result.networkFeeAmount);
     }
-*/
+    function tradeByTarget(
+        bytes32 contextId,
+        Token sourceToken,
+        Token targetToken,
+        uint256 targetAmount,
+        uint256 maxSourceAmount
+    ) public returns (uint256,uint256,uint256) {
+        TradeAmountAndFee memory result = tradeBySourceAmount(contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
+        return (result.amount, result.tradingFeeAmount, result.networkFeeAmount);
+    }
+
+    function getPoolDataTradingEnabled(Token pool) public view returns (bool) {
+        Pool storage data = _poolStorage(pool);
+        return data.tradingEnabled;
+    }
+    function getPoolDataBaseTokenLiquidity(Token pool) public view returns (uint128) {
+        Pool storage data = _poolStorage(pool);
+        return data.liquidity.baseTokenTradingLiquidity;
+    }
+    function getPoolDataBntTradingLiquidity(Token pool) public view returns (uint128) {
+        Pool storage data = _poolStorage(pool);
+        return data.liquidity.bntTradingLiquidity;
+    }
+    function getPoolDataStakedBalance(Token pool) public view returns (uint256) {
+        Pool storage data = _poolStorage(pool);
+        return data.liquidity.stakedBalance;
+    }
+    function poolValidity(Token pool) public view returns (bool) {
+        return isPoolValid(pool);
+    }
+    
+// struct PoolLiquidity {
+//     uint128 bntTradingLiquidity; // the BNT trading liquidity
+//     uint128 baseTokenTradingLiquidity; // the base token trading liquidity
+//     uint256 stakedBalance; // the staked balance
+// }
+
 }
