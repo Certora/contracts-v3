@@ -54,14 +54,5 @@ contract PoolCollectionHarness is PoolCollection{
         Pool storage data = _poolStorage(pool);
         return data.liquidity.stakedBalance;
     }
-    function poolValidity(Token pool) public view returns (bool) {
-        return isPoolValid(pool);
-    }
     
-// struct PoolLiquidity {
-//     uint128 bntTradingLiquidity; // the BNT trading liquidity
-//     uint128 baseTokenTradingLiquidity; // the base token trading liquidity
-//     uint256 stakedBalance; // the staked balance
-// }
-
 }

@@ -396,18 +396,6 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         return _poolData[pool].liquidity;
     }
 
-    //
-    // Certora:
-    // Added getters for stakedBalance and total supply
-    function poolStakedBalance(Token pool) external view returns (uint) {
-        return _poolData[pool].liquidity.stakedBalance;
-    }
-
-    function poolTotalSupply(Token pool) external view returns (uint) {
-        return _poolData[pool].poolToken.totalSupply();
-    }
-    //
-
     /**
      * @inheritdoc IPoolCollection
      */
