@@ -34,7 +34,7 @@ contract PoolCollectionHarness is PoolCollection{
         uint256 targetAmount,
         uint256 maxSourceAmount
     ) public returns (uint256,uint256,uint256) {
-        TradeAmountAndFee memory result = tradeBySourceAmount(contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
+        TradeAmountAndFee memory result = tradeByTargetAmount(contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
         return (result.amount, result.tradingFeeAmount, result.networkFeeAmount);
     }
 

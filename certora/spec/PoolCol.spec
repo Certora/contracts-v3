@@ -124,17 +124,17 @@ invariant tradingEnabledImplLiquidity(address pool, env e)
                                         //  getPoolDataBntTradingLiquidity(e,pool) > 0 &&
                                         //  getPoolDataStakedBalance(e,pool) > 0 &&
                                         //  poolTotalSupply(e,pool) > 0 //&&
-                                         poolValidity(e,pool)
+                                         isPoolValid(e,pool)
 
 
 rule tradeAllBaseTokensShouldFail(){
     env e;
 
     bytes32 contextId;
-    address sourceToken;
-    address targetToken;
-    uint256 targetAmount = getPoolDataBaseTokenLiquidity(e,targetToken);
-    uint256 maxSourceAmount = 2^255;
+    address sourceToken = ptA;
+    address targetToken = ptB;
+    uint256 targetAmount;// = getPoolDataBaseTokenLiquidity(e,targetToken);
+    uint256 maxSourceAmount;// = 2^255;
 
     uint256 amount;
     uint256 tradingFeeAmount;
@@ -147,6 +147,11 @@ rule tradeAllBaseTokensShouldFail(){
     assert false;
 }
 
+// rule onWithdrawAllGetAtLeastStakedAmount(){
+//     env e;
+
+
+// }
 // rule poolTokenValueMonotonic(){
 //     env e1; env e2;
 

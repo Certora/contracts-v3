@@ -378,7 +378,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     /**
      * @inheritdoc IPoolCollection
      */
-    function isPoolValid(Token pool) public view returns (bool) {
+    function isPoolValid(Token pool) external view returns (bool) {
         return address(_poolData[pool].poolToken) != address(0);
     }
 
@@ -712,7 +712,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         uint256 targetAmount,
         uint256 maxSourceAmount
     )
-        external
+        public
         only(address(_network))
         greaterThanZero(targetAmount)
         greaterThanZero(maxSourceAmount)

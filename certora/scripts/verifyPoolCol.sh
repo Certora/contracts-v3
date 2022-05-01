@@ -19,6 +19,7 @@ fi
             MasterVault:_vbntGovernance=DummyTokenGovernanceB \
     --solc solc8.13 \
     --staging \
+    --settings -divideNoRemainder=true \
     $RULE  \
     --optimistic_loop \
     --packages_path node_modules \
