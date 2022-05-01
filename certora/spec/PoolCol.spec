@@ -78,24 +78,6 @@ rule more_poolTokens_less_TKN(method f){
     assert tkn_balance2 > tkn_balance1 <=> poolToken_balance2 < poolToken_balance1;
     assert tkn_balance2 < tkn_balance1 <=> poolToken_balance2 > poolToken_balance1;
 }
-/*
-rule more_poolTokens_less_TKN2(method f){
-    env e;
-    require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
-    calldataarg args;
-    setUp();
-
-    uint256 tkn_balance1 = tokenA.balanceOf(e,e.msg.sender);
-    uint256 poolToken_balance1 = ptA.balanceOf(e,e.msg.sender);
-
-    f(e,args);
-
-    uint256 tkn_balance2 = tokenA.balanceOf(e,e.msg.sender);
-    uint256 poolToken_balance2 = ptA.balanceOf(e,e.msg.sender);
-
-    assert tkn_balance2 > tkn_balance1 <=> poolToken_balance2 < poolToken_balance1;
-    assert tkn_balance2 < tkn_balance1 <=> poolToken_balance2 > poolToken_balance1;
-}*/
 
 rule tradeChangeExchangeRate(){
     env e;
@@ -147,11 +129,34 @@ rule tradeAllBaseTokensShouldFail(){
     assert false;
 }
 
-// rule onWithdrawAllGetAtLeastStakedAmount(){
-//     env e;
+rule withdrawAll(){
+    env e;
+    require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
 
+        bytes32 contextId;
+        address provider = e.msg.sender;
+        address pool = ptA;
+        uint256 poolTokenAmount = getPoolDataStakedBalance(e,pool);
 
-// }
+    uint amount = withdraw(e,contextId,provider,pool,poolTokenAmount);
+
+    assert !lastReverted;
+}
+rule onWithdrawAllGetAtLeastStakedAmount(){
+env e;
+    require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
+
+        bytes32 contextId;
+        address provider;
+        address pool = ptA;
+        uint256 tokenAmount;
+
+    uint poolTokenAmount = depositFor(contextId,provider,pool,tokenAmount);
+    uint amount = withdraw(e,contextId,provider,pool,poolTokenAmount);
+
+    aseert amount >= tokenAmount * 25 / 10000;
+}
+    
 // rule poolTokenValueMonotonic(){
 //     env e1; env e2;
 
