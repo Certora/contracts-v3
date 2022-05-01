@@ -142,6 +142,7 @@ rule withdrawAll(){
 
     assert !lastReverted;
 }
+
 rule onWithdrawAllGetAtLeastStakedAmount(){
 env e;
     require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
@@ -151,10 +152,10 @@ env e;
         address pool = ptA;
         uint256 tokenAmount;
 
-    uint poolTokenAmount = depositFor(contextId,provider,pool,tokenAmount);
+    uint poolTokenAmount = depositFor(e,contextId,provider,pool,tokenAmount);
     uint amount = withdraw(e,contextId,provider,pool,poolTokenAmount);
 
-    aseert amount >= tokenAmount * 25 / 10000;
+    assert amount >= tokenAmount * 25 / 10000;
 }
     
 // rule poolTokenValueMonotonic(){
