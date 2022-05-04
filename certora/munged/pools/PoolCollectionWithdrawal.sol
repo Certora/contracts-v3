@@ -130,6 +130,7 @@ library PoolCollectionWithdrawal {
         // }
 
         output.v = x - y;
+        output.s = x; // remove Gadi
     }
 
     /**

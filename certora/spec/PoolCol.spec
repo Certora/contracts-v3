@@ -4,6 +4,7 @@ using DummyERC20A as tokenA
 using DummyERC20B as tokenB
 using DummyPoolTokenA as ptA
 using DummyPoolTokenA as ptB
+using Receiver1 as user
 
 methods {
     renounceFunding(bytes32, address, uint256) => DISPATCHER(true)
@@ -83,8 +84,8 @@ rule tradeChangeExchangeRate(){
     env e;
         
     bytes32 contextId;
-    address sourceToken = ptA;
-    address targetToken = ptB;
+    address sourceToken = tokenA;
+    address targetToken = tokenB;
     uint256 sourceAmount;
     uint256 minReturnAmount;
 
@@ -113,8 +114,8 @@ rule tradeAllBaseTokensShouldFail(){
     env e;
 
     bytes32 contextId;
-    address sourceToken = ptA;
-    address targetToken = ptB;
+    address sourceToken = tokenA;
+    address targetToken;// = tokenB;
     uint256 targetAmount;// = getPoolDataBaseTokenLiquidity(e,targetToken);
     uint256 maxSourceAmount;// = 2^255;
 
@@ -125,7 +126,7 @@ rule tradeAllBaseTokensShouldFail(){
     amount,tradingFeeAmount,networkFeeAmount = tradeByTarget(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
 
 
-    assert  amount < targetAmount;
+    // assert  amount < targetAmount;
     assert false;
 }
 
@@ -135,29 +136,53 @@ rule withdrawAll(){
 
         bytes32 contextId;
         address provider = e.msg.sender;
-        address pool = ptA;
-        uint256 poolTokenAmount = getPoolDataStakedBalance(e,pool);
+        address pool = tokenA;
+        require ptA == poolToken(pool);
+        uint256 poolTokenAmount = ptA.totalSupply(e);
+
+        uint256 stakedBalance = getPoolDataStakedBalance(e,pool);
+        
+        uint256 balance1 = tokenA.balanceOf(e,provider);
 
     uint amount = withdraw(e,contextId,provider,pool,poolTokenAmount);
 
-    assert !lastReverted;
+        uint256 balance2 = tokenA.balanceOf(e,provider);
+
+    assert balance2 - balance1 == stakedBalance ;
+    assert false;
 }
 
 rule onWithdrawAllGetAtLeastStakedAmount(){
 env e;
     require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
 
+
         bytes32 contextId;
         address provider;
         address pool = ptA;
         uint256 tokenAmount;
 
+
     uint poolTokenAmount = depositFor(e,contextId,provider,pool,tokenAmount);
     uint amount = withdraw(e,contextId,provider,pool,poolTokenAmount);
 
-    assert amount >= tokenAmount * 25 / 10000;
+    assert amount >= tokenAmount;// * 9975 / 10000;
 }
     
+
+invariant DifferentTokens(address tknA, address tknB)
+    tknA != tknB => poolToken(tknA) != poolToken(tknB)
+    {
+       preserved
+       {
+            require (tknA == tokenA && tknB == tokenB) || 
+            (tknA == tokenB && tknB == tokenA);
+       }
+       preserved withdraw(bytes32 contextId,address provider,address pool, uint256 tokenAmount) with (env e)
+       {
+           require provider == user;
+       }
+    }
 // rule poolTokenValueMonotonic(){
 //     env e1; env e2;
 

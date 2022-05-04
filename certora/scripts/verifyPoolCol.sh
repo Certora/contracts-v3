@@ -3,10 +3,11 @@ then
     RULE="--rule $1"
 fi
 
-    certoraRun.py  node_modules/@bancor/token-governance/contracts/tests/MintableToken.sol certora/harness/PoolCollectionHarness.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
-     certora/munged/pools/BNTPool.sol certora/munged/network/NetworkSettings.sol certora/munged/network/BancorNetwork.sol \
+    certoraRun.py node_modules/@bancor/token-governance/contracts/tests/MintableToken.sol certora/harness/PoolCollectionHarness.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
+    certora/munged/pools/BNTPool.sol certora/munged/network/NetworkSettings.sol certora/munged/network/BancorNetwork.sol \
     certora/munged/pools/PoolTokenFactory.sol certora/munged/pools/PoolToken.sol certora/helpers/DummyERC20bnt.sol \
-    certora/helpers/DummyPoolTokenA.sol certora/helpers/DummyPoolTokenB.sol certora/munged/vaults/MasterVault.sol \
+    certora/helpers/DummyPoolTokenA.sol certora/helpers/DummyPoolTokenB.sol \
+    certora/helpers/DummyPoolTokenBNT.sol certora/munged/vaults/MasterVault.sol \
     certora/helpers/DummyTokenGovernanceA.sol certora/helpers/DummyTokenGovernanceB.sol \
     certora/munged/vaults/ExternalProtectionVault.sol \
     --verify PoolCollectionHarness:certora/spec/PoolCol.spec \
@@ -15,6 +16,10 @@ fi
             PoolCollectionHarness:_bntPool=BNTPool \
             PoolCollectionHarness:_externalProtectionVault=ExternalProtectionVault \
             BNTPool:_masterVault=MasterVault \
+            BNTPool:_poolToken=PoolToken \
+            BNTPool:_bnt=DummyERC20bnt \
+            BNTPool:_bntGovernance=DummyTokenGovernanceA \
+            BNTPool:_vbntGovernance=DummyTokenGovernanceB \
             MasterVault:_bntGovernance=DummyTokenGovernanceA \
             MasterVault:_vbntGovernance=DummyTokenGovernanceB \
     --solc solc8.13 \

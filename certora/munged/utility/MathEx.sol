@@ -164,30 +164,31 @@ library MathEx {
         uint256 y,
         uint256 z
     ) internal pure returns (uint256) {
-        Uint512 memory xy = mul512(x, y);
+        return x * y/z;
+        // Uint512 memory xy = mul512(x, y);
 
-        // if `x * y < 2 ^ 256`
-        if (xy.hi == 0) {
-            return xy.lo / z;
-        }
+        // // if `x * y < 2 ^ 256`
+        // if (xy.hi == 0) {
+        //     return xy.lo / z;
+        // }
 
-        // assert `x * y / z < 2 ^ 256`
-        if (xy.hi >= z) {
-            revert Overflow();
-        }
+        // // assert `x * y / z < 2 ^ 256`
+        // if (xy.hi >= z) {
+        //     revert Overflow();
+        // }
 
-        uint256 m = _mulMod(x, y, z); // `m = x * y % z`
-        Uint512 memory n = _sub512(xy, m); // `n = x * y - m` hence `n / z = floor(x * y / z)`
+        // uint256 m = _mulMod(x, y, z); // `m = x * y % z`
+        // Uint512 memory n = _sub512(xy, m); // `n = x * y - m` hence `n / z = floor(x * y / z)`
 
-        // if `n < 2 ^ 256`
-        if (n.hi == 0) {
-            return n.lo / z;
-        }
+        // // if `n < 2 ^ 256`
+        // if (n.hi == 0) {
+        //     return n.lo / z;
+        // }
 
-        uint256 p = _unsafeSub(0, z) & z; // `p` is the largest power of 2 which `z` is divisible by
-        uint256 q = _div512(n, p); // `n` is divisible by `p` because `n` is divisible by `z` and `z` is divisible by `p`
-        uint256 r = _inv256(z / p); // `z / p = 1 mod 2` hence `inverse(z / p) = 1 mod 2 ^ 256`
-        return _unsafeMul(q, r); // `q * r = (n / p) * inverse(z / p) = n / z`
+        // uint256 p = _unsafeSub(0, z) & z; // `p` is the largest power of 2 which `z` is divisible by
+        // uint256 q = _div512(n, p); // `n` is divisible by `p` because `n` is divisible by `z` and `z` is divisible by `p`
+        // uint256 r = _inv256(z / p); // `z / p = 1 mod 2` hence `inverse(z / p) = 1 mod 2 ^ 256`
+        // return _unsafeMul(q, r); // `q * r = (n / p) * inverse(z / p) = n / z`
     }
 
     /**
