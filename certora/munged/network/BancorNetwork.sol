@@ -718,7 +718,7 @@ contract BancorNetwork is IBancorNetwork, Upgradeable, ReentrancyGuardUpgradeabl
         );
     }
 
-    /**
+    /** 
      * @inheritdoc IBancorNetwork
      */
     function tradeByTargetAmount(

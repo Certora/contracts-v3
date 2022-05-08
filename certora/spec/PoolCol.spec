@@ -28,13 +28,13 @@ methods {
     burnFromVault(uint256) => DISPATCHER(true)
     mint(address, uint256) => DISPATCHER(true)
     // receive() => DISPATCHER(true)
+    sendTo() returns(bool) => DISPATCHER(true)
 
     poolToken(address) returns(address) envfree
-
+    hasPool(address) returns (bool) envfree
     migratePoolOut(address, address)
 }
-
-
+ 
 function setUp() {
     require poolToken(tokenA) == ptA || poolToken(tokenA) == ptB;
     require poolToken(tokenB) == ptA || poolToken(tokenB) == ptB;
@@ -106,7 +106,7 @@ invariant tradingEnabledImplLiquidity(address pool, env e)
                                         //  getPoolDataBaseTokenLiquidity(e,pool) > 0 &&
                                         //  getPoolDataBntTradingLiquidity(e,pool) > 0 &&
                                         //  getPoolDataStakedBalance(e,pool) > 0 &&
-                                        //  poolTotalSupply(e,pool) > 0 //&&
+                                        //  getPoolDataTotalSupply(e,pool) > 0 //&&
                                          isPoolValid(e,pool)
 
 
@@ -149,7 +149,8 @@ rule withdrawAll(){
         uint256 balance2 = tokenA.balanceOf(e,provider);
 
     assert balance2 - balance1 == stakedBalance ;
-    assert false;
+    // assert !lastReverted => 
+    // assert false;
 }
 
 rule onWithdrawAllGetAtLeastStakedAmount(){
@@ -171,7 +172,7 @@ env e;
     
 
 invariant DifferentTokens(address tknA, address tknB)
-    tknA != tknB => poolToken(tknA) != poolToken(tknB)
+    hasPool(tknA) && hasPool(tknB) => tknA != tknB => poolToken(tknA) != poolToken(tknB)
     {
        preserved
        {
@@ -182,6 +183,15 @@ invariant DifferentTokens(address tknA, address tknB)
        {
            require provider == user;
        }
+    }
+
+invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
+    getPoolDataTotalSupply(e,pool) == 0 <=> getPoolDataStakedBalance(e,pool) == 0
+    {
+        preserved {
+            require pool == tokenA;
+            require poolToken(pool) == ptA;
+        }
     }
 // rule poolTokenValueMonotonic(){
 //     env e1; env e2;

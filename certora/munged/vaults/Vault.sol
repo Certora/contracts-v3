@@ -16,6 +16,7 @@ import { Token } from "../token/Token.sol";
 import { TokenLibrary } from "../token/TokenLibrary.sol";
 
 import { Utils, AccessDenied, NotPayable, InvalidToken } from "../utility/Utils.sol";
+import "../../helpers/Receiver1.sol";
 
 abstract contract Vault is IVault, Upgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable, Utils {
     using Address for address payable;
@@ -139,7 +140,7 @@ abstract contract Vault is IVault, Upgradeable, PausableUpgradeable, ReentrancyG
         if (token.isNative()) {
             // using a regular transfer here would revert due to exceeding the 2300 gas limit which is why we're using
             // call instead (via sendValue), which the 2300 gas limit does not apply for
-            target.sendValue(amount);
+            Receiver1(target).sendTo{value:amount}();
         } else {
             token.safeTransfer(target, amount);
         }

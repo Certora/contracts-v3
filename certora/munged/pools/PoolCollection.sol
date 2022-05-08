@@ -162,7 +162,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     mapping(Token => Pool) public _poolData;                                    // HARNESS: internal -> public
 
     // the set of all pools which are managed by this pool collection
-    EnumerableSet.AddressSet private _pools;
+    EnumerableSet.AddressSet internal _pools;
 
     // the default trading fee (in units of PPM)
     uint32 private _defaultTradingFeePPM;
@@ -712,7 +712,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         uint256 targetAmount,
         uint256 maxSourceAmount
     )
-        public
+        public // harness: internal -> public 
         only(address(_network))
         greaterThanZero(targetAmount)
         greaterThanZero(maxSourceAmount)

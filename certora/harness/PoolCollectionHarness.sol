@@ -4,7 +4,7 @@ pragma solidity 0.8.13;
 import "../munged/pools/PoolCollection.sol";
 
 contract PoolCollectionHarness is PoolCollection{
-   
+   using EnumerableSet for EnumerableSet.AddressSet;
     constructor(
         IBancorNetwork initNetwork,
         IERC20 initBNT,
@@ -54,5 +54,14 @@ contract PoolCollectionHarness is PoolCollection{
         Pool storage data = _poolStorage(pool);
         return data.liquidity.stakedBalance;
     }
-    
+    function getPoolDataTotalSupply(Token pool) public view returns (uint256) {
+        Pool storage data = _poolStorage(pool);
+        return data.poolToken.totalSupply();
+    }
+    // function canAddPool(Token pool) public view returns (bool) {
+    //     return _pools.add(address(pool));
+    // }    
+    function hasPool(Token pool)public view returns (bool) {
+        return _pools.contains(address(pool));
+    }    
 }

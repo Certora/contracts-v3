@@ -3,7 +3,7 @@ then
     RULE="--rule $1"
 fi
 
-    certoraRun.py node_modules/@bancor/token-governance/contracts/tests/MintableToken.sol certora/harness/PoolCollectionHarness.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
+    certoraRun.py certora/helpers/Receiver1.sol node_modules/@bancor/token-governance/contracts/tests/MintableToken.sol certora/harness/PoolCollectionHarness.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
     certora/munged/pools/BNTPool.sol certora/munged/network/NetworkSettings.sol certora/munged/network/BancorNetwork.sol \
     certora/munged/pools/PoolTokenFactory.sol certora/munged/pools/PoolToken.sol certora/helpers/DummyERC20bnt.sol \
     certora/helpers/DummyPoolTokenA.sol certora/helpers/DummyPoolTokenB.sol \
