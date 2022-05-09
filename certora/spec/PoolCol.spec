@@ -12,7 +12,7 @@ methods {
     // availableFunding(address) returns(uint256) => DISPATCHER(true)
     poolFundingLimit(address) returns(uint256) => DISPATCHER(true)
     minLiquidityForTrading() returns(uint256) => DISPATCHER(true)
-    networkFeePPM() returns(uint32) envfree => DISPATCHER(true)
+    networkFeePPM() returns(uint32) => DISPATCHER(true)
     withdrawalFeePPM() returns(uint32) => DISPATCHER(true)
     acceptOwnership() => DISPATCHER(true)
     withdrawFunds(address, address, uint256) => DISPATCHER(true)   
@@ -29,9 +29,11 @@ methods {
     mint(address, uint256) => DISPATCHER(true)
     // receive() => DISPATCHER(true)
     sendTo() returns(bool) => DISPATCHER(true)
-
+    poolBNTTradingLiquidity(address) returns(uint128) envfree
+    poolBaseTradingLiquidity(address) returns(uint128) envfree
     poolToken(address) returns(address) envfree
     hasPool(address) returns (bool) envfree
+    _bnt() returns (address) envfree
     migratePoolOut(address, address)
 }
  
@@ -190,6 +192,26 @@ invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
         preserved {
             require pool == tokenA;
             require poolToken(pool) == ptA;
+        }
+    }
+
+invariant consistentTradingLiquidity(address pool)
+    poolBNTTradingLiquidity(pool) ==0 <=> poolBaseTradingLiquidity(pool) ==0
+    {
+        preserved
+        {
+            require pool == tokenA;
+            require hasPool(pool);
+            require _bnt() != pool;
+        }
+    }
+
+invariant stakedBalanceMasterVaultBalance(env e)
+    getPoolDataStakedBalance(e,tokenA) == 0 => tokenA.balanceOf(e,_masterVault(e)) ==0
+    {
+        preserved{
+            address pool;
+            require (pool != tokenA =>  getPoolDataStakedBalance(e,pool)==0);
         }
     }
 // rule poolTokenValueMonotonic(){

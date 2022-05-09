@@ -64,4 +64,30 @@ contract PoolCollectionHarness is PoolCollection{
     function hasPool(Token pool)public view returns (bool) {
         return _pools.contains(address(pool));
     }    
+    //
+    // Roy@Certora:
+    // Added getters for stakedBalance and total supply
+    function poolStakedBalance(Token pool) external view returns (uint) {
+        return _poolData[pool].liquidity.stakedBalance;
+    }
+
+    function poolTotalSupply(Token pool) external view returns (uint) {
+        return _poolData[pool].poolToken.totalSupply();
+    }
+
+    // Returns the BNT trading liquidity of a pool whose
+    // token is [pool].
+    function poolBNTTradingLiquidity(Token pool) external view 
+    returns (uint128) {
+        return (_poolData[pool].liquidity.bntTradingLiquidity);
+    }
+    //
+
+    // Returns the base token trading liquidity of a pool whose
+    // token is [pool].
+    function poolBaseTradingLiquidity(Token pool) external view 
+    returns (uint128) {
+        return (_poolData[pool].liquidity.baseTokenTradingLiquidity);
+    }
+    //
 }
