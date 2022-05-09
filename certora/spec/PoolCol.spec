@@ -18,7 +18,7 @@ methods {
     withdrawFunds(address, address, uint256) => DISPATCHER(true)   
     isTokenWhitelisted(address) returns(bool) => DISPATCHER(true)
     destroy(address, uint256) => DISPATCHER(true)
-    createPoolToken(address) returns(address) => NONDET       // caused issues
+    createPoolToken(address) returns(address) => DISPATCHER(true) //NONDET       // caused issues
     // latestPoolCollection(uint16) returns(address) => DISPATCHER(true) lets have it nondet
     issue(address, uint256) => DISPATCHER(true)
     transferOwnership(address) => DISPATCHER(true)
@@ -140,16 +140,14 @@ rule withdrawAll(){
         require ptA == poolToken(pool);
         uint256 poolTokenAmount = ptA.totalSupply(e);
 
-        uint256 stakedBalance = getPoolDataStakedBalance(e,pool);
+    uint256 stakedBalance = getPoolDataStakedBalance(e,pool);
         
-        uint256 balance1 = tokenA.balanceOf(e,provider);
-
-    uint amount = withdraw(e,contextId,provider,pool,poolTokenAmount);
-
-        uint256 balance2 = tokenA.balanceOf(e,provider);
+    uint256 balance1 = tokenA.balanceOf(e,provider);
+        uint amount = withdraw(e,contextId,provider,pool,poolTokenAmount);
+    uint256 balance2 = tokenA.balanceOf(e,provider);
 
     assert balance2 - balance1 == stakedBalance ;
-    // assert !lastReverted => 
+    assert !getPoolDataTradingEnabled(e,pool); 
     // assert false;
 }
 
@@ -186,7 +184,8 @@ invariant DifferentTokens(address tknA, address tknB)
     }
 
 invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
-    getPoolDataTotalSupply(e,pool) == 0 <=> getPoolDataStakedBalance(e,pool) == 0
+    // getPoolDataTotalSupply(e,pool) == 0 <=> getPoolDataStakedBalance(e,pool) == 0
+    poolTotalSupply(e,poolToken(pool))== 0 <=> getPoolDataStakedBalance(e,pool) == 0
     {
         preserved {
             require pool == tokenA;

@@ -58,9 +58,9 @@ contract PoolCollectionHarness is PoolCollection{
         Pool storage data = _poolStorage(pool);
         return data.poolToken.totalSupply();
     }
-    // function canAddPool(Token pool) public view returns (bool) {
-    //     return _pools.add(address(pool));
-    // }    
+    function poolTotalSupply(IPoolToken poolToken) external view returns (uint256) {
+        return poolToken.totalSupply();
+    }
     function hasPool(Token pool)public view returns (bool) {
         return _pools.contains(address(pool));
     }    
