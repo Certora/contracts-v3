@@ -30,7 +30,7 @@ abstract contract Vault is IVault, Upgradeable, PausableUpgradeable, ReentrancyG
     ITokenGovernance public _bntGovernance;                 // HARNESS: internal -> public, removed "immutable"
 
     // the address of the VBNT token
-    IERC20 public immutable _vbnt;                          // HARNESS: internal -> public
+    IERC20 public _vbnt;                          // HARNESS: internal -> public
 
     // the address of the VBNT token governance
     ITokenGovernance public _vbntGovernance;                // HARNESS: internal -> public, removed "immutable"
