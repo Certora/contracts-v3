@@ -22,14 +22,15 @@ py ../../EVMVerifier/scripts/certoraRun.py \
             BNTPool:_vbntGovernance=DummyTokenGovernanceB \
             MasterVault:_bntGovernance=DummyTokenGovernanceA \
             MasterVault:_vbntGovernance=DummyTokenGovernanceB \
+            MasterVault:_bnt=DummyERC20bnt \
     --solc solc8.13 \
     --staging \
-    --settings -divideNoRemainder=true \
     --send_only \
-    --rule consistentTradingLiquidity \
-    --method "tradeBySourceAmount(bytes32,address,address,uint256,uint256)" \
+    --rule withdrawAll \
+    --settings -divideNoRemainder=true \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "PoolCol - consistentTradingLiquidity"
+    --msg "New explicit PCW summary 2"
+#--method "tradeBySourceAmount(bytes32,address,address,uint256,uint256)" \

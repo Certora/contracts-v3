@@ -14,9 +14,9 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     --solc solc8.13 \
     --staging \
     --optimistic_loop \
-    --rule_sanity basic \
+    --rule whoChangedTotalSupply \
     --send_only \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "Sanity - basic"
+    --msg "whoChangedTotalSupply !isview"

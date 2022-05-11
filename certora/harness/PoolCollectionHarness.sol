@@ -71,10 +71,6 @@ contract PoolCollectionHarness is PoolCollection{
         return _poolData[pool].liquidity.stakedBalance;
     }
 
-    function poolTotalSupply(Token pool) external view returns (uint) {
-        return _poolData[pool].poolToken.totalSupply();
-    }
-
     // Returns the BNT trading liquidity of a pool whose
     // token is [pool].
     function poolBNTTradingLiquidity(Token pool) external view 

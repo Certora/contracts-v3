@@ -97,34 +97,34 @@ contract BancorNetwork is IBancorNetwork, Upgradeable, ReentrancyGuardUpgradeabl
     bytes32 private constant ROLE_NETWORK_FEE_MANAGER = keccak256("ROLE_NETWORK_FEE_MANAGER");
 
     // the address of the BNT token
-    IERC20 private immutable _bnt;
+    IERC20 public _bnt; // HARNESS: private -> public, removed "immutable"
 
     // the address of the BNT token governance
-    ITokenGovernance private immutable _bntGovernance;
+    ITokenGovernance public _bntGovernance; // HARNESS: private -> public, removed "immutable"
 
     // the address of the VBNT token
-    IERC20 private immutable _vbnt;
+    IERC20 public _vbnt; // HARNESS: private -> public, removed "immutable"
 
     // the address of the VBNT token governance
-    ITokenGovernance private immutable _vbntGovernance;
+    ITokenGovernance public _vbntGovernance; // HARNESS: private -> public, removed "immutable"
 
     // the network settings contract
     INetworkSettings private immutable _networkSettings;
 
     // the master vault contract
-    IMasterVault private immutable _masterVault;
+    IMasterVault public _masterVault; // HARNESS: private -> public, removed "immutable"
 
     // the address of the external protection vault
-    IExternalProtectionVault private immutable _externalProtectionVault;
+    IExternalProtectionVault public _externalProtectionVault; // HARNESS: private -> public, removed "immutable"
 
     // the BNT pool token
-    IPoolToken internal immutable _bntPoolToken;
+    IPoolToken public _bntPoolToken; // HARNESS: private -> public, removed "immutable"
 
     // the BNT pool contract
-    IBNTPool internal _bntPool;
+    IBNTPool public _bntPool; // HARNESS: internal -> public, removed "immutable"
 
     // the pending withdrawals contract
-    IPendingWithdrawals internal _pendingWithdrawals;
+    IPendingWithdrawals public _pendingWithdrawals; // HARNESS: internal -> public, removed "immutable"
 
     // the pool migrator contract
     IPoolMigrator internal _poolMigrator;
@@ -1358,7 +1358,8 @@ contract BancorNetwork is IBancorNetwork, Upgradeable, ReentrancyGuardUpgradeabl
     /**
      * @dev verifies that the specified pool is managed by a valid pool collection and returns it
      */
-    function _poolCollection(Token token) private view returns (IPoolCollection) {
+     // harness -> public
+    function _poolCollection(Token token) public view returns (IPoolCollection) {
         // verify that the pool is managed by a valid pool collection
         IPoolCollection poolCollection = _collectionByPool[token];
         if (address(poolCollection) == address(0)) {
