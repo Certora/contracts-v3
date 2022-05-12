@@ -5,6 +5,7 @@ using DummyERC20B as tokenB
 using DummyPoolTokenA as ptA
 using DummyPoolTokenA as ptB
 using Receiver1 as user
+using NetworkSettings as networkSettings
 
 methods {
     renounceFunding(bytes32, address, uint256) => DISPATCHER(true)
@@ -12,6 +13,7 @@ methods {
     // availableFunding(address) returns(uint256) => DISPATCHER(true)
     poolFundingLimit(address) returns(uint256) => DISPATCHER(true)
     minLiquidityForTrading() returns(uint256) => DISPATCHER(true)
+    networkSettings.minLiquidityForTrading() returns(uint256)
     networkFeePPM() returns(uint32) => DISPATCHER(true)
     withdrawalFeePPM() returns(uint32) => DISPATCHER(true)
     acceptOwnership() => DISPATCHER(true)
@@ -38,8 +40,8 @@ methods {
 }
  
 function setUp() {
-    require poolToken(tokenA) == ptA || poolToken(tokenA) == ptB;
-    require poolToken(tokenB) == ptA || poolToken(tokenB) == ptB;
+    require poolToken(tokenA) == ptA;
+    require poolToken(tokenB) == ptB;
 }
 
 
@@ -66,9 +68,10 @@ rule sanity(method f)
 
 rule more_poolTokens_less_TKN(method f){
     env e;
+        setUp();
+
     require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
     calldataarg args;
-    setUp();
 
     uint256 tkn_balance1 = tokenA.balanceOf(e,e.msg.sender);
     uint256 poolToken_balance1 = ptA.balanceOf(e,e.msg.sender);
@@ -84,7 +87,8 @@ rule more_poolTokens_less_TKN(method f){
 
 rule tradeChangeExchangeRate(){
     env e;
-        
+        setUp();
+
     bytes32 contextId;
     address sourceToken = tokenA;
     address targetToken = tokenB;
@@ -95,8 +99,8 @@ rule tradeChangeExchangeRate(){
     uint256 tradingFeeAmount1; uint256 tradingFeeAmount2;
     uint256 networkFeeAmount1; uint256 networkFeeAmount2;
 
-    amount1,tradingFeeAmount1,networkFeeAmount1 = tradeBySource(e,contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
-    amount2,tradingFeeAmount2,networkFeeAmount2 = tradeBySource(e,contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
+    amount1,tradingFeeAmount1,networkFeeAmount1 = tradeBySourceAmount(e,contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
+    amount2,tradingFeeAmount2,networkFeeAmount2 = tradeBySourceAmount(e,contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
     
     // the returned amount from the second trade should be different from the first
     assert amount1 != amount2;
@@ -114,6 +118,7 @@ invariant tradingEnabledImplLiquidity(address pool, env e)
 
 rule tradeAllBaseTokensShouldFail(){
     env e;
+        setUp();
 
     bytes32 contextId;
     address sourceToken = tokenA;
@@ -125,19 +130,45 @@ rule tradeAllBaseTokensShouldFail(){
     uint256 tradingFeeAmount;
     uint256 networkFeeAmount;
 
-    amount,tradingFeeAmount,networkFeeAmount = tradeByTarget(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
+    amount,tradingFeeAmount,networkFeeAmount = tradeByTargetAmount(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
 
 
-    // assert  amount < targetAmount;
+    assert  amount < targetAmount;
+    // assert false;
+}
+
+rule tradeWhenZeroLiquidity(){
+    env e;
+        setUp();
+
+    bytes32 contextId;
+    address sourceToken = tokenA;
+    address targetToken;// = tokenB;
+    uint256 targetAmount;// = getPoolDataBaseTokenLiquidity(e,targetToken);
+    uint256 maxSourceAmount;// = 2^255;
+
+    uint256 amount;
+    uint256 tradingFeeAmount;
+    uint256 networkFeeAmount;
+
+    // require networkSettings.minLiquidityForTrading(e) == 0;
+    // require poolBNTTradingLiquidity(tokenA) == 0;
+
+    amount,tradingFeeAmount,networkFeeAmount = tradeByTargetAmount(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
+
+
+    assert amount == 0;  
     assert false;
 }
 
+
 rule withdrawAll(){
     env e;
+        setUp();
     require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
 
         bytes32 contextId;
-        address provider = e.msg.sender;
+        address provider;
         address pool = tokenA;
         require ptA == poolToken(pool);
         uint256 poolTokenAmount = ptA.totalSupply(e);
@@ -148,13 +179,16 @@ rule withdrawAll(){
         uint amount = withdraw(e,contextId,provider,pool,poolTokenAmount);
     uint256 balance2 = tokenA.balanceOf(e,provider);
 
-    assert balance2 - balance1 == stakedBalance ;
+    uint256 minLiquitidy = networkSettings.minLiquidityForTrading(e);
+
+    assert balance2 - balance1 == stakedBalance ;    
     assert !getPoolDataTradingEnabled(e,pool); 
     // assert false;
 }
 
 rule onWithdrawAllGetAtLeastStakedAmount(){
-env e;
+    env e;
+        setUp();
     require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
 
 
@@ -172,13 +206,13 @@ env e;
     
 
 invariant DifferentTokens(address tknA, address tknB)
-    hasPool(tknA) && hasPool(tknB) => tknA != tknB => poolToken(tknA) != poolToken(tknB)
+    hasPool(tknA) && hasPool(tknB) && tknA != tknB => poolToken(tknA) != poolToken(tknB)
     {
-       preserved
-       {
-            require (tknA == tokenA && tknB == tokenB) || 
-            (tknA == tokenB && tknB == tokenA);
-       }
+    //    preserved
+    //    {
+    //         require (tknA == tokenA && tknB == tokenB) || 
+    //         (tknA == tokenB && tknB == tokenA); //talk to nurit
+    //    }
        preserved withdraw(bytes32 contextId,address provider,address pool, uint256 tokenAmount) with (env e)
        {
            require provider == user;
@@ -187,7 +221,7 @@ invariant DifferentTokens(address tknA, address tknB)
 
 invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
     // getPoolDataTotalSupply(e,pool) == 0 <=> getPoolDataStakedBalance(e,pool) == 0
-    poolTotalSupply(e,poolToken(pool))== 0 <=> getPoolDataStakedBalance(e,pool) == 0
+    poolTotalSupply(e,pool)== 0 <=> poolStakedBalance(e,pool) == 0
     {
         preserved {
             require pool == tokenA;
@@ -196,7 +230,7 @@ invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
     }
 
 invariant consistentTradingLiquidity(address pool)
-    poolBNTTradingLiquidity(pool) ==0 <=> poolBaseTradingLiquidity(pool) ==0
+    poolBNTTradingLiquidity(pool) == 0 <=> poolBaseTradingLiquidity(pool) == 0
     {
         preserved
         {
@@ -207,13 +241,18 @@ invariant consistentTradingLiquidity(address pool)
     }
 
 invariant stakedBalanceMasterVaultBalance(env e)
-    getPoolDataStakedBalance(e,tokenA) == 0 => tokenA.balanceOf(e,_masterVault(e)) ==0
+    getPoolDataStakedBalance(e,tokenA) == 0 => tokenA.balanceOf(e,_masterVault(e)) == 0
     {
         preserved{
             address pool;
-            require (pool != tokenA =>  getPoolDataStakedBalance(e,pool)==0);
+            require (pool != tokenA =>  getPoolDataStakedBalance(e,pool) == 0);
         }
     }
+
+
+invariant isWhiteListed(address token, env e)
+    hasPool(token) => isTokenWhitelisted(e,token)
+
 // rule poolTokenValueMonotonic(){
 //     env e1; env e2;
 

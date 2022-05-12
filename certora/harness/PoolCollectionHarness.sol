@@ -85,5 +85,8 @@ contract PoolCollectionHarness is PoolCollection{
     returns (uint128) {
         return (_poolData[pool].liquidity.baseTokenTradingLiquidity);
     }
-    //
+    
+    function poolTotalSupply(Token pool) external view returns (uint) {
+        return _poolData[pool].poolToken.totalSupply();
+    }
 }
