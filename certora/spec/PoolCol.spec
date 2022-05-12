@@ -5,14 +5,16 @@ using DummyERC20B as tokenB
 using DummyPoolTokenA as ptA
 using DummyPoolTokenB as ptB
 using Receiver1 as user
+using NetworkSettings as netSet
+using ExternalProtectionVault as EPV
 
 methods {
     renounceFunding(bytes32, address, uint256) => DISPATCHER(true)
     // requestFunding(bytes32, address, uint256) => DISPATCHER(true)
     // availableFunding(address) returns(uint256) => DISPATCHER(true)
+    networkFeePPM() returns (uint32) => DISPATCHER(true)
     poolFundingLimit(address) returns(uint256) => DISPATCHER(true)
     minLiquidityForTrading() returns(uint256) => DISPATCHER(true)
-    networkFeePPM() returns(uint32) => DISPATCHER(true)
     withdrawalFeePPM() returns(uint32) => DISPATCHER(true)
     acceptOwnership() => DISPATCHER(true)
     withdrawFunds(address, address, uint256) => DISPATCHER(true)   
@@ -29,8 +31,6 @@ methods {
     mint(address, uint256) => DISPATCHER(true)
     // receive() => DISPATCHER(true)
     sendTo() returns(bool) => DISPATCHER(true)
-    poolBNTTradingLiquidity(address) returns(uint128) envfree
-    poolBaseTradingLiquidity(address) returns(uint128) envfree
     poolToken(address) returns(address) envfree
     hasPool(address) returns (bool) envfree
     _bnt() returns (address) envfree
@@ -42,6 +42,81 @@ function setUp() {
     require poolToken(tokenB) == ptA || poolToken(tokenB) == ptB;
 }
 
+// Set all withdrawal parameters, but (x,e), to constants (deficit)
+function setConstants_x_e(env env1, address pool){
+
+    uint256 a = 291762234165599000000000;
+    uint256 b = 216553090379207000000;
+    uint256 c = 21681452129588000000;
+    uint256 w = 0;
+    uint256 m = 2000;
+    uint256 n = 2500;
+    address epv = _externalProtectionVault(env1);
+
+    require a == getPoolDataBntTradingLiquidity(env1,pool);
+    require b == getPoolDataBaseTokenLiquidity(env1,pool);
+    require c == tokenUserBalance(env1,pool,_masterVault(env1)) - 
+                getPoolDataBaseTokenLiquidity(env1,pool);
+    //require e == getPoolDataStakedBalance(env1,pool);
+    require w == tokenUserBalance(env1,pool,epv);
+    require m == getPoolDataTradingFee(env1,pool);
+    require n == netSet.networkFeePPM(env1);
+}
+
+// Set all withdrawal parameters, but (x,a), to constants (deficit)
+function setConstants_x_a(env env1, address pool){
+
+    uint256 e = 239020803918874000000;
+    uint256 b = 216553090379207000000;
+    uint256 c = 21681452129588000000;
+    uint256 w = 0;
+    uint256 m = 2000;
+    uint256 n = 2500;
+    address epv = _externalProtectionVault(env1); 
+
+    //require a == getPoolDataBntTradingLiquidity(env1,pool);
+    require b == getPoolDataBaseTokenLiquidity(env1,pool);
+    require c == tokenUserBalance(env1,pool,_masterVault(env1)) - 
+                getPoolDataBaseTokenLiquidity(env1,pool);
+    require e == getPoolDataStakedBalance(env1,pool);
+    require w == tokenUserBalance(env1,pool,epv);
+    require m == getPoolDataTradingFee(env1,pool);
+    require n == netSet.networkFeePPM(env1);
+}
+
+// Set all withdrawal parameters, but x, to constants (deficit)
+function setConstants_x(env env1, address pool){
+
+    uint256 a = 291762234165599000000000;
+    uint256 b = 216553090379207000000;
+    uint256 c = 21681452129588000000;
+    uint256 e = 239020803918874000000;
+    uint256 w = 0;
+    uint256 m = 2000;
+    uint256 n = 2500;
+    address epv = _externalProtectionVault(env1);  
+
+    require a == getPoolDataBntTradingLiquidity(env1,pool);
+    require b == getPoolDataBaseTokenLiquidity(env1,pool);
+    require c == tokenUserBalance(env1,pool,_masterVault(env1)) - 
+                getPoolDataBaseTokenLiquidity(env1,pool);
+    require e == getPoolDataStakedBalance(env1,pool);
+    require w == tokenUserBalance(env1,pool,epv);
+    require m == getPoolDataTradingFee(env1,pool);
+    require n == netSet.networkFeePPM(env1);
+}
+
+// Set withdrawal parameters (w,m,n) to constants.
+function setConstants_wmn_only(env env1, address pool){
+    uint256 w = 0;
+    uint256 m = 2000;
+    uint256 n = 2500;
+    address epv = _externalProtectionVault(env1);  
+
+    require w == tokenUserBalance(env1,pool,epv);
+    require m == getPoolDataTradingFee(env1,pool);
+    require n == netSet.networkFeePPM(env1);
+}
 
 function santasLittleHelper(method f, env e){
     if (f.selector == migratePoolOut(address, address).selector) {
@@ -132,25 +207,25 @@ rule tradeAllBaseTokensShouldFail(){
     assert false;
 }
 
-rule withdrawAll(){
+rule withdrawAll(address provider){
     env e;
-    require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
+    //require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
+    require provider !=currentContract && provider !=_bntPool(e) && provider != _masterVault(e);
 
         bytes32 contextId;
-        address provider = e.msg.sender;
+        //address provider = e.msg.sender;
         address pool = tokenA;
         require ptA == poolToken(pool);
         uint256 poolTokenAmount = ptA.totalSupply(e);
 
     uint256 stakedBalance = getPoolDataStakedBalance(e,pool);
-        
+    setConstants_x_e(e,pool); // Insert here function to set parameters to constants.
     uint256 balance1 = tokenA.balanceOf(e,provider);
         uint amount = withdraw(e,contextId,provider,pool,poolTokenAmount);
     uint256 balance2 = tokenA.balanceOf(e,provider);
-
     assert balance2 - balance1 == stakedBalance ;
     assert !getPoolDataTradingEnabled(e,pool); 
-    // assert false;
+    //assert false;
 }
 
 rule onWithdrawAllGetAtLeastStakedAmount(){
@@ -186,7 +261,6 @@ invariant DifferentTokens(address tknA, address tknB)
     }
 
 invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
-    // getPoolDataTotalSupply(e,pool) == 0 <=> getPoolDataStakedBalance(e,pool) == 0
     poolTotalSupply(e,poolToken(pool))== 0 <=> getPoolDataStakedBalance(e,pool) == 0
     {
         preserved {
@@ -195,8 +269,9 @@ invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
         }
     }
 
-invariant consistentTradingLiquidity(address pool)
-    poolBNTTradingLiquidity(pool) ==0 <=> poolBaseTradingLiquidity(pool) ==0
+invariant consistentTradingLiquidity(env e,address pool)
+    getPoolDataBntTradingLiquidity(e,pool) ==0 <=> 
+    getPoolDataBaseTokenLiquidity(e,pool) ==0
     {
         preserved
         {
@@ -207,13 +282,16 @@ invariant consistentTradingLiquidity(address pool)
     }
 
 invariant stakedBalanceMasterVaultBalance(env e)
-    getPoolDataStakedBalance(e,tokenA) == 0 => tokenA.balanceOf(e,_masterVault(e)) ==0
+    tokenA.balanceOf(e,_masterVault(e)) ==0 => getPoolDataStakedBalance(e,tokenA) ==0 
     {
         preserved{
+            require poolToken(tokenA) == ptA;
             address pool;
+            require pool !=0 && pool !=_masterVault(e);
             require (pool != tokenA =>  getPoolDataStakedBalance(e,pool)==0);
         }
     }
+
 // rule poolTokenValueMonotonic(){
 //     env e1; env e2;
 
