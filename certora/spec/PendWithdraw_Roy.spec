@@ -19,8 +19,7 @@ methods {
     lockDuration() returns(uint32) envfree
     _bntPool() returns(address) envfree
     poolTotalSupply(address) returns (uint256) envfree
-    withdrawalRequest(uint256) returns ((address,address,address,
-    uint32,uint256,uint256)) envfree
+    withdrawalRequest(uint256) returns ((address, address, address, uint32,uint256,uint256)) envfree
     poolTokenBalance(address,address) returns(uint256) envfree
     completeWithdrawal(bytes32,address,uint256)
     initWithdrawal(address,address,uint256) 
@@ -38,8 +37,6 @@ methods {
     reserveToken() returns (address) => DISPATCHER(true)
     // ERC20 Burnable
     burn(uint256) => DISPATCHER(true)
-    // MathEx
-    mulDivF(uint256 x, uint256 y, uint256 z) => ALWAYS(5)//!mulDivNoFloorSummary(x, y, z)
 }
 
 //////////////////////////////////////

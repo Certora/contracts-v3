@@ -5,8 +5,12 @@ using DummyPoolColB as PoolColB
 using DummyERC20A as tokenA
 using DummyERC20B as tokenB
 using DummyPoolTokenA as ptA
-using MasterVault as mVault
-
+using DummyPoolTokenB as ptB
+using DummyPoolTokenBNT as ptBNT
+using MasterVault as masVault
+using DummyERC20bnt as bnt
+using DummyERC20vbnt as vbnt
+using PendingWithdrawalsHarness as PendWit
 
 ////////////////////////////////////////////////////////////////////////////
 //                      Methods                                           //
@@ -26,7 +30,22 @@ methods {
                 returns (uint256,uint256,uint256) => DISPATCHER(true)
     poolType() returns (uint16) => DISPATCHER(true)
     poolCount() returns (uint256) => DISPATCHER(true)
+    poolToken(address) returns (address) => DISPATCHER(true)
     createPool(address) => DISPATCHER(true)
+    withdraw(bytes32,address,address,uint256) returns (uint256) => DISPATCHER(true)
+    renounceFunding(bytes32, address, uint256) => DISPATCHER(true)
+    poolFundingLimit(address) returns(uint256) => DISPATCHER(true)
+    withdrawalFeePPM() returns(uint32) => DISPATCHER(true)
+    poolTokenToUnderlying(address, uint256) returns (uint256) => NONDET
+    underlyingToPoolToken(address, uint256) returns (uint256) => NONDET
+
+    // BNT pool
+    withdraw(bytes32,address,uint256) returns (uint256) => DISPATCHER(true)
+    poolTokenToUnderlying(uint256) returns (uint256) => NONDET
+    underlyingToPoolToken(uint256) returns (uint256) => NONDET
+
+    // PendingWithdrawals
+    lockDuration() returns(uint32) => DISPATCHER(true)
 
     // Others
     permit(address,address,uint256,uint256,uint8,bytes32,bytes32) => DISPATCHER(true)
@@ -38,7 +57,9 @@ methods {
     burnFrom(address, uint256) => DISPATCHER(true)
     burnFromVault(uint256) => DISPATCHER(true)
     mint(address, uint256) => DISPATCHER(true)
+    issue(address, uint256) => DISPATCHER(true)
     destroy(address, uint256) => DISPATCHER(true)
+    returnToken(address) returns (address) => DISPATCHER(true)
     reserveToken() returns (address) => DISPATCHER(true)
 }
 
@@ -66,32 +87,68 @@ rule reachability(method f)
 	assert false;
 }
 
-rule checkinitWithdraw(uint amount)
+rule checkInitWithdraw(uint amount, address poolToken)
 {
     env e;
-    initWithdrawal(e,ptA, amount);
+    address token;
+
+    require poolToken != ptBNT =>
+            (poolToken == ptA && token == tokenA && 
+            token == returnToken(e,poolToken) &&
+            tokenInPoolCollectionA(token));
+
+    require poolToken != ptBNT;
+
+    initWithdrawal(e,poolToken,amount);
     assert false;
 }
 
-rule checkcancelWithdrawal(uint id)
+rule noDoubleCancelling(uint amount, address poolToken)
 {
     env e;
+    address token = PendWit.returnToken(e,poolToken);
+
+    require poolToken == ptBNT <=> bnt == token;
+
+    require poolToken != ptBNT =>
+            (poolToken == ptA && token == tokenA && 
+            tokenInPoolCollectionA(token));
+    
+    uint id = initWithdrawal(e,poolToken,amount);
     cancelWithdrawal(e,id);
+    cancelWithdrawal@withrevert(e,id);
+    assert lastReverted;
     assert false;
 }
 
-rule tradeBalancesChanged(uint amount, address beneficiary)
+
+rule checkWithdraw()
 {
     env e;
-    uint256 maxSourceAmount;
-    uint256 deadline;
-    require e.msg.sender != mVault;
+    uint amount = 5;
+    address token = tokenA;
+    address poolToken = ptA;
+    uint id;
+
+    require PendWit.lockDuration(e) == 0;
+    setupTokenPoolColA(e,token,poolToken);
+    id = initWithdrawal(e,poolToken,amount);
+         withdraw(e,id);
+    
+    assert false;
+}
+
+rule tradeBalancesChanged(uint amount)
+{
+    env e;
+    uint256 maxSourceAmount = max_uint;
+    address beneficiary = e.msg.sender;
+    uint256 deadline = 0;
+    require e.msg.sender != masVault;
     tokensPoolCollectionsSetup(tokenA,tokenB);
 
     uint256 balanceA1 = tokenA.balanceOf(e,e.msg.sender);
     uint256 balanceB1 = tokenB.balanceOf(e,e.msg.sender);
-
-    require balanceB1 + amount < max_uint;
 
     tradeByTargetAmount(e,tokenA,tokenB,
         amount,maxSourceAmount,deadline,beneficiary);
@@ -126,6 +183,25 @@ function tokenInPoolCollectionB(address tkn) returns bool
 function tokensPoolCollectionsSetup(address tknA, address tknB)
 {
     require tknA != tknB;
-    require myXor(tokenInPoolCollectionA(tknA),tokenInPoolCollectionB(tknA));
-    require myXor(tokenInPoolCollectionA(tknB),tokenInPoolCollectionB(tknB));
+    require myXor(tokenInPoolCollectionA(tknA), tokenInPoolCollectionB(tknA));
+    require myXor(tokenInPoolCollectionA(tknB), tokenInPoolCollectionB(tknB));
+}
+
+// Token in pool collection setup
+function setupTokenPoolColA(env env1, address token, address poolToken1)
+{
+    require poolToken1 == ptBNT <=> token == bnt;
+    require poolToken1 != ptBNT =>  
+            token == PendWit.returnToken(env1,poolToken1) &&
+            poolToken1 == PoolColA.poolToken(env1,token) &&
+            tokenInPoolCollectionA(token);
+}
+// Token in pool collection setup
+function setupTokenPoolColB(env env1, address token, address poolToken1)
+{
+    require poolToken1 == ptBNT <=> token == bnt;
+    require poolToken1 != ptBNT => 
+            token == PendWit.returnToken(env1,poolToken1) &&
+            poolToken1 == PoolColB.poolToken(env1,token) &&
+            tokenInPoolCollectionB(token);
 }
