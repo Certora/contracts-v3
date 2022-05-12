@@ -51,17 +51,24 @@ py ../../EVMVerifier/scripts/certoraRun.py \
             BNTPool:_vbntGovernance=DummyTokenGovernanceB \
             \
             \
+            MasterVault:_bnt=DummyERC20bnt \
+            MasterVault:_vbnt=DummyERC20vbnt \
             MasterVault:_bntGovernance=DummyTokenGovernanceA \
             MasterVault:_vbntGovernance=DummyTokenGovernanceB \
             \
             \
+            ExternalProtectionVault:_bnt=DummyERC20bnt \
+            ExternalProtectionVault:_vbnt=DummyERC20vbnt \
+            ExternalProtectionVault:_bntGovernance=DummyTokenGovernanceA \
+            ExternalProtectionVault:_vbntGovernance=DummyTokenGovernanceB \
+            \
     --solc solc8.13 \
     --staging \
     --send_only \
-    --rule reachability \
+    --rule tradeBalancesChanged \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "Bancor Network reachability methods 1"
+    --msg "Bancor Network checkTradeByTarget"
 #--settings -divideNoRemainder=true \

@@ -4,6 +4,8 @@ using DummyPoolColA as PoolColA
 using DummyPoolColB as PoolColB
 using DummyERC20A as tokenA
 using DummyERC20B as tokenB
+using DummyPoolTokenA as ptA
+using MasterVault as mVault
 
 
 ////////////////////////////////////////////////////////////////////////////
@@ -19,11 +21,11 @@ methods {
     // Pool collection
     depositFor(bytes32,address,address,uint256) returns (uint256) => DISPATCHER(true)
     tradeByTargetAmount(bytes32,address,address,uint256,uint256)
-                                        returns (uint256,uint256,uint256) => DISPATCHER(true)
+                returns (uint256,uint256,uint256) => DISPATCHER(true)
     tradeBySourceAmount(bytes32,address,address,uint256,uint256)
-                                        returns (uint256,uint256,uint256) => DISPATCHER(true)
-    poolType() returns (uint16) envfree => DISPATCHER(true)
-    poolCount() returns (uint256) envfree => DISPATCHER(true)
+                returns (uint256,uint256,uint256) => DISPATCHER(true)
+    poolType() returns (uint16) => DISPATCHER(true)
+    poolCount() returns (uint256) => DISPATCHER(true)
     createPool(address) => DISPATCHER(true)
 
     // Others
@@ -37,6 +39,7 @@ methods {
     burnFromVault(uint256) => DISPATCHER(true)
     mint(address, uint256) => DISPATCHER(true)
     destroy(address, uint256) => DISPATCHER(true)
+    reserveToken() returns (address) => DISPATCHER(true)
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -61,6 +64,43 @@ rule reachability(method f)
 	calldataarg args;
 	f(e,args);
 	assert false;
+}
+
+rule checkinitWithdraw(uint amount)
+{
+    env e;
+    initWithdrawal(e,ptA, amount);
+    assert false;
+}
+
+rule checkcancelWithdrawal(uint id)
+{
+    env e;
+    cancelWithdrawal(e,id);
+    assert false;
+}
+
+rule tradeBalancesChanged(uint amount, address beneficiary)
+{
+    env e;
+    uint256 maxSourceAmount;
+    uint256 deadline;
+    require e.msg.sender != mVault;
+    tokensPoolCollectionsSetup(tokenA,tokenB);
+
+    uint256 balanceA1 = tokenA.balanceOf(e,e.msg.sender);
+    uint256 balanceB1 = tokenB.balanceOf(e,e.msg.sender);
+
+    require balanceB1 + amount < max_uint;
+
+    tradeByTargetAmount(e,tokenA,tokenB,
+        amount,maxSourceAmount,deadline,beneficiary);
+
+    uint256 balanceA2 = tokenA.balanceOf(e,e.msg.sender);
+    uint256 balanceB2 = tokenB.balanceOf(e,e.msg.sender);
+    
+    //assert balanceA2 < balanceA1;
+    assert balanceB1 + amount == balanceB2;
 }
 
 ////////////////////////////////////////////////////////////////////////////

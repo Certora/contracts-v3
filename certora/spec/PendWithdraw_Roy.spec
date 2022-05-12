@@ -657,13 +657,27 @@ invariant TotalRequestPTlessThanSupply(address poolToken)
         // In Bancor network, before calling initWithdrawal, the provider transfers its
         // Pool tokens to the _pendingWithdrawal contract, i.e. the protocol.
         require poolToken == poolToken2;
-        require poolTokenBalance(poolToken, currentContract) >= poolTokenAmount;y
+        require poolTokenBalance(poolToken, currentContract) >= poolTokenAmount;
         // If we require invariant of solvency:
         // sum(requests pool tokens) <= sum(user balance) <= Total supply
         // this should probably let the rule pass.
+        //sumRequestPoolTokens + poolTokenAmount <= sum(userbalance)
         require poolTotalSupply(poolToken) >= poolTokenAmount;
     }
    }
+
+// All pass
+rule whoChangedTotalSupply(method f) 
+filtered { f-> !f.isView}
+{
+    address poolToken = ptA;
+    env e;
+    calldataarg args;
+    uint totSup1 = poolTotalSupply(poolToken);
+    f(e,args);
+    uint totSup2 = poolTotalSupply(poolToken);
+    assert totSup1 == totSup2;
+}   
 
 // For every request, the number of registered pool tokens cannot be larger
 // than the total supply.

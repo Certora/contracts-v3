@@ -22,9 +22,9 @@ fi
             BNTPool:_vbntGovernance=DummyTokenGovernanceB \
             MasterVault:_bntGovernance=DummyTokenGovernanceA \
             MasterVault:_vbntGovernance=DummyTokenGovernanceB \
+            MasterVault:_bnt=DummyERC20bnt \
     --solc solc8.13 \
     --staging \
-    --settings -divideNoRemainder=true \
     $RULE  \
     --optimistic_loop \
     --packages_path node_modules \
