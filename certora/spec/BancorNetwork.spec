@@ -127,11 +127,14 @@ rule checkWithdraw()
     env e;
     uint amount = 5;
     address token = tokenA;
-    uint id = initWithdrawal(e, ptA, amount);
-    require ptA == PoolColA.poolToken(e,token);
-    require tokenInPoolCollectionA(token);
+    address poolToken = ptA;
+    uint id;
+
     require PendWit.lockDuration(e) == 0;
-    withdraw(e,id);
+    setupTokenPoolColA(e,token,poolToken);
+    id = initWithdrawal(e,poolToken,amount);
+         withdraw(e,id);
+    
     assert false;
 }
 
@@ -185,18 +188,20 @@ function tokensPoolCollectionsSetup(address tknA, address tknB)
 }
 
 // Token in pool collection setup
-function setupTokenPoolColA(env env1, address token, address poolToken)
+function setupTokenPoolColA(env env1, address token, address poolToken1)
 {
-    require poolToken == ptBNT <=> token == bnt;
-    require poolToken != ptBNT =>  
-            token == PendWit.returnToken(env1,poolToken) &&
+    require poolToken1 == ptBNT <=> token == bnt;
+    require poolToken1 != ptBNT =>  
+            token == PendWit.returnToken(env1,poolToken1) &&
+            poolToken1 == PoolColA.poolToken(env1,token) &&
             tokenInPoolCollectionA(token);
 }
 // Token in pool collection setup
-function setupTokenPoolColB(env env1, address token, address poolToken)
+function setupTokenPoolColB(env env1, address token, address poolToken1)
 {
-    require poolToken == ptBNT <=> token == bnt;
-    require poolToken != ptBNT => 
-            token == PendWit.returnToken(env1,poolToken) &&
+    require poolToken1 == ptBNT <=> token == bnt;
+    require poolToken1 != ptBNT => 
+            token == PendWit.returnToken(env1,poolToken1) &&
+            poolToken1 == PoolColB.poolToken(env1,token) &&
             tokenInPoolCollectionB(token);
 }
