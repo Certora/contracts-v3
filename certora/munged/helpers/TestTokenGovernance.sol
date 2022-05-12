@@ -12,7 +12,7 @@ contract TestTokenGovernance is ITokenGovernance, AccessControlEnumerable {
     bytes32 public constant ROLE_GOVERNOR = keccak256("ROLE_GOVERNOR");
     bytes32 public constant ROLE_MINTER = keccak256("ROLE_MINTER");
 
-    IMintableToken private immutable _token;
+    IMintableToken internal immutable _token;   // private -> internal
 
     constructor(IMintableToken mintableToken) {
         _token = mintableToken;

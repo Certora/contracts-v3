@@ -3,7 +3,7 @@ import "../helpers/erc20.spec"
 using DummyERC20A as tokenA
 using DummyERC20B as tokenB
 using DummyPoolTokenA as ptA
-using DummyPoolTokenA as ptB
+using DummyPoolTokenB as ptB
 using Receiver1 as user
 
 methods {

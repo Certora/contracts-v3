@@ -19,9 +19,9 @@ methods {
     // Pool collection
     depositFor(bytes32,address,address,uint256) returns (uint256) => DISPATCHER(true)
     tradeByTargetAmount(bytes32,address,address,uint256,uint256)
-    returns (uint256,uint256,uint256) => DISPATCHER(true)
+                                        returns (uint256,uint256,uint256) => DISPATCHER(true)
     tradeBySourceAmount(bytes32,address,address,uint256,uint256)
-    returns (uint256,uint256,uint256) => DISPATCHER(true)
+                                        returns (uint256,uint256,uint256) => DISPATCHER(true)
     poolType() returns (uint16) envfree => DISPATCHER(true)
     poolCount() returns (uint256) envfree => DISPATCHER(true)
     createPool(address) => DISPATCHER(true)
@@ -86,6 +86,6 @@ function tokenInPoolCollectionB(address tkn) returns bool
 function tokensPoolCollectionsSetup(address tknA, address tknB)
 {
     require tknA != tknB;
-    require myXor(tokenInPoolCollectionA(tknA),tokenInPoolCollectionB(tknA));
-    require myXor(tokenInPoolCollectionA(tknB),tokenInPoolCollectionB(tknB));
+    require myXor(tokenInPoolCollectionA(tknA), tokenInPoolCollectionB(tknA));
+    require myXor(tokenInPoolCollectionA(tknB), tokenInPoolCollectionB(tknB));
 }

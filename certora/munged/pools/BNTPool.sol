@@ -54,19 +54,19 @@ contract BNTPool is IBNTPool, Vault {
     }
 
     // the network contract
-    IBancorNetwork private immutable _network;
+    IBancorNetwork public _network;                 // HARNESS: private -> public, removed "immutable"
 
     // the network settings contract
     INetworkSettings private immutable _networkSettings;
 
     // the master vault contract
-    IMasterVault public _masterVault;                // HARNESS: private -> public, removed "immutable"
+    IMasterVault public _masterVault;               // HARNESS: private -> public, removed "immutable"
 
     // the BNT pool token
     IPoolToken public _poolToken;                   // HARNESS: internal -> public, removed "immutable"
 
     // the total staked BNT balance in the network
-    uint256 private _stakedBalance;
+    uint256 public _stakedBalance;                  // HARNESS: private -> public
 
     // a mapping between pools and their current funding
     mapping(Token => uint256) private _currentPoolFunding;
