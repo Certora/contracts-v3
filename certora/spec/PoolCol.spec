@@ -16,7 +16,6 @@ methods {
     poolFundingLimit(address) returns(uint256) => DISPATCHER(true)
     minLiquidityForTrading() returns(uint256) => DISPATCHER(true)
     networkSettings.minLiquidityForTrading() returns(uint256)
-    networkFeePPM() returns(uint32) => DISPATCHER(true)
     withdrawalFeePPM() returns(uint32) => DISPATCHER(true)
     acceptOwnership() => DISPATCHER(true)
     withdrawFunds(address, address, uint256) => DISPATCHER(true)   
@@ -37,6 +36,8 @@ methods {
     hasPool(address) returns (bool) envfree
     _bnt() returns (address) envfree
     migratePoolOut(address, address)
+
+    callRemoveTokenFromWhiteList(address) envfree
 }
  
 function setUp() {
@@ -51,8 +52,8 @@ function setConstants_x_e(env env1, address pool){
     uint256 b = 216553090379207000000;
     uint256 c = 21681452129588000000;
     uint256 w = 0;
-    uint256 m = 2000;
-    uint256 n = 2500;
+    uint256 m = 0;//2000;
+    uint256 n = 0;//2500;
     address epv = _externalProtectionVault(env1);
 
     require a == getPoolDataBntTradingLiquidity(env1,pool);
@@ -165,14 +166,16 @@ rule tradeChangeExchangeRate(){
         setUp();
 
     bytes32 contextId;
-    address sourceToken = tokenA;
-    address targetToken = tokenB;
+    address sourceToken;
+    address targetToken;
     uint256 sourceAmount;
     uint256 minReturnAmount;
 
     uint256 amount1; uint256 amount2;
     uint256 tradingFeeAmount1; uint256 tradingFeeAmount2;
     uint256 networkFeeAmount1; uint256 networkFeeAmount2;
+
+    require sourceToken == tokenA || targetToken == tokenA; // the other token is BNT
 
     amount1,tradingFeeAmount1,networkFeeAmount1 = tradeBySourceAmount(e,contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
     amount2,tradingFeeAmount2,networkFeeAmount2 = tradeBySourceAmount(e,contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
@@ -214,11 +217,11 @@ rule tradeAllBaseTokensShouldFail(){
 
 rule tradeWhenZeroLiquidity(){
     env e;
-        setUp();
+        // setUp();
 
     bytes32 contextId;
-    address sourceToken = tokenA;
-    address targetToken;// = tokenB;
+    address sourceToken;// = tokenA;
+    address targetToken;// = ptA;
     uint256 targetAmount;// = getPoolDataBaseTokenLiquidity(e,targetToken);
     uint256 maxSourceAmount;// = 2^255;
 
@@ -226,14 +229,13 @@ rule tradeWhenZeroLiquidity(){
     uint256 tradingFeeAmount;
     uint256 networkFeeAmount;
 
-    // require networkSettings.minLiquidityForTrading(e) == 0;
-    // require poolBNTTradingLiquidity(tokenA) == 0;
+    require sourceToken == tokenA || targetToken == tokenA; // the other token is BNT
+    require networkSettings.minLiquidityForTrading(e) == 0;
+    require getPoolDataBntTradingLiquidity(e,tokenA) == 0;
 
-    amount,tradingFeeAmount,networkFeeAmount = tradeByTargetAmount(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
+    amount,tradingFeeAmount,networkFeeAmount = tradeByTargetAmount@withrevert(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
 
-
-    assert amount == 0;  
-    assert false;
+    assert lastReverted;
 }
 
 rule withdrawAll(address provider){

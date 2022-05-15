@@ -88,7 +88,11 @@ contract PoolCollectionHarness is PoolCollection{
             return amounts.baseTokensToTransferFromMasterVault;
     }
     
-    function poolTotalSupply(Token pool) external view returns (uint) {
-        return _poolData[pool].poolToken.totalSupply();
-    }
+    // function poolTotalSupply(Token pool) external view returns (uint) {
+    //     return _poolData[pool].poolToken.totalSupply();
+    // }
+
+        // function callRemoveTokenFromWhiteList(Token token) external {
+        //     networkSettings.removeTokenFromWhitelist(token);
+        // }
 }
