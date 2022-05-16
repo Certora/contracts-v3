@@ -26,6 +26,7 @@ fi
     --solc solc8.13 \
     --staging \
     $RULE  \
+    --settings -divideNoRemainder=true \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin @bancor=node_modules/@bancor \
