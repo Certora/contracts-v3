@@ -38,10 +38,10 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
     IBancorNetwork public _network;                    // HARNESS: private -> public, removed "immutable"
 
     // the BNT contract
-    IERC20 public immutable _bnt;                      // HARNESS: private -> public
+    IERC20 public _bnt;                      // HARNESS: private -> public, remove "immutable"
 
     // the BNT pool contract
-    IBNTPool public immutable _bntPool;                // HARNESS: private -> public
+    IBNTPool public _bntPool;                // HARNESS: private -> public, remove "immutable"
 
     // the lock duration
     uint32 private _lockDuration;             

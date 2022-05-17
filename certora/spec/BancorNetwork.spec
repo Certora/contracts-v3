@@ -69,8 +69,8 @@ methods {
     issue(address, uint256) => DISPATCHER(true)
     destroy(address, uint256) => DISPATCHER(true)
     reserveToken() returns (address) => DISPATCHER(true)
-    mulDivF(uint256 x,uint256 y,uint256 z) returns (uint256) => simpleMulDiv(x,y,z)
-    mulDivC(uint256 x,uint256 y,uint256 z) returns (uint256) => simpleMulDiv(x,y,z)
+    mulDivF(uint256 x,uint256 y,uint256 z) returns (uint256) => simpleMulDivIf(x,y,z)
+    mulDivC(uint256 x,uint256 y,uint256 z) returns (uint256) => simpleMulDivIf(x,y,z)
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -200,8 +200,8 @@ rule tradeBntLiquidity(uint amount)
 
     uint128 bntLiqA2 = PoolCol.getPoolDataBntTradingLiquidity(tknA);
     uint128 bntLiqB2 = PoolCol.getPoolDataBntTradingLiquidity(tknB);
-    //assert false;
-    assert bntLiqA2 <= bntLiqA1 && bntLiqB1 <= bntLiqB2;
+    assert false;
+    //assert bntLiqA2 <= bntLiqA1 && bntLiqB1 <= bntLiqB2;
 }
 
 
@@ -242,34 +242,36 @@ rule noDoubleWithdrawal(uint256 ptAmount)
     env e;
     address poolToken;
     address token;
-    require poolToken == ptA || poolToken == ptBNT;
-    setupTokenPoolCol(e,token,poolToken);
+    require poolToken == ptBNT;
+    //setupTokenPoolCol(e,token,poolToken);
     
-    uint id;// = initWithdrawal(e,poolToken,ptAmount);
+    uint id = initWithdrawal(e,poolToken,ptAmount);
     uint256 withAmount = withdraw(e,id);
     withdraw@withrevert(e,id);
     
     assert lastReverted;
 }
 
-rule depositBNT(uint256 amount)
+rule depositBNTintegrity(uint256 amount)
 {
     env e;
     require e.msg.sender != currentContract &&
             e.msg.sender != PendWit;
 
+    require ptBNT.reserveToken(e) == bnt;
     uint balance1 = ptBNT.balanceOf(e,e.msg.sender);
     uint balanceBNT1 = bnt.balanceOf(e,e.msg.sender);
 
     uint amountPT = deposit(e,bnt,amount);
-    //uint id = initWithdrawal(e,poolToken, amountPT);
+    uint id = initWithdrawal(e,ptBNT, amountPT);
 
     uint balance2 = ptBNT.balanceOf(e,e.msg.sender);
     uint balanceBNT2 = bnt.balanceOf(e,e.msg.sender);
 
-    assert false;
+    //assert false;
+    //assert !lastReverted;
     assert balance2 == balance1 + amountPT , "User's PT balance did not increase as expected";
-    //assert balanceBNT1 == balanceBNT2 + amount , "User's BNT balance did not decrease as expected";
+    assert balanceBNT1 == balanceBNT2 + amount , "User's BNT balance did not decrease as expected";
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -319,8 +321,8 @@ returns uint256
 {
     uint256 f;
     require z != 0;
-    require ( x==q*z && f==q*y ) || ( y==q*z && f==q*x ) || 
-            ( q*x==z && f==y/q && y%q ==0 ) || ( q*y==z && f==x/q && x%q ==0);
+    require ( x == q * z && f==q * y ) || ( y==q*z && f==q*x ) || 
+            ( q * x ==z && f == y / q && y % q ==0 ) || ( q*y==z && f==x/q && x%q ==0);
     return f;
 }
 
@@ -330,15 +332,15 @@ function simpleMulDiv(uint256 x,uint256 y, uint256 z) returns uint256
     bool dontDividebyZero = z != 0;
     // We restrict to no remainders
     // Possible quotients : Qut[q] means that y/z or x/z is q.
-    bool Qut0 = (x==0 || y==0) && (f == 0);
-    bool Qut1 = ( x==z && f==y ) || ( y==z && f==x );
-    bool Qut2 = ( x==2*z && f==2*y ) || ( y==2*z && f==2*x );
-    bool Qut3 = ( x==3*z && f==3*y ) || ( y==3*z && f==3*x );
-    bool Qut10 = ( x==10*z && f==10*y ) || ( y==10*z && f==10*x );
-    bool Qut1_2 = ( 2*x==z && f==y/2 && y%2 ==0) || ( 2*y==z && f==x/2 && x%2 ==0);
-    bool Qut1_3 = ( 3*x==z && f==y/3 && y%3 ==0 ) || ( 3*y==z && f==x/3 && x%3 ==0);
-    bool Qut1_10 = ( 10*x==z && f==y/10 && y%10 ==0 ) || 
-                    ( 10*y==z && f==x/10 && x%10 ==0);
+    bool Qut0 = (x ==0 || y ==0) && (f == 0);
+    bool Qut1 = ( x == z && f == y ) || ( y == z && f == x );
+    bool Qut2 = ( x == 2 * z && f == 2 * y ) || ( y == 2 * z && f == 2 * x );
+    bool Qut3 = ( x == 3 * z && f == 3 * y ) || ( y == 3 * z && f == 3 * x );
+    bool Qut10 = ( x == 10 * z && f==10*y ) || ( y== 10 * z && f == 10 * x );
+    bool Qut1_2 = ( 2 * x == z && f == y / 2 && y % 2 ==0) || ( 2 * y ==z && f == x/2 && x % 2 ==0);
+    bool Qut1_3 = ( 3 * x == z && f == y / 3 && y % 3 ==0) || ( 3 * y ==z && f == x/3 && x % 3 ==0);
+    bool Qut1_10 = ( 10 * x == z && f == y / 10 && y % 10 ==0) || 
+                    ( 10 * y == z && f == x/ 10 && x % 10 ==0);
 
     require dontDividebyZero;
     require Qut0 || Qut1 || Qut2 || Qut3 || Qut10 || Qut1_2 || Qut1_3 || Qut1_10;
@@ -353,14 +355,14 @@ function simpleMulDivIf(uint256 x,uint256 y, uint256 z) returns uint256
     bool Success = true;
     require dontDividebyZero;
 
-    if(x == 0 || y==0)    {f = 0;}
-    else if(y == 2 * z)     {f=2*x;}
-    else if(y == 3 * z)     {f=3*x;}
-    else if(y == 10 * z)    {f=10*x;}
-    else if(2*y==z && x%2 ==0)  {f=x/2;}
-    else if(3*y==z && x%3 ==0)  {f=x/3;}
-    else if(10*y==z && x%10 ==0)    {f=x/10;}
-    else if(y==z)   { f=x; }
+    if(x ==0 || y ==0)      {f = 0;}
+    else if(y == 2 * z)     {f = 2 * x;}
+    else if(y == 3 * z)     {f = 3 * x;}
+    else if(y == 10 * z)    {f = 10 * x;}
+    else if(2 * y == z && x % 2 ==0)  {f = x / 2;}
+    else if(3 * y == z && x % 3 ==0)  {f = x / 3;}
+    else if(10*y == z && x % 10 ==0)    {f = x / 10;}
+    else if(y == z)   { f = x;}
     else    {f = 0; Success = false;}
 
     require Success;
@@ -370,15 +372,15 @@ function simpleMulDivIf(uint256 x,uint256 y, uint256 z) returns uint256
 
 function mulDivFactor2(uint256 x,uint256 y, uint256 z) returns uint256 
 {
-    require z!=0;
-    if(x==0 || y==0){
+    require z !=0;
+    if(x == 0 || y == 0){
         return 0;
     }
-    else if(y>z){
-        return to_uint256(2*x);
+    else if(y > z){
+        return to_uint256(2 * x);
     }
-    else if(y<z){
-        return to_uint256(x/2);
+    else if(y < z){
+        return to_uint256(x / 2);
     }
     else{
         return x;

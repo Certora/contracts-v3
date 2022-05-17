@@ -165,12 +165,15 @@ function requestPoolToken(uint id) returns address {
     return poolToken;
 }
 
-// Summarization for mulDivF (currently not in use)
-function mulDivNoFloorSummary(uint256 x,uint256 y,uint256 z) returns uint256 {
-  require(z > 0);
-  uint256 w = (x * y) / z;
-  require w * z == x * y;
-  return x;
+
+function requestCreatedAt(uint id) returns uint32 {
+    address provider; address poolToken; address reserveToken;
+    uint32 createdAt; uint256 poolTokenAmount; uint256 reserveTokenAmount;
+
+    provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
+        reserveTokenAmount = currentContract.withdrawalRequest(id);
+
+    return createdAt;
 }
 
 // Remainder of multiplication by division
@@ -250,9 +253,9 @@ rule poolTokenToUnderlyingMono_BNT(uint256 amount1, uint256 amount2)
 //     env e;
 //     address token = erc20;
 
-//     require PC.poolToken(e,token) == ptA;
-//     require PC.poolTotalSupply(e,token) == 1;
-//     require PC.poolStakedBalance(e,token) == stake;
+    require PC.poolToken(e,token) == ptA;
+    require PC.poolTotalSupply(e,token) == 1;
+    require PC.getPoolDataStakedBalance(e,token) == stake;
 
 //     uint UAmount = PC.poolTokenToUnderlying(e,token,amount);
 
@@ -365,7 +368,6 @@ rule changeNextWithdrawalId()
     assert !reverted => id1 + 1 == id2, "id wasn't increased by 1 as expected";
     assert reverted => id1 == id2, "id was changed unexpectedly";
 }
-
 
 // Any cancelled request with a given id, cannot be associated
 // with any provider (including the original).
@@ -530,7 +532,6 @@ rule checkSpecificId(address provider)
 
 // No two identical IDs for provider
 // Current status: PASSES
-// Preserved violated for completeWithdrawal.
 invariant noIdenticalIDs(address provider, uint ind1, uint ind2)
     (
         validInd_Request(provider, ind1) &&
@@ -751,7 +752,7 @@ rule burnPTsAfterCompleteWithdrawal(uint id)
 // Current status : FAILS
 // The current implementation of completeWithdrawal transfers PT to the
 // provider. We know it should change in the future.
-rule pTsInvarianceForProvider(uint id)
+rule ptInvarianceForProvider(uint id)
 {
     env e;
     address provider = requestProvider(id);
@@ -788,4 +789,34 @@ rule providerGetsPTsBack(uint id)
     uint PTbalance2 = ptA.balanceOf(e,provider);
 
     assert PTbalance1 + amount == PTbalance2;
+}
+// For any registered request, the time it was created must be earlier 
+// than the current block time and no earlier than when the request was sent.
+// Current status: FAILS
+// the createdAt field of the request is given by time() function which supposed
+// to give the block.timestamp. For some reason it is not the same as in here.
+rule validRequestTime(method f)
+{
+    env e;
+    address provider;
+    address poolToken = ptA;
+    uint256 amount;
+    calldataarg args;
+
+    uint timeInit = e.block.timestamp;
+    f(e,args);
+    uint id = initWithdrawal(e,provider,poolToken,amount);
+    uint time = to_uint256(requestCreatedAt(id));
+    uint timeEnd = e.block.timestamp;
+    assert timeEnd >= time && time >= timeInit;
+}
+
+// Reachability
+// Current status: FAILS for all functions.
+rule reachability(method f)
+{   
+    env e;
+    calldataarg args;
+    f(e, args);
+    assert false;
 }
