@@ -38,8 +38,17 @@ py ../../EVMVerifier/scripts/certoraRun.py \
             PoolCollectionHarness:_externalProtectionVault=ExternalProtectionVault \
             \
             \
+            PendingWithdrawalsHarness:_bnt=DummyERC20bnt \
             PendingWithdrawalsHarness:_bntPool=BNTPool \
             PendingWithdrawalsHarness:_network=BancorNetwork \
+            \
+            \
+            BNTPool:_poolToken=DummyPoolTokenBNT \
+            BNTPool:_bnt=DummyERC20bnt \
+            BNTPool:_vbnt=DummyERC20vbnt \
+            BNTPool:_bntGovernance=DummyTokenGovernanceA \
+            BNTPool:_vbntGovernance=DummyTokenGovernanceB \
+            BNTPool:_masterVault=MasterVault \
             \
             \
             MasterVault:_bnt=DummyERC20bnt \
@@ -56,13 +65,13 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     --solc solc8.13 \
     --staging \
     --send_only \
-    --rule tradeBntLiquidity \
+    --rule depositBNTintegrity \
     --disable_auto_cache_key_gen \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "tradeBntLiquidity simpleMulDiv "
+    --msg "depositBNTintegrity"
 
 #DummyPoolColA:_bnt=DummyERC20bnt \
 #DummyPoolColA:_masterVault=MasterVault \

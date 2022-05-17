@@ -33,7 +33,8 @@ library MathEx {
      * - For example: e^5.521692859 = e^(4 + 1 + 0.5 + 0.021692859) = e^4 * e^1 * e^0.5 * e^0.021692859
      */
     function exp(Fraction memory f) internal pure returns (Fraction memory) {
-        uint256 x = MathEx.mulDivF(ONE, f.n, f.d);
+        uint256 x = f.n/f.d ;//MathEx.mulDivF(ONE, f.n, f.d); 
+        // Caused errors when switching muldiv to public
         uint256 y;
         uint256 z;
         uint256 n;
@@ -163,7 +164,7 @@ library MathEx {
         uint256 x,
         uint256 y,
         uint256 z
-    ) internal pure returns (uint256) {
+    ) public pure returns (uint256) {   // harness : internal -> public
         return x * y/z;
         // Uint512 memory xy = mul512(x, y);
 
@@ -198,7 +199,7 @@ library MathEx {
         uint256 x,
         uint256 y,
         uint256 z
-    ) internal pure returns (uint256) {
+    ) public pure returns (uint256) { // harness : internal -> public
         uint256 w = mulDivF(x, y, z);
         if (_mulMod(x, y, z) > 0) {
             if (w >= type(uint256).max) {
