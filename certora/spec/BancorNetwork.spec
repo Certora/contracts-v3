@@ -353,10 +353,10 @@ function simpleMulDivIf(uint256 x,uint256 y, uint256 z) returns uint256
     bool Success = true;
     require dontDividebyZero;
 
-    if(x==0 || y==0)    {f = 0;}
-    else if(y==2*z)     {f=2*x;}
-    else if(y==3*z)     {f=3*x;}
-    else if(y==10*z)    {f=10*x;}
+    if(x == 0 || y==0)    {f = 0;}
+    else if(y == 2 * z)     {f=2*x;}
+    else if(y == 3 * z)     {f=3*x;}
+    else if(y == 10 * z)    {f=10*x;}
     else if(2*y==z && x%2 ==0)  {f=x/2;}
     else if(3*y==z && x%3 ==0)  {f=x/3;}
     else if(10*y==z && x%10 ==0)    {f=x/10;}
