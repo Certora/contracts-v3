@@ -98,11 +98,13 @@ function ValidRequest(address provider, address poolToken,
             (poolToken == ptA || poolToken == ptB) &&
             reserveToken == erc20);
    }
+
 // Preconditioner for valid index of provider requests array.
 function ValidInd_Request(address provider, uint ind) returns bool
 {
     return ind < withdrawalRequestCount(provider);
 }
+
 // Number of pool tokens in withdrawal request.
 function RequestPoolTokensAmount(uint id) returns uint256 {
     address provider; address poolToken; address reserveToken;
@@ -113,6 +115,7 @@ function RequestPoolTokensAmount(uint id) returns uint256 {
     
     return poolTokenAmount;
 }
+
 // Provider of withdrawal request.
 function RequestProvider(uint id) returns address {
     address provider; address poolToken; address reserveToken;
@@ -123,6 +126,7 @@ function RequestProvider(uint id) returns address {
     
     return provider;
 }
+
 // Pool token total supply in withdrawal request.
 function RequestPoolTokenTotalSupply(uint id) returns uint256 {
     address provider; address poolToken; address reserveToken;
@@ -133,6 +137,7 @@ function RequestPoolTokenTotalSupply(uint id) returns uint256 {
     
     return MAIN.poolTotalSupply(poolToken);
 }
+
 // ReserveToken in withdrawal request.
 function RequestReserveToken(uint id) returns address {
     address provider; address poolToken; address reserveToken;
@@ -143,6 +148,7 @@ function RequestReserveToken(uint id) returns address {
 
     return reserveToken;
 }
+
 // Pool token in withdrawal request.
 function RequestPoolToken(uint id) returns address {
     address provider; address poolToken; address reserveToken;
@@ -153,6 +159,7 @@ function RequestPoolToken(uint id) returns address {
 
     return poolToken;
 }
+
 // Summarization for mulDivF (currently not in use)
 function mulDivNoFloorSummary(uint256 x,uint256 y,uint256 z) returns uint256 {
   require(z >0);
@@ -160,11 +167,13 @@ function mulDivNoFloorSummary(uint256 x,uint256 y,uint256 z) returns uint256 {
   require w*z == x*y;
   return x;
 }
+
 // Remainder of multiplication by division
 function MulMod(uint x, uint y, uint z) returns uint256 {
     require z>0;
     return to_uint256(x*y) % z;
 }
+
 // Purpose: to bound the product x*y from overflowing (xy<2^256-1)
 function noProdOverFlow(uint x, uint y){
      uint bound = to_uint256(2^128-1);
@@ -587,22 +596,21 @@ rule checkSpecificId(address provider)
 // Preserved violated for completeWithdrawal.
 invariant NoIdenticalIDs(address provider, uint ind1, uint ind2)
     (
-        ValidInd_Request(provider,ind1) &&
-        ValidInd_Request(provider,ind2) &&
+        ValidInd_Request(provider, ind1) &&
+        ValidInd_Request(provider, ind2) &&
         ind1 != ind2
     ) 
     =>
     (
-        withdrawalRequestSpecificId(provider,ind1) != 
-        withdrawalRequestSpecificId(provider,ind2)
+        withdrawalRequestSpecificId(provider, ind1) != 
+        withdrawalRequestSpecificId(provider, ind2)
     )
     
     {
         preserved
         {
-            require
-                (withdrawalRequestSpecificId(provider,ind1) !=0 &&
-                withdrawalRequestSpecificId(provider,ind2) !=0);
+            require (withdrawalRequestSpecificId(provider, ind1) != 0 &&
+                        withdrawalRequestSpecificId(provider, ind2) != 0);
         }
     }
     
@@ -649,22 +657,21 @@ rule RequestDetailsInvariance(uint id, method f)
 // fails for initWithdrawal*
 // * see note inside preserved block
 invariant TotalRequestPTlessThanSupply(address poolToken)
-   sumRequestPoolTokens(poolToken) <= poolTotalSupply(poolToken)
-   {
-    preserved initWithdrawal(address provider, address poolToken2, uint256 poolTokenAmount)
-    with (env e)
+    sumRequestPoolTokens(poolToken) <= poolTotalSupply(poolToken)
     {
-        // In Bancor network, before calling initWithdrawal, the provider transfers its
-        // Pool tokens to the _pendingWithdrawal contract, i.e. the protocol.
-        require poolToken == poolToken2;
-        require poolTokenBalance(poolToken, currentContract) >= poolTokenAmount;
-        // If we require invariant of solvency:
-        // sum(requests pool tokens) <= sum(user balance) <= Total supply
-        // this should probably let the rule pass.
-        //sumRequestPoolTokens + poolTokenAmount <= sum(userbalance)
-        require poolTotalSupply(poolToken) >= poolTokenAmount;
+        preserved initWithdrawal(address provider, address poolToken2, uint256 poolTokenAmount) with (env e)
+        {
+            // In Bancor network, before calling initWithdrawal, the provider transfers its
+            // Pool tokens to the _pendingWithdrawal contract, i.e. the protocol.
+            require poolToken == poolToken2;
+            require poolTokenBalance(poolToken, currentContract) >= poolTokenAmount;
+            // If we require invariant of solvency:
+            // sum(requests pool tokens) <= sum(user balance) <= Total supply
+            // this should probably let the rule pass.
+            // sumRequestPoolTokens + poolTokenAmount <= sum(userbalance)
+            require poolTotalSupply(poolToken) >= poolTokenAmount;
+        }
     }
-   }
 
 // All pass
 rule whoChangedTotalSupply(method f) 

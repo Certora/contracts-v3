@@ -207,26 +207,25 @@ rule imposterAdminCheck(method f, env e){
 }
 
 
-// STATUS - in progress (issue with BntGovern and VbntGovern - without require they are the same (_token) 
-// that is incorrect behavior of the system in general. With require it doesn't pass sanity)
-// Normal practice is that managers(user's with roles) cannot operate in the system where they are managers, thus their balances should remains 0.
+// STATUS - in progress 
 // Expected to fail because Bancor doesn't have this protection.
 // grantRole() also leads to the violation because user could have soemthing before granting them role
-invariant noMoneyForAdmin(env e, address user)
-    (hasRole(roleBNTPoolTokenManager(), user) || hasRole(roleBNTManager(), user) 
-            || hasRole(roleVaultManager(), user) || hasRole(roleFundingManager(), user) 
-            || hasRole(DungeonMaster.roleAssetManager(), user))
-    => (PoolT.balanceOf(user) == 0 
-            && BntGovern.getBNTBalance(e, user) == 0 
-            && VbntGovern.getBNTBalance(e, user) == 0)
-    {
-        preserved with (env e2){
-            require user != DungeonMaster;
-            require user != _network();
-            require user != currentContract;
-            // require BntGovern.getToken(e2) != VbntGovern.getToken(e2);
-        }
-    }
+// invariant noMoneyForAdmin(env e, address user)
+//     (hasRole(roleBNTPoolTokenManager(), user) || hasRole(roleBNTManager(), user) 
+//             || hasRole(roleVaultManager(), user) || hasRole(roleFundingManager(), user) 
+//             || hasRole(DungeonMaster.roleAssetManager(), user))
+//     => (PoolT.balanceOf(user) == 0 
+//             && BntGovern.getBNTBalance(e, user) == 0 
+//             && VbntGovern.getBNTBalance(e, user) == 0)
+//     {
+//         preserved with (env e2){
+//             require user != DungeonMaster;
+//             require user != _network();
+//             require user != currentContract;
+//             require BntGovern._token() != VbntGovern._token();
+//             // require BntGovern.getToken(e2) != VbntGovern.getToken(e2);
+//         }
+//     }
 
 
 
