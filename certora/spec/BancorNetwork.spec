@@ -20,6 +20,7 @@ using PendingWithdrawalsHarness as PendWit
 methods {
     // BancorNetwork
     _poolCollection(address) returns (address) envfree
+    collectionByPool(address) returns (address) envfree
     depositForPermitted(address,address,uint256,uint256,uint8,bytes32,bytes32)
     returns (uint256) envfree
 
@@ -35,8 +36,8 @@ methods {
     withdraw(bytes32,address,address,uint256) returns (uint256) => DISPATCHER(true)
     poolFundingLimit(address) returns(uint256) => DISPATCHER(true)
     withdrawalFeePPM() returns(uint32) => DISPATCHER(true)
-    PoolCol.poolTokenToUnderlying(address, uint256) returns (uint256) envfree
-    PoolCol.underlyingToPoolToken(address, uint256) returns (uint256) envfree
+    poolTokenToUnderlying(address, uint256) returns (uint256) => DISPATCHER(true)
+    underlyingToPoolToken(address, uint256) returns (uint256) => DISPATCHER(true)
     PoolCol.getPoolDataBntTradingLiquidity(address) returns(uint128) envfree
     PoolCol.poolToken(address) returns (address) envfree
     PoolCol.defaultTradingFeePPM() returns (uint32) envfree
@@ -51,14 +52,18 @@ methods {
     BNTp.renounceFunding(bytes32,address,uint256)
 
     // PendingWithdrawals
+    PendWit._network() returns (address)
     PendWit.lockDuration() returns(uint32) envfree
     PendWit.completeWithdrawal(bytes32,address,uint256) returns ((address,uint256))
-    PendWit.returnToken(address) returns (address) envfree 
+    PendWit.returnToken(address) returns (address) envfree
+    PendWit.withdrawalRequest(uint256) returns 
+            ((address, address, address, uint32,uint256,uint256)) envfree 
 
     // Others
     permit(address,address,uint256,uint256,uint8,bytes32,bytes32) => DISPATCHER(true)
     EPV.withdrawFunds(address, address, uint256)
     masVault.withdrawFunds(address, address, uint256)
+    isTokenWhitelisted(address) returns (bool) => DISPATCHER(true)
     minLiquidityForTrading() returns(uint256) => DISPATCHER(true)
     networkFeePPM() returns(uint32) => DISPATCHER(true)
     burn(uint256) => DISPATCHER(true)
@@ -82,7 +87,9 @@ methods {
 //                       Invariants                                       //
 ////////////////////////////////////////////////////////////////////////////
 
-// TODO: Add invariants; document them in reports/ExampleReport.md
+//https://vaas-stg.certora.com/output/41958/dcdc01d1ce1740249872/?anonymousKey=42f1ef1a1e0a739ed3b34b06109fae02ffb6abcb
+invariant poolLinkPoolCollection(address pool)
+    collectionByPool(pool) == PoolCol <=> _poolCollection(pool) == PoolCol
 
 ////////////////////////////////////////////////////////////////////////////
 //                       Rules                                            //
@@ -98,13 +105,14 @@ rule reachability(method f)
 
 rule underlyingToPTinverse(uint amount)
 {
+    env e;
     address token = tokenA;
     address poolTok = ptA;
 
     require PoolCol.poolToken(token) == poolTok;
 
-    uint a = PoolCol.poolTokenToUnderlying(token,amount);
-    uint b = PoolCol.underlyingToPoolToken(token,a);
+    uint a = poolTokenToUnderlying(e,token,amount);
+    uint b = underlyingToPoolToken(e,token,a);
     
     assert b == amount;
 }
@@ -124,6 +132,7 @@ rule checkWithdrawFees(address beneficiary)
     assert false;
 }
 
+// Verified
 rule checkInitWithdraw(uint amount, address poolToken)
 {
     env e;
@@ -131,13 +140,27 @@ rule checkInitWithdraw(uint amount, address poolToken)
 
     require poolToken != ptBNT =>
             (poolToken == ptA && token == tokenA && 
-            token == PendWit.returnToken(poolToken) &&
+            token == ptA.reserveToken(e) &&
             tokenInPoolCollection(token,PoolCol));
 
-    require poolToken != ptBNT;
+    require poolToken == ptBNT =>
+            (token == bnt && token == ptBNT.reserveToken(e));
 
-    initWithdrawal(e,poolToken,amount);
-    assert false;
+    uint id = initWithdrawal(e,poolToken,amount);
+
+    address provider;
+    address poolToken2;
+    address reserveToken;
+    uint32 createdAt;
+    uint256 poolTokenAmount;
+    uint256 reserveTokenAmount;
+
+    provider, poolToken2, reserveToken, createdAt, poolTokenAmount, 
+            reserveTokenAmount = PendWit.withdrawalRequest(id);
+    assert poolToken2 == poolToken, "Pool token not registered correctly";
+    assert reserveToken == token, "Reserve token not registered correctly";
+    assert provider == e.msg.sender, "Provider is not the original message sender";
+    assert poolTokenAmount == amount, "Pool token amount was not registered correctly";
 }
 
 rule noDoubleCancelling(uint amount, address poolToken)
@@ -155,20 +178,6 @@ rule noDoubleCancelling(uint amount, address poolToken)
     cancelWithdrawal(e,id);
     cancelWithdrawal@withrevert(e,id);
     assert lastReverted;
-}
-
-rule checkWithdraw()
-{
-    env e;
-    uint amount;
-    address token = tokenA;
-    address poolToken = ptA;
-
-    require PendWit.lockDuration() == 0;
-    setupTokenPoolCol(e,token,poolToken);
-    uint id = initWithdrawal(e,poolToken,amount);
-        withdraw(e,id);
-    assert false;
 }
 
 
@@ -194,14 +203,21 @@ rule tradeBntLiquidity(uint amount)
 
     uint128 bntLiqA1 = PoolCol.getPoolDataBntTradingLiquidity(tknA);
     uint128 bntLiqB1 = PoolCol.getPoolDataBntTradingLiquidity(tknB);
+    uint256 balanceA1 = tokenA.balanceOf(e,e.msg.sender);
+    uint256 balanceB1 = tokenB.balanceOf(e,e.msg.sender);
 
     tradeByTargetAmount(e,tknA,tknB,
         amount,maxSourceAmount,deadline,beneficiary);
 
     uint128 bntLiqA2 = PoolCol.getPoolDataBntTradingLiquidity(tknA);
     uint128 bntLiqB2 = PoolCol.getPoolDataBntTradingLiquidity(tknB);
-    assert false;
-    //assert bntLiqA2 <= bntLiqA1 && bntLiqB1 <= bntLiqB2;
+    uint256 balanceA2 = tokenA.balanceOf(e,e.msg.sender);
+    uint256 balanceB2 = tokenB.balanceOf(e,e.msg.sender);
+
+    //assert false;
+    assert bntLiqA2 <= bntLiqA1 && bntLiqB1 <= bntLiqB2;
+    assert balanceA1 >= balanceA2;
+    assert balanceB1 + amount == balanceB2;
 }
 
 
@@ -237,13 +253,13 @@ filtered{f->f.selector!=withdraw(uint).selector}
             balanceTKN1 == balanceTKN2;
 }
 
-rule noDoubleWithdrawal(uint256 ptAmount)
+rule noDoubleWithdrawalBNT(uint256 ptAmount)
 {
     env e;
     address poolToken;
-    address token;
+    address token = bnt;
     require poolToken == ptBNT;
-    //setupTokenPoolCol(e,token,poolToken);
+    require ptBNT.reserveToken(e) == token;
     
     uint id = initWithdrawal(e,poolToken,ptAmount);
     uint256 withAmount = withdraw(e,id);
@@ -252,26 +268,98 @@ rule noDoubleWithdrawal(uint256 ptAmount)
     assert lastReverted;
 }
 
-rule depositBNTintegrity(uint256 amount)
+// Is reachable.
+rule noDoubleWithdrawalTKN(uint256 ptAmount, uint id)
 {
     env e;
-    require e.msg.sender != currentContract &&
-            e.msg.sender != PendWit;
+    address poolToken = ptA;
+    address token = tokenA;
+    require ptA.reserveToken(e) == token;
+    setupTokenPoolCol(e,token,poolToken);
+    require collectionByPool(token) == PoolCol;
 
+    // Set withdrawal request id
+    address provider;
+    address poolToken2;
+    address reserveToken;
+    uint32 createdAt;
+    uint256 poolTokenAmount;
+    uint256 reserveTokenAmount;
+    provider, poolToken2, reserveToken, createdAt, poolTokenAmount, 
+            reserveTokenAmount = PendWit.withdrawalRequest(id);
+    // Require consistency
+    require provider == e.msg.sender;
+    require poolToken2 == poolToken;
+    require ptAmount == poolTokenAmount;
+
+    // Withdraw:
+    uint256 withAmount = withdraw(e,id);
+    withdraw@withrevert(e,id);
+    assert lastReverted;
+}
+
+rule depositBntIntegrity(uint256 amount)
+{
+    env e;
+    require validUser(e,e.msg.sender);
     require ptBNT.reserveToken(e) == bnt;
-    uint balance1 = ptBNT.balanceOf(e,e.msg.sender);
+
+    // Balances before deposit
+    uint balancePT1 = ptBNT.balanceOf(e,e.msg.sender);
     uint balanceBNT1 = bnt.balanceOf(e,e.msg.sender);
-
+    // Deposit (amount) BNT to pool.
     uint amountPT = deposit(e,bnt,amount);
-    uint id = initWithdrawal(e,ptBNT, amountPT);
-
-    uint balance2 = ptBNT.balanceOf(e,e.msg.sender);
+    // Balances after deposit, before withdrawal.
+    uint balancePT2 = ptBNT.balanceOf(e,e.msg.sender);
     uint balanceBNT2 = bnt.balanceOf(e,e.msg.sender);
 
-    //assert false;
-    //assert !lastReverted;
-    assert balance2 == balance1 + amountPT , "User's PT balance did not increase as expected";
-    assert balanceBNT1 == balanceBNT2 + amount , "User's BNT balance did not decrease as expected";
+    assert balanceBNT2 == balanceBNT1 - amount, 
+            "User's BNT balance did not decrease as expected";
+    assert balancePT2 == balancePT1 + amountPT, 
+            "User's PT balance did not increase as expected";
+
+    // Request to withdraw.
+    uint id = initWithdrawal(e,ptBNT, amountPT);
+    // Balances after withdraw request.
+    uint balancePT3 = ptBNT.balanceOf(e,e.msg.sender);
+    uint balanceBNT3 = bnt.balanceOf(e,e.msg.sender);
+
+    assert balancePT3 == balancePT1 , "User's PT balance changed unexpectedly";
+}
+// Verified
+//https://vaas-stg.certora.com/output/41958/5e2069df2a8c46f91103/?anonymousKey=2116b7dac8dbe7a77a68c082c2260df6bff713d8
+rule depositTknIntegrity(uint256 amount)
+{
+    env e;
+    address poolToken = ptA;
+    address token = tokenA;
+
+    require validUser(e,e.msg.sender);
+    require ptA.reserveToken(e) == token;
+    setupTokenPoolCol(e,token,poolToken);
+    require collectionByPool(token) == PoolCol;
+
+    // Balances before deposit
+    uint balancePT1 = ptA.balanceOf(e,e.msg.sender);
+    uint balanceTKN1 = tokenA.balanceOf(e,e.msg.sender);
+    // Deposit (amount) BNT to pool.
+    uint amountPT = deposit(e,token,amount);
+    // Balances after deposit, before withdrawal.
+    uint balancePT2 = ptA.balanceOf(e,e.msg.sender);
+    uint balanceTKN2 = tokenA.balanceOf(e,e.msg.sender);
+    
+    assert balanceTKN2 == balanceTKN1 - amount, 
+            "User's BNT balance did not decrease as expected";
+    assert balancePT2 == balancePT1 + amountPT, 
+            "User's PT balance did not increase as expected";
+
+    // Request to withdraw.
+    uint id = initWithdrawal(e,poolToken,amountPT);
+    // Balances after withdraw request.
+    uint balancePT3 = ptA.balanceOf(e,e.msg.sender);
+    uint balanceTKN3 = tokenA.balanceOf(e,e.msg.sender);
+
+    assert balancePT3 == balancePT1 , "User's PT balance changed unexpectedly";
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -321,8 +409,10 @@ returns uint256
 {
     uint256 f;
     require z != 0;
-    require ( x == q * z && f==q * y ) || ( y==q*z && f==q*x ) || 
-            ( q * x ==z && f == y / q && y % q ==0 ) || ( q*y==z && f==x/q && x%q ==0);
+    require ( x == q * z && f==q * y ) || 
+            ( q * x == z && f == y / q && y % q ==0 ) ||
+            ( y == 2 * z && f == 2 * x ) || 
+            ( 2 * y == z && f == x / 2 && x % 2 ==0);
     return f;
 }
 

@@ -95,6 +95,30 @@ rule requestRegisteredForValidProvider(address provider, uint tokenAmount)
     assert ptA.balanceOf(e,currentContract) >= tokenAmount;
 }
 
+/// Should transfer to the BancorNetwork spec:
+// The protocol should burn the pool tokens it received from the provider
+// after the withdrawal request was completed.
+// Current status: ?
+rule burnPTsAfterCompleteWithdrawal(address provider, uint PTamount)
+{
+    env e; env e2;
+    bytes32 contextId;
+    address poolToken = ptA;
+    require provider != currentContract;
+
+    uint id = initWithdrawal(e,provider,poolToken,PTamount);
+
+    uint PTbalance1 = poolTokenBalance(poolToken, currentContract);
+    uint totSupply1 = poolTotalSupply(poolToken);
+
+    completeWithdrawal(e2,contextId,provider,id);
+
+    uint PTbalance2 = poolTokenBalance(poolToken, currentContract);
+    uint totSupply2 = poolTotalSupply(poolToken);
+
+    assert PTbalance2 + PTamount == PTbalance1 , "Protocol did not remove its pool tokens";
+    assert totSupply2 + PTamount == totSupply1 , "The number of burnt PTs is incorrect";
+}
 
 
 ////////////////////////////////////////////////////

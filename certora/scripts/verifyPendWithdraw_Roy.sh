@@ -18,9 +18,10 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     --solc solc8.13 \
     --staging \
     --optimistic_loop \
-    --rule validRequestTime \
+    --rule reachCancelWithdrawal \
+    --rule_sanity advanced \
     --send_only \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "validRequestTime"
+    --msg "reachCancelWithdrawal"

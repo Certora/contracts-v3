@@ -253,9 +253,9 @@ rule poolTokenToUnderlyingMono_BNT(uint256 amount1, uint256 amount2)
 //     env e;
 //     address token = erc20;
 
-    require PC.poolToken(e,token) == ptA;
-    require PC.poolTotalSupply(e,token) == 1;
-    require PC.getPoolDataStakedBalance(e,token) == stake;
+   // require PC.poolToken(e,token) == ptA;
+   // require PC.poolTotalSupply(e,token) == 1;
+    //require PC.getPoolDataStakedBalance(e,token) == stake;
 
 //     uint UAmount = PC.poolTokenToUnderlying(e,token,amount);
 
@@ -721,32 +721,6 @@ rule independentRequests(env e, method f) filtered { f ->
         after invoking ${f} on request id = ${id1}";
 }
 
-
-// The protocol should burn the pool tokens it received from the provider
-// after the withdrawal request was completed.
-// Current status: PASSES*
-// * We checked that the protocol loses *AT LEAST* the PTamount. 
-// In the current implementation of completeWithdrawal, the protocol
-// also transfers PT to the provider. This should be changed in the future.
-rule burnPTsAfterCompleteWithdrawal(uint id)
-{
-    env e;
-    address provider = requestProvider(id);
-    bytes32 contID;
-    uint PTamount = requestPoolTokensAmount(id);
-
-    require requestPoolToken(id) == ptA;
-    require provider != ptA;
-    
-    uint PTbalance1 = ptA.balanceOf(e,currentContract);
-
-    completeWithdrawal(e,contID,provider,id);
-
-    uint PTbalance2 = ptA.balanceOf(e,currentContract);
-
-    assert PTbalance2 + PTamount <= PTbalance1;
-}
-
 // For any provider who completes his/hers withdrawal request,
 // his/hers pool token balance must not change.
 // Current status : FAILS
@@ -762,9 +736,7 @@ rule ptInvarianceForProvider(uint id)
     require provider != ptA;
     
     uint PTbalance1 = ptA.balanceOf(e,provider);
-
-    completeWithdrawal(e,contID,provider,id);
-
+        completeWithdrawal(e,contID,provider,id);
     uint PTbalance2 = ptA.balanceOf(e,provider);
 
     assert PTbalance1 == PTbalance2;
@@ -819,4 +791,14 @@ rule reachability(method f)
     calldataarg args;
     f(e, args);
     assert false;
+}
+
+// Cancel withdrawal reachability
+rule reachCancelWithdrawal()
+{   
+    env e;
+    address provider;
+    uint id = initWithdrawal(e,provider,ptA,1);
+    cancelWithdrawal(e,provider,id);
+    assert provider !=0;
 }
