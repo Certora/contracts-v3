@@ -8,6 +8,8 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     certora/munged/network/NetworkSettings.sol \
     \
     \
+    certora/helpers/DummyERC20A.sol \
+    certora/helpers/DummyERC20B.sol \
     certora/helpers/DummyPoolTokenA.sol \
     certora/helpers/DummyPoolTokenB.sol \
     certora/helpers/DummyTokenGovernanceA.sol \
@@ -15,10 +17,6 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     certora/helpers/DummyERC20bnt.sol \
     certora/helpers/DummyERC20vbnt.sol \
     certora/helpers/DummyPoolTokenBNT.sol \
-    certora/helpers/DummyERC20A.sol \
-    certora/helpers/DummyERC20B.sol \
-    certora/helpers/DummyPoolColA.sol \
-    certora/helpers/DummyPoolColB.sol \
     certora/helpers/Receiver1.sol \
     \
     \
@@ -40,15 +38,17 @@ py ../../EVMVerifier/scripts/certoraRun.py \
             PoolCollectionHarness:_externalProtectionVault=ExternalProtectionVault \
             \
             \
+            PendingWithdrawalsHarness:_bnt=DummyERC20bnt \
             PendingWithdrawalsHarness:_bntPool=BNTPool \
             PendingWithdrawalsHarness:_network=BancorNetwork \
             \
             \
-            BNTPool:_masterVault=MasterVault \
             BNTPool:_poolToken=DummyPoolTokenBNT \
             BNTPool:_bnt=DummyERC20bnt \
+            BNTPool:_vbnt=DummyERC20vbnt \
             BNTPool:_bntGovernance=DummyTokenGovernanceA \
             BNTPool:_vbntGovernance=DummyTokenGovernanceB \
+            BNTPool:_masterVault=MasterVault \
             \
             \
             MasterVault:_bnt=DummyERC20bnt \
@@ -65,10 +65,18 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     --solc solc8.13 \
     --staging \
     --send_only \
-    --rule checkWithdraw \
+    --rule depositBNTintegrity \
+    --disable_auto_cache_key_gen \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "Bancor Network checkWithdraw sanity"
+    --msg "depositBNTintegrity"
+
+#DummyPoolColA:_bnt=DummyERC20bnt \
+#DummyPoolColA:_masterVault=MasterVault \
+#DummyPoolColA:_bntPool=BNTPool \
+#DummyPoolColA:_externalProtectionVault=ExternalProtectionVault \
+#certora/helpers/DummyPoolColA.sol \
+#certora/helpers/DummyPoolColB.sol \
 #--settings -divideNoRemainder=true \
