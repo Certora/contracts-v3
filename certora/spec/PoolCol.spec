@@ -38,6 +38,7 @@ methods {
     migratePoolOut(address, address)
 
     callRemoveTokenFromWhiteList(address) envfree
+    // safeTransferFrom(address, address, uint256) envfree
 }
  
 function setUp() {
@@ -134,13 +135,13 @@ function santasLittleHelper(method f, env e){
 }
 
 
-rule sanity(method f)
-{
-	env e;
-	calldataarg args;
-	santasLittleHelper(f, e);
-	assert false;
-}
+// rule sanity(method f)
+// {
+// 	env e;
+// 	calldataarg args;
+// 	santasLittleHelper(f, e);
+// 	assert false;
+// }
 
 rule more_poolTokens_less_TKN(method f){
     env e;
@@ -152,7 +153,16 @@ rule more_poolTokens_less_TKN(method f){
     uint256 tkn_balance1 = tokenA.balanceOf(e,e.msg.sender);
     uint256 poolToken_balance1 = ptA.balanceOf(e,e.msg.sender);
 
-    f(e,args);
+    // f(e,args);
+        bytes32 contextId;
+        address provider;
+        address pool = tokenA;
+        uint256 tokenAmount;
+
+    // env e1;
+    // uint amount;
+    // tokenA.transferFrom(e1,e.msg.sender, _masterVault(e), amount);
+    depositFor(e,contextId,provider,pool,tokenAmount);
 
     uint256 tkn_balance2 = tokenA.balanceOf(e,e.msg.sender);
     uint256 poolToken_balance2 = ptA.balanceOf(e,e.msg.sender);
@@ -182,7 +192,6 @@ rule tradeChangeExchangeRate(){
     
     // the returned amount from the second trade should be different from the first
     assert amount1 != amount2;
-    assert false;
 }
 
 invariant tradingEnabledImplLiquidity(address pool, env e)
@@ -250,7 +259,7 @@ rule withdrawAll(address provider){
         uint256 poolTokenAmount = ptA.totalSupply(e);
 
     uint256 stakedBalance = getPoolDataStakedBalance(e,pool);
-    setConstants_x_e(e,pool); // Insert here function to set parameters to constants.
+    setConstants_wmn_only(e,pool); // Insert here function to set parameters to constants.
     uint256 balance1 = tokenA.balanceOf(e,provider);
         uint amount = withdraw(e,contextId,provider,pool,poolTokenAmount);
     uint256 balance2 = tokenA.balanceOf(e,provider);
@@ -270,7 +279,7 @@ rule onWithdrawAllGetAtLeastStakedAmount(){
 
         bytes32 contextId;
         address provider;
-        address pool = ptA;
+        address pool = tokenA;
         uint256 tokenAmount;
 
 
@@ -318,17 +327,18 @@ invariant consistentTradingLiquidity(env e,address pool)
 
 invariant stakedBalanceMasterVaultBalance(env e)
     tokenA.balanceOf(e,_masterVault(e)) ==0 => getPoolDataStakedBalance(e,tokenA) ==0 
-    {
-        preserved{
-            require poolToken(tokenA) == ptA;
-            address pool;
-            require pool !=0 && pool !=_masterVault(e);
-            require (pool != tokenA =>  getPoolDataStakedBalance(e,pool)==0);
-        }
-    }
+    // {
+    //     preserved{
+    //         require poolToken(tokenA) == ptA;
+    //         address pool;
+    //         require pool !=0 && pool !=_masterVault(e);
+    //         require (pool != tokenA =>  getPoolDataStakedBalance(e,pool)==0);
+    //     }
+    // }
 
 invariant isWhiteListed(address token, env e)
     hasPool(token) => isTokenWhitelisted(e,token)
+
     
 // rule poolTokenValueMonotonic(){
 //     env e1; env e2;

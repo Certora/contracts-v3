@@ -573,7 +573,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         address provider,
         Token pool,
         uint256 tokenAmount
-    ) external only(address(_network)) validAddress(provider) greaterThanZero(tokenAmount) returns (uint256) {
+    ) public virtual only(address(_network)) validAddress(provider) greaterThanZero(tokenAmount) returns (uint256) {
         Pool storage data = _poolStorage(pool);
 
         if (!data.depositingEnabled) {
@@ -609,13 +609,13 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
             _networkSettings.minLiquidityForTrading()
         );
 
-        emit TokensDeposited({
-            contextId: contextId,
-            provider: provider,
-            token: pool,
-            tokenAmount: tokenAmount,
-            poolTokenAmount: poolTokenAmount
-        });
+        // emit TokensDeposited({
+        //     contextId: contextId,
+        //     provider: provider,
+        //     token: pool,
+        //     tokenAmount: tokenAmount,
+        //     poolTokenAmount: poolTokenAmount
+        // });
 
         _dispatchTradingLiquidityEvents(
             contextId,
