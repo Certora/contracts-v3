@@ -26,6 +26,7 @@ methods {
     returnToken(address) returns(address) envfree
     poolValidity(address) returns(bool) envfree
     withdrawalRequestSpecificId(address, uint) returns uint envfree
+    PC.getPoolDataStakedBalance(address) returns (uint) envfree
 
     // Bancor Network
     collectionByPool(address) returns(address) => DISPATCHER(true)
@@ -182,11 +183,6 @@ function mulMod(uint x, uint y, uint z) returns uint256 {
     return to_uint256(x * y) % z;
 }
 
-// Purpose: to bound the product x*y from overflowing (xy<2^256-1)
-function noProdOverFlow(uint x, uint y){
-     uint bound = to_uint256(2^128 - 1);
-     require x <= bound && y <= bound;
-}
 
 ////////////////////////////////////
 /*
@@ -219,32 +215,29 @@ rule poolTokenToUnderlyingMono_BNT(uint256 amount1, uint256 amount2)
 
 // Conversion from pool token to any underlying token is 
 // monotonically increasing with amount (PoolCollection impl.)
-// Current status: PASSES*
-// *For the product terms x,y we require x,y < 2^128-1.
-// rule poolTokenToUnderlyingMono_PC(uint256 amount1,uint256 amount2)
-// {
-//     env e;
-//     address token = erc20;
-//     uint TotalSupply; 
-//     uint stake = PC.poolStakedBalance(e,token);
+// Current status: PASSES
+ rule poolTokenToUnderlyingMono_PC(uint256 amount1,uint256 amount2)
+ {
+     env e;
+     address token = erc20;
+     uint TotalSupply; 
+     uint stake = PC.getPoolDataStakedBalance(token);
     
-//     require PC.poolToken(e,token) == ptA;
-//     require TotalSupply > 0 && stake > 0;
-//     require PC.poolTotalSupply(e,token) == TotalSupply;
-//     // noProdOverFlow(stake,amount1);
-//     // noProdOverFlow(stake,amount2);
+     require PC.poolToken(e,token) == ptA;
+     require TotalSupply > 0 && stake > 0;
+     require PC.poolTotalSupply(e,ptA) == TotalSupply;
 
-//     uint UAmount1 = PC.poolTokenToUnderlying(e,token,amount1);
-//     uint UAmount2 = PC.poolTokenToUnderlying(e,token,amount2);
+     uint UAmount1 = PC.poolTokenToUnderlying(e,token,amount1);
+     uint UAmount2 = PC.poolTokenToUnderlying(e,token,amount2);
     
-//     // Checking for weak monotonicity:
-//     assert (amount2 > amount1) => (UAmount1 <= UAmount2), "Monotonic decreasing";
-//     // Checking for strong monotonicity (excluding division remainders):
-//     assert(
-//         mulMod(stake,amount1,TotalSupply) ==0 && 
-//         mulMod(stake,amount2,TotalSupply) ==0 &&
-//         amount2 > amount1) => (UAmount1 < UAmount2), "Non monotonic increasing";
-// }
+     // Checking for weak monotonicity:
+     assert (amount2 > amount1) => (UAmount1 <= UAmount2), "Monotonic decreasing";
+     // Checking for strong monotonicity (excluding division remainders):
+     assert(
+         mulMod(stake,amount1,TotalSupply) ==0 && 
+         mulMod(stake,amount2,TotalSupply) ==0 &&
+         amount2 > amount1) => (UAmount1 < UAmount2), "Non monotonic increasing";
+ }
 
 // Unit test for poolTokenToUnderlying in Pool collection
 // Current status: PASSES
@@ -800,5 +793,5 @@ rule reachCancelWithdrawal()
     address provider;
     uint id = initWithdrawal(e,provider,ptA,1);
     cancelWithdrawal@withrevert(e,provider,id);
-    assert !lastReverted ;//provider !=0;
+    assert !lastReverted ;
 }
