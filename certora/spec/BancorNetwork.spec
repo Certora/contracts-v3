@@ -24,9 +24,16 @@ methods {
     // BancorNetwork
     _poolCollection(address) returns (address) envfree
     collectionByPool(address) returns (address) envfree
-    depositForPermitted(address,address,uint256,uint256,uint8,bytes32,bytes32)
-    returns (uint256) envfree
+
     isPoolValid(address) returns (bool) envfree
+    depositFor(address, address, uint256) returns (uint256) 
+    deposit(address, uint256) returns (uint256) 
+
+    depositForPermitted(address, address, uint256, uint256, 
+            uint8, bytes32, bytes32) returns (uint256) 
+
+    depositPermitted(address, uint256, uint256,
+            uint8, bytes32, bytes32) returns (uint256) 
 
     // Pool collection
     depositFor(bytes32,address,address,uint256) returns (uint256) => DISPATCHER(true)
@@ -83,6 +90,7 @@ methods {
     mint(address, uint256) => DISPATCHER(true)
     issue(address, uint256) => DISPATCHER(true)
     destroy(address, uint256) => DISPATCHER(true)
+    sendTo() returns(bool) => DISPATCHER(true)
     reserveToken() returns (address) => DISPATCHER(true)
     mulDivF(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDiv(x,y,z)
     mulDivC(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDiv(x,y,z)
@@ -94,6 +102,11 @@ methods {
 // Total pool tokens in registerd requests
 ghost sumRequestPoolTokens(address) returns uint256 {
     init_state axiom forall address PT. sumRequestPoolTokens(PT) == 0;
+}
+
+// Sum of pool tokens balances (for all users)
+ghost sumPTbalances(address) returns uint256 {
+    init_state axiom forall address PT. sumPTbalances(PT) == 0;
 }
 
 // Ghost for a provider of a request (id)
@@ -127,6 +140,14 @@ hook Sstore PendWit._withdrawalRequests[KEY uint256 id].poolTokenAmount uint256 
     sumRequestPoolTokens@new(poolToken) == sumRequestPoolTokens@old(poolToken));
 }
 
+// Hook to havoc the total sum of pool tokens.
+//hook Sstore PendWit._withdrawalRequests[KEY address user].poolTokenAmount uint256 balance (uint256 old_balance) STORAGE {
+//    havoc sumRequestPoolTokens assuming forall address poolToken.
+//    ((requestPoolTokenGhost(id) == poolToken) ?
+//    sumPTbalances@new(poolToken) == sumPTbalances@old(poolToken) + balance - old_balance :
+//    sumPTbalances@new(poolToken) == sumPTbalances@old(poolToken));
+//}
+
 ////////////////////////////////////////////////////////////////////////////
 //                       Invariants                                       //
 ////////////////////////////////////////////////////////////////////////////
@@ -143,8 +164,18 @@ invariant validPool(address token)
 invariant poolLinkPoolCollection(address pool)
     collectionByPool(pool) == PoolCol <=> _poolCollection(pool) == PoolCol
 
+
+// Maybe should be verified in two steps:
+// sum(Requests PT) <= sum(balances PT)
+// sum(balances) <= totalSupply
 invariant withdrawalRequestPTsSolvency(address token)
     sumRequestPoolTokens(token) <= PendWit.poolTotalSupply(token)
+    {
+        preserved
+        {
+            require token == ptA;
+        }
+    }
 
 ////////////////////////////////////////////////////////////////////////////
 //                       Rules                                            //
@@ -261,7 +292,7 @@ rule tradeBntLiquidity(uint amount)
     assert balanceB1 + amount == balanceB2;
 }
 
-rule unTradeablePT(address trader, address poolToken, uint amount, bool TKN_2_PT)
+rule untradeablePT(address trader, address poolToken, uint amount, bool TKN_2_PT)
 {
     env e;
     address token;
@@ -285,6 +316,8 @@ rule unTradeablePT(address trader, address poolToken, uint amount, bool TKN_2_PT
     assert lastReverted;
 }
 
+// Verified
+// https://vaas-stg.certora.com/output/41958/48a134f59ef6d5b20e2d/?anonymousKey=7a032229bdada100875977853144ccc6bea3c01d
 rule afterTradingPTBalanceIntact(address trader, uint amount)
 {
     env e;
@@ -297,6 +330,11 @@ rule afterTradingPTBalanceIntact(address trader, uint amount)
     uint256 balancePT2;
 
     require poolToken == ptBNT || poolToken == ptA;
+    // Without this require, a counter example, in which one of the 
+    // trade tokens is the pool token, is possible.
+    require tknA != poolToken && tknB != poolToken;
+    // According to sanity check, this is redundant.
+    require trader != _masterVault(e);
 
     if (poolToken == ptBNT)
         { balancePT1 = ptBNT.balanceOf(e,trader); }
@@ -331,20 +369,24 @@ rule RequestRegisteredForValidProvider(uint tokenAmount)
     assert balance1 - balance2 == tokenAmount;
 }
 
+// This is the first run:
+// https://vaas-stg.certora.com/output/41958/cd16c503a796770a2312/?anonymousKey=1c49f7b5fa0def76abb557430f90079823dcc1e3
+// This will help to modify the preserved block in the future.
 rule whoChangedMasterVaultBalance(method f)
-//filtered{f -> f.selector!=withdraw(uint).selector &&
-//                !depositLikeMethod(f)}
-//
+filtered{f -> f.selector !=withdraw(uint).selector }
 {
     env e;
     calldataarg args;
+    require !depositLikeMethod(f);
     address Vault = _masterVault(e);
+
     uint balanceTKN1 = tokenA.balanceOf(e,Vault);
     uint balanceBNT1 = bnt.balanceOf(e,Vault);
-    f(e,args);
+        f(e,args);
     uint balanceTKN2 = tokenA.balanceOf(e,Vault);
     uint balanceBNT2 = bnt.balanceOf(e,Vault);
-    assert balanceBNT2 == balanceBNT1 &&
+
+    assert balanceBNT1 == balanceBNT2 &&
             balanceTKN1 == balanceTKN2;
 }
 
@@ -364,6 +406,7 @@ rule noDoubleWithdrawalBNT(uint256 ptAmount)
 }
 
 // Is reachable.
+// Currently hard-stops.
 // Note : I saved a call to initWithdrawal to avoid timeouts.
 // The require statements were added instead (and were verified
 // in the checkInitWithdraw rule).
@@ -397,6 +440,7 @@ rule noDoubleWithdrawalTKN(uint256 ptAmount, uint id)
     assert lastReverted;
 }
 
+// Verified
 rule depositBntIntegrity(uint256 amount)
 {
     env e;
@@ -463,7 +507,9 @@ rule depositTknIntegrity(uint256 amount)
     assert balancePT3 == balancePT1 , "User's PT balance changed unexpectedly";
 }
 
-rule afterTradesumOfTokenBalanceIntact(address tknA, address tknB, uint amount)
+// Pass sanity
+// https://vaas-stg.certora.com/output/41958/3bdcf78e4cc6513c9a30/?anonymousKey=50637c4aa491deb6f7c2855e1feb5b0a5b8b843a
+rule afterTradeSumOfTokenBalanceIntact(address tknA, address tknB, uint amount)
 {
     env e;
     address trader = e.msg.sender;
@@ -497,23 +543,49 @@ rule afterTradesumOfTokenBalanceIntact(address tknA, address tknB, uint amount)
             "Target token total balance isn't conserved after trade";
 
 }
+// Verified
+// https://vaas-stg.certora.com/output/41958/fab1163326e083b448b9/?anonymousKey=6762bcb099e85bb3a57d370d7769deb923d31f1b
+rule depositBNTtransferPTsToProvider(address provider, uint amount)
+{
+    env e;
+    address PT = _bntPoolToken(e);
+    address protocol = _bntPool(e);
+    require validUser(e,provider);
 
+    uint256 providerPTBntBalance1 = PoolCol.tokenUserBalance(PT,provider);
+    uint256 networkPTBntBalance1 = PoolCol.tokenUserBalance(PT,protocol);
+    uint256 PTtotalSupply1 =  PendWit.poolTotalSupply(PT);
+
+        uint amountPT = depositFor(e,provider,_bnt(e),amount);
+
+    uint256 providerPTBntBalance2 = PoolCol.tokenUserBalance(PT,provider);
+    uint256 networkPTBntBalance2 = PoolCol.tokenUserBalance(PT,protocol);
+    uint256 PTtotalSupply2 =  PendWit.poolTotalSupply(PT);
+
+    assert networkPTBntBalance2 + amountPT == networkPTBntBalance1,
+            "Vault BNT pool tokens should not change";
+
+    assert providerPTBntBalance1 + amountPT == providerPTBntBalance2,
+            "The amount of PTs minted to provider is wrong";
+
+    assert PTtotalSupply1 == PTtotalSupply2, 
+            "Total supply of BNT pool tokens should not change";
+}
 
 ////////////////////////////////////////////////////////////////////////////
 //                       Helper Functions                                 //
 ////////////////////////////////////////////////////////////////////////////
-/*
 function depositLikeMethod(method f) returns bool
 {
-    return f.selector ==
-        (depositFor(address, address, uint256).selector ||
-        deposit(address, uint256).selector ||
-        depositForPermitted(address, address, uint256, uint256, 
-            uint8, bytes32, bytes32).selector ||
-        depositPermitted(address, uint256, uint256, 
-            uint8, bytes32, bytes32).selector) ;  
+    return  f.selector == depositFor(address, address, uint256).selector ||
+            f.selector == deposit(address, uint256).selector ||
+
+            f.selector == depositForPermitted(address, address, uint256, uint256, 
+                uint8, bytes32, bytes32).selector ||
+
+            f.selector == depositPermitted(address, uint256, uint256, 
+                uint8, bytes32, bytes32).selector ;  
 }
-*/
 
 function validUser(env env1, address user) returns bool
 {

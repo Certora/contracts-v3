@@ -65,13 +65,13 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     --solc solc8.13 \
     --staging \
     --send_only \
-    --rule noDoubleWithdrawalTKN \
+    --rule afterTradeSumOfTokenBalanceIntact \
     --disable_auto_cache_key_gen \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "noDoubleWithdrawalTKN"
+    --msg "afterTradeSumOfTokenBalanceIntact"
 
 #DummyPoolColA:_bnt=DummyERC20bnt \
 #DummyPoolColA:_masterVault=MasterVault \
