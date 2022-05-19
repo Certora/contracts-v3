@@ -19,9 +19,8 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     --staging \
     --optimistic_loop \
     --rule reachCancelWithdrawal \
-    --rule_sanity advanced \
     --send_only \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "reachCancelWithdrawal"
+    --msg "reachCancelWithdrawal ."

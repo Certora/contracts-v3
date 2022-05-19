@@ -799,6 +799,6 @@ rule reachCancelWithdrawal()
     env e;
     address provider;
     uint id = initWithdrawal(e,provider,ptA,1);
-    cancelWithdrawal(e,provider,id);
-    assert provider !=0;
+    cancelWithdrawal@withrevert(e,provider,id);
+    assert !lastReverted ;//provider !=0;
 }

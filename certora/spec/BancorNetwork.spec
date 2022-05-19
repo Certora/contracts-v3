@@ -10,8 +10,11 @@ using BNTPool as BNTp
 using MasterVault as masVault
 using ExternalProtectionVault as EPV
 using DummyERC20bnt as bnt
+using DummyTokenGovernanceA as BntGovern
+using DummyTokenGovernanceB as VbntGovern
 using DummyERC20vbnt as vbnt
 using PendingWithdrawalsHarness as PendWit
+using NetworkSettings as networkSettings
 
 ////////////////////////////////////////////////////////////////////////////
 //                      Methods                                           //
@@ -23,6 +26,7 @@ methods {
     collectionByPool(address) returns (address) envfree
     depositForPermitted(address,address,uint256,uint256,uint8,bytes32,bytes32)
     returns (uint256) envfree
+    isPoolValid(address) returns (bool) envfree
 
     // Pool collection
     depositFor(bytes32,address,address,uint256) returns (uint256) => DISPATCHER(true)
@@ -42,6 +46,7 @@ methods {
     PoolCol.poolToken(address) returns (address) envfree
     PoolCol.defaultTradingFeePPM() returns (uint32) envfree
     PoolCol.tokenUserBalance(address, address) returns (uint256) envfree
+    PoolCol.getPoolDataTradingFee(address) returns (uint32) envfree
 
     // BNT pool
     BNTp.withdraw(bytes32,address,uint256) returns (uint256) 
@@ -52,12 +57,17 @@ methods {
     BNTp.renounceFunding(bytes32,address,uint256)
 
     // PendingWithdrawals
+    PendWit.poolTotalSupply(address) returns (uint256) envfree
     PendWit._network() returns (address)
     PendWit.lockDuration() returns(uint32) envfree
     PendWit.completeWithdrawal(bytes32,address,uint256) returns ((address,uint256))
     PendWit.returnToken(address) returns (address) envfree
     PendWit.withdrawalRequest(uint256) returns 
             ((address, address, address, uint32,uint256,uint256)) envfree 
+
+    // Governance
+    BntGovern._token() returns(address) envfree
+    VbntGovern._token() returns(address) envfree
 
     // Others
     permit(address,address,uint256,uint256,uint8,bytes32,bytes32) => DISPATCHER(true)
@@ -74,22 +84,67 @@ methods {
     issue(address, uint256) => DISPATCHER(true)
     destroy(address, uint256) => DISPATCHER(true)
     reserveToken() returns (address) => DISPATCHER(true)
-    mulDivF(uint256 x,uint256 y,uint256 z) returns (uint256) => simpleMulDivIf(x,y,z)
-    mulDivC(uint256 x,uint256 y,uint256 z) returns (uint256) => simpleMulDivIf(x,y,z)
+    mulDivF(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDiv(x,y,z)
+    mulDivC(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDiv(x,y,z)
 }
 
 ////////////////////////////////////////////////////////////////////////////
 //                       Ghosts and definitions                           //
 ////////////////////////////////////////////////////////////////////////////
+// Total pool tokens in registerd requests
+ghost sumRequestPoolTokens(address) returns uint256 {
+    init_state axiom forall address PT. sumRequestPoolTokens(PT) == 0;
+}
 
+// Ghost for a provider of a request (id)
+ghost requestProviderGhost(uint) returns address {
+    init_state axiom forall uint id. requestProviderGhost(id) == 0;
+}
+
+// Ghost for a pool token of a request (id)
+ghost requestPoolTokenGhost(uint) returns address {
+    init_state axiom forall uint id. requestPoolTokenGhost(id) == 0;
+}
+
+// Hook to havoc the pool token of request (id)
+hook Sstore PendWit._withdrawalRequests[KEY uint256 id].poolToken address PT STORAGE {
+    havoc requestPoolTokenGhost assuming forall uint256 id2.
+    id2 == id => requestPoolTokenGhost@new(id2) == PT;
+}
+
+// Hook to havoc the provider of request (id)
+hook Sstore PendWit._withdrawalRequests[KEY uint256 id].provider address Provider STORAGE {
+    havoc requestProviderGhost assuming forall uint256 id2.
+    id == id2 => requestProviderGhost@new(id2) == Provider;
+}
+
+// Hook to havoc the total number of pool tokens registered in requests.
+hook Sstore PendWit._withdrawalRequests[KEY uint256 id].poolTokenAmount uint256 balance (uint256 old_balance) STORAGE {
+    require requestPoolTokenGhost(id) !=0;
+    havoc sumRequestPoolTokens assuming forall address poolToken.
+    ((requestPoolTokenGhost(id) == poolToken) ?
+    sumRequestPoolTokens@new(poolToken) == sumRequestPoolTokens@old(poolToken) + balance - old_balance :
+    sumRequestPoolTokens@new(poolToken) == sumRequestPoolTokens@old(poolToken));
+}
 
 ////////////////////////////////////////////////////////////////////////////
 //                       Invariants                                       //
 ////////////////////////////////////////////////////////////////////////////
 
+invariant whiteListedToken(env e, address token)
+    isTokenWhitelisted(e,token)
+
+// Failed:
+// https://vaas-stg.certora.com/output/41958/dd6b365803a568c539cd/?anonymousKey=68692b3845ee183ded9e5145dc37f63e8e041e73
+invariant validPool(address token)
+    !isPoolValid(token) => _poolCollection(token) == 0
+
 //https://vaas-stg.certora.com/output/41958/dcdc01d1ce1740249872/?anonymousKey=42f1ef1a1e0a739ed3b34b06109fae02ffb6abcb
 invariant poolLinkPoolCollection(address pool)
     collectionByPool(pool) == PoolCol <=> _poolCollection(pool) == PoolCol
+
+invariant withdrawalRequestPTsSolvency(address token)
+    sumRequestPoolTokens(token) <= PendWit.poolTotalSupply(token)
 
 ////////////////////////////////////////////////////////////////////////////
 //                       Rules                                            //
@@ -106,30 +161,17 @@ rule reachability(method f)
 rule underlyingToPTinverse(uint amount)
 {
     env e;
-    address token = tokenA;
-    address poolTok = ptA;
+    address token;
+    address PT;
 
-    require PoolCol.poolToken(token) == poolTok;
+    require ( PT == ptA && token == tokenA) || 
+            ( PT == ptBNT && token == bnt) ;
+    require PoolCol.poolToken(token) == PT;
 
     uint a = poolTokenToUnderlying(e,token,amount);
     uint b = underlyingToPoolToken(e,token,a);
     
     assert b == amount;
-}
-
-rule checkDepositFor(address provider, uint256 amount)
-{
-    env e;
-    uint256 a = depositFor(e,provider,bnt,amount);
-    assert false;
-}
-
-rule checkWithdrawFees(address beneficiary)
-{
-    env e;
-    uint256 Fee = pendingNetworkFeeAmount(e);
-    withdrawNetworkFees(e,beneficiary);
-    assert false;
 }
 
 // Verified
@@ -214,10 +256,61 @@ rule tradeBntLiquidity(uint amount)
     uint256 balanceA2 = tokenA.balanceOf(e,e.msg.sender);
     uint256 balanceB2 = tokenB.balanceOf(e,e.msg.sender);
 
-    //assert false;
     assert bntLiqA2 <= bntLiqA1 && bntLiqB1 <= bntLiqB2;
     assert balanceA1 >= balanceA2;
     assert balanceB1 + amount == balanceB2;
+}
+
+rule unTradeablePT(address trader, address poolToken, uint amount, bool TKN_2_PT)
+{
+    env e;
+    address token;
+    uint maxSourceAmount;
+    uint256 deadline;
+
+    require poolToken == ptBNT || poolToken == ptA;
+    // This must be replaced (and verified!) by an invariant
+    requireInvariant validPool(poolToken);
+    require !isPoolValid(poolToken);
+
+    if (TKN_2_PT) {
+        tradeByTargetAmount@withrevert
+                (e,token,poolToken,amount,maxSourceAmount,deadline,trader);
+    }
+    else {
+        tradeByTargetAmount@withrevert
+                (e,poolToken,token,amount,maxSourceAmount,deadline,trader);
+    }
+
+    assert lastReverted;
+}
+
+rule afterTradingPTBalanceIntact(address trader, uint amount)
+{
+    env e;
+    address tknA;
+    address tknB;
+    address poolToken;
+    uint maxSourceAmount;
+    uint256 deadline;
+    uint256 balancePT1;
+    uint256 balancePT2;
+
+    require poolToken == ptBNT || poolToken == ptA;
+
+    if (poolToken == ptBNT)
+        { balancePT1 = ptBNT.balanceOf(e,trader); }
+    else
+        { balancePT1 = ptA.balanceOf(e,trader); }
+
+    tradeByTargetAmount(e,tknA,tknB,amount,maxSourceAmount,deadline,trader);
+    
+    if (poolToken == ptBNT)
+        { balancePT2 = ptBNT.balanceOf(e,trader); }
+    else
+        { balancePT2 = ptA.balanceOf(e,trader); }
+
+    assert balancePT2 == balancePT1;
 }
 
 
@@ -235,20 +328,22 @@ rule RequestRegisteredForValidProvider(uint tokenAmount)
         uint id = initWithdrawal(e,poolToken,tokenAmount);
     uint balance2 = ptA.balanceOf(e,provider);
 
-    assert balance1 - balance2 == tokenAmount &&
-            balance1 >= tokenAmount;
+    assert balance1 - balance2 == tokenAmount;
 }
 
 rule whoChangedMasterVaultBalance(method f)
-filtered{f->f.selector!=withdraw(uint).selector}
+//filtered{f -> f.selector!=withdraw(uint).selector &&
+//                !depositLikeMethod(f)}
+//
 {
     env e;
     calldataarg args;
-    uint balanceTKN1 = tokenA.balanceOf(e,masVault);
-    uint balanceBNT1 = bnt.balanceOf(e,masVault);
+    address Vault = _masterVault(e);
+    uint balanceTKN1 = tokenA.balanceOf(e,Vault);
+    uint balanceBNT1 = bnt.balanceOf(e,Vault);
     f(e,args);
-    uint balanceTKN2 = tokenA.balanceOf(e,masVault);
-    uint balanceBNT2 = bnt.balanceOf(e,masVault);
+    uint balanceTKN2 = tokenA.balanceOf(e,Vault);
+    uint balanceBNT2 = bnt.balanceOf(e,Vault);
     assert balanceBNT2 == balanceBNT1 &&
             balanceTKN1 == balanceTKN2;
 }
@@ -269,6 +364,9 @@ rule noDoubleWithdrawalBNT(uint256 ptAmount)
 }
 
 // Is reachable.
+// Note : I saved a call to initWithdrawal to avoid timeouts.
+// The require statements were added instead (and were verified
+// in the checkInitWithdraw rule).
 rule noDoubleWithdrawalTKN(uint256 ptAmount, uint id)
 {
     env e;
@@ -293,6 +391,7 @@ rule noDoubleWithdrawalTKN(uint256 ptAmount, uint id)
     require ptAmount == poolTokenAmount;
 
     // Withdraw:
+    constantsForWithdrawal(e,token);
     uint256 withAmount = withdraw(e,id);
     withdraw@withrevert(e,id);
     assert lastReverted;
@@ -303,6 +402,8 @@ rule depositBntIntegrity(uint256 amount)
     env e;
     require validUser(e,e.msg.sender);
     require ptBNT.reserveToken(e) == bnt;
+    require VbntGovern._token() == _vbnt(e);
+    require BntGovern._token() == _bnt(e);
 
     // Balances before deposit
     uint balancePT1 = ptBNT.balanceOf(e,e.msg.sender);
@@ -362,9 +463,58 @@ rule depositTknIntegrity(uint256 amount)
     assert balancePT3 == balancePT1 , "User's PT balance changed unexpectedly";
 }
 
+rule afterTradesumOfTokenBalanceIntact(address tknA, address tknB, uint amount)
+{
+    env e;
+    address trader = e.msg.sender;
+    address vault = _masterVault(e);
+    require tknA == bnt || tknA == tokenA || tknA == tokenB;
+    require tknB == bnt || tknB == tokenA || tknB == tokenB;
+    require validUser(e,trader);
+
+    uint256 traderBalanceA1 = PoolCol.tokenUserBalance(tknA,trader);
+    uint256 traderBalanceB1 = PoolCol.tokenUserBalance(tknB,trader);
+    uint256 vaultBalanceA1 = PoolCol.tokenUserBalance(tknA,vault);
+    uint256 vaultBalanceB1 = PoolCol.tokenUserBalance(tknB,vault);
+
+    uint maxSourceAmount;
+    uint deadline;
+
+    tradeByTargetAmount(e,tknA,tknB,
+        amount,maxSourceAmount,deadline,trader);
+
+    uint256 traderBalanceA2 = PoolCol.tokenUserBalance(tknA,trader);
+    uint256 traderBalanceB2 = PoolCol.tokenUserBalance(tknB,trader);
+    uint256 vaultBalanceA2 = PoolCol.tokenUserBalance(tknA,vault);
+    uint256 vaultBalanceB2 = PoolCol.tokenUserBalance(tknB,vault);
+
+    assert traderBalanceA2 + vaultBalanceA2 == 
+            traderBalanceA1 + vaultBalanceA1,
+            "Source token total balance isn't conserved after trade";
+
+    assert traderBalanceB2 + vaultBalanceB2 == 
+            traderBalanceB1 + vaultBalanceB1,
+            "Target token total balance isn't conserved after trade";
+
+}
+
+
 ////////////////////////////////////////////////////////////////////////////
 //                       Helper Functions                                 //
 ////////////////////////////////////////////////////////////////////////////
+/*
+function depositLikeMethod(method f) returns bool
+{
+    return f.selector ==
+        (depositFor(address, address, uint256).selector ||
+        deposit(address, uint256).selector ||
+        depositForPermitted(address, address, uint256, uint256, 
+            uint8, bytes32, bytes32).selector ||
+        depositPermitted(address, uint256, uint256, 
+            uint8, bytes32, bytes32).selector) ;  
+}
+*/
+
 function validUser(env env1, address user) returns bool
 {
     return user != currentContract &&
@@ -445,14 +595,14 @@ function simpleMulDivIf(uint256 x,uint256 y, uint256 z) returns uint256
     bool Success = true;
     require dontDividebyZero;
 
-    if(x ==0 || y ==0)      {f = 0;}
-    else if(y == 2 * z)     {f = 2 * x;}
-    else if(y == 3 * z)     {f = 3 * x;}
-    else if(y == 10 * z)    {f = 10 * x;}
-    else if(2 * y == z && x % 2 ==0)  {f = x / 2;}
-    else if(3 * y == z && x % 3 ==0)  {f = x / 3;}
-    else if(10*y == z && x % 10 ==0)    {f = x / 10;}
-    else if(y == z)   { f = x;}
+    if (x ==0 || y ==0)      {f = 0;}
+    else if (y == 2 * z)     {f = 2 * x;}
+    else if (y == 3 * z)     {f = 3 * x;}
+    else if (y == 10 * z)    {f = 10 * x;}
+    else if (2 * y == z && x % 2 ==0)  {f = x / 2;}
+    else if (3 * y == z && x % 3 ==0)  {f = x / 3;}
+    else if (10*y == z && x % 10 ==0)    {f = x / 10;}
+    else if (y == z)   { f = x;}
     else    {f = 0; Success = false;}
 
     require Success;
@@ -463,13 +613,13 @@ function simpleMulDivIf(uint256 x,uint256 y, uint256 z) returns uint256
 function mulDivFactor2(uint256 x,uint256 y, uint256 z) returns uint256 
 {
     require z !=0;
-    if(x == 0 || y == 0){
+    if (x == 0 || y == 0){
         return 0;
     }
-    else if(y > z){
+    else if (y > z){
         return to_uint256(2 * x);
     }
-    else if(y < z){
+    else if (y < z){
         return to_uint256(x / 2);
     }
     else{
@@ -480,4 +630,21 @@ function mulDivFactor2(uint256 x,uint256 y, uint256 z) returns uint256
 function identity(uint256 x) returns uint256 
 {
     return x;
+}
+
+// Set constant withdrawal parameters.
+function constantsForWithdrawal(env env2, address pool){
+    setConstants_wmn_only(env2,pool);
+}
+
+// Set withdrawal parameters (w,m,n) to constants.
+function setConstants_wmn_only(env env1, address pool){
+    uint256 w = 0;
+    uint256 m = 2000;
+    uint256 n = 2500;
+    address epv = _externalProtectionVault(env1);  
+
+    require w == PoolCol.tokenUserBalance(pool,epv);
+    require m == PoolCol.getPoolDataTradingFee(pool);
+    require n == networkSettings.networkFeePPM(env1);
 }
