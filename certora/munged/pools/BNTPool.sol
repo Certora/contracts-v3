@@ -584,7 +584,7 @@ contract BNTPool is IBNTPool, Vault {
         // deduct the exit fee from BNT amount
         uint256 withdrawalFeeAmount = MathEx.mulDivF(bntAmount, _networkSettings.withdrawalFeePPM(), PPM_RESOLUTION);
 
-        bntAmount -= withdrawalFeeAmount;
+        // bntAmount -= withdrawalFeeAmount;
 
         return InternalWithdrawalAmounts({ bntAmount: bntAmount, withdrawalFeeAmount: withdrawalFeeAmount });
     }

@@ -87,9 +87,9 @@ hook Sstore _withdrawalRequests[KEY uint256 id].provider address Provider STORAG
 hook Sstore _withdrawalRequests[KEY uint256 id].poolTokenAmount uint256 balance (uint256 old_balance) STORAGE {
     require requestPoolTokenGhost(id) !=0;
     havoc sumRequestPoolTokens assuming forall address poolToken.
-    ((requestPoolTokenGhost(id) == poolToken) ?
-    sumRequestPoolTokens@new(poolToken) == sumRequestPoolTokens@old(poolToken) + balance - old_balance :
-    sumRequestPoolTokens@new(poolToken) == sumRequestPoolTokens@old(poolToken));
+        ((requestPoolTokenGhost(id) == poolToken) ?
+        sumRequestPoolTokens@new(poolToken) == sumRequestPoolTokens@old(poolToken) + balance - old_balance :
+        sumRequestPoolTokens@new(poolToken) == sumRequestPoolTokens@old(poolToken));
 }
 
 // A preconditioner for a valid request.
@@ -213,6 +213,7 @@ rule poolTokenToUnderlyingMono_BNT(uint256 amount1, uint256 amount2)
         amount2 > amount1) => (UAmount1 < UAmount2), "Non monotonic increasing";
 }
 
+
 // Conversion from pool token to any underlying token is 
 // monotonically increasing with amount (PoolCollection impl.)
 // Current status: PASSES
@@ -223,37 +224,38 @@ rule poolTokenToUnderlyingMono_BNT(uint256 amount1, uint256 amount2)
      uint TotalSupply; 
      uint stake = PC.getPoolDataStakedBalance(token);
     
-     require PC.poolToken(e,token) == ptA;
+     require PC.poolToken(e, token) == ptA;
      require TotalSupply > 0 && stake > 0;
-     require PC.poolTotalSupply(e,ptA) == TotalSupply;
+     require PC.poolTotalSupply(e, ptA) == TotalSupply;
 
-     uint UAmount1 = PC.poolTokenToUnderlying(e,token,amount1);
-     uint UAmount2 = PC.poolTokenToUnderlying(e,token,amount2);
+     uint UAmount1 = PC.poolTokenToUnderlying(e, token, amount1);
+     uint UAmount2 = PC.poolTokenToUnderlying(e, token, amount2);
     
      // Checking for weak monotonicity:
      assert (amount2 > amount1) => (UAmount1 <= UAmount2), "Monotonic decreasing";
      // Checking for strong monotonicity (excluding division remainders):
      assert(
-         mulMod(stake,amount1,TotalSupply) ==0 && 
-         mulMod(stake,amount2,TotalSupply) ==0 &&
+         mulMod(stake, amount1, TotalSupply) ==0 && 
+         mulMod(stake, amount2, TotalSupply) ==0 &&
          amount2 > amount1) => (UAmount1 < UAmount2), "Non monotonic increasing";
  }
 
 // Unit test for poolTokenToUnderlying in Pool collection
 // Current status: PASSES
-// rule poolTokenToUnderlying_PC_check(uint256 amount, uint stake)
-// {
-//     env e;
-//     address token = erc20;
+rule poolTokenToUnderlying_PC_check(uint256 amount, uint stake)
+{
+    env e;
+    address token = erc20;
 
-   // require PC.poolToken(e,token) == ptA;
-   // require PC.poolTotalSupply(e,token) == 1;
-    //require PC.getPoolDataStakedBalance(e,token) == stake;
+    require PC.poolToken(e, token) == ptA;
+    // require PC.poolTotalSupply(e, token) == 1;               // Sasha:  you passed Token to the method that accepts IPoolToken. that's why you consider different total supplies
+    require PC.poolTotalSupply(e, PC.poolToken(e, token)) == 1;
+    require PC.getPoolDataStakedBalance(token) == stake;
 
-//     uint UAmount = PC.poolTokenToUnderlying(e,token,amount);
+    uint UAmount = PC.poolTokenToUnderlying(e, token, amount);
 
-//     assert UAmount == amount*stake;
-// }
+    assert UAmount == amount * stake;
+}
 
 // Given a previous withdrawal request with id (id),
 // no further call to InitWithdrawal can override the previous withdrawal.
@@ -364,7 +366,7 @@ rule changeNextWithdrawalId()
 
 // Any cancelled request with a given id, cannot be associated
 // with any provider (including the original).
-// Current status: PASSES
+// Current status: FAILS (deletion from mapping doesn't work because of a bug in the tool)
 rule cancelWithdrawalIntegrity(uint id, address pro)
 {
     env e;
@@ -376,7 +378,7 @@ rule cancelWithdrawalIntegrity(uint id, address pro)
     uint256 reserveTokenAmount1; uint256 reserveTokenAmount2;
 
     provider1, poolToken1, reserveToken1, createdAt1, poolTokenAmount1, 
-        reserveTokenAmount1 = currentContract.withdrawalRequest(id);
+        reserveTokenAmount1 = currentContract.withdrawalRequest(id);            // Sasha: why did you add currentContract?
     
     require provider1 == pro;
     cancelWithdrawal(e,provider1, id);
@@ -387,7 +389,7 @@ rule cancelWithdrawalIntegrity(uint id, address pro)
     assert provider2 == 0, "A cancelled request if associated with some non-zero address";
 }
 
-// Checks which functions change nextWithdrawalRequestId
+// Checks which functions change nextWithdrawalRequestId                        // Sasha: so, we kind of check nothing. Thus it's irrelevant for verification and should be move to the postponed spec
 // Current status: PASSES
 rule nextWithIDVaries(method f)
 {
@@ -398,7 +400,7 @@ rule nextWithIDVaries(method f)
     f(e,args);
     uint id2 = nextWithdrawalRequestId();
 
-    assert id1 <= id2, "nextWithdrawalRequestId decreased unexpectedly";
+    assert id1 <= id2, "nextWithdrawalRequestId decreased unexpectedly";            // Sasha: I don't understand this combination of asserts
     
     assert ( 
         (id1 + 1 == id2) => 
@@ -524,7 +526,8 @@ rule checkSpecificId(address provider)
 }
 
 // No two identical IDs for provider
-// Current status: PASSES
+// Current status: FAILS (cannot understand counter example: https://vaas-stg.certora.com/output/3106/5a3f0e0557d9c474543d/?anonymousKey=e5bda5cae74ec0a61c62a10e145fcbc8c619d4bb) 
+// probably issue becuase of disabled deletion from map
 invariant noIdenticalIDs(address provider, uint ind1, uint ind2)
     (
         validInd_Request(provider, ind1) &&
@@ -587,6 +590,8 @@ rule requestDetailsInvariance(uint id, method f)
 // Current status : FAILS
 // fails for initWithdrawal*
 // * see note inside preserved block
+// Sasha: now it also fails for completeWithdrawal() because withdrawalRequest cannot be removed because of the bug
+// probably better move it to the BancorNetwork
 invariant totalRequestPTlessThanSupply(address poolToken)
     sumRequestPoolTokens(poolToken) <= poolTotalSupply(poolToken)
     {
@@ -599,23 +604,11 @@ invariant totalRequestPTlessThanSupply(address poolToken)
             // If we require invariant of solvency:
             // sum(requests pool tokens) <= sum(user balance) <= Total supply
             // this should probably let the rule pass.
-            // sumRequestPoolTokens + poolTokenAmount <= sum(userbalance)
+            // sumRequestPoolTokens + poolTokenAmount <= sum(userbalance)   
             require poolTotalSupply(poolToken) >= poolTokenAmount;
         }
     }
-
-// All pass
-rule whoChangedTotalSupply(method f) 
-filtered { f-> !f.isView}
-{
-    address poolToken = ptA;
-    env e;
-    calldataarg args;
-    uint totSup1 = poolTotalSupply(poolToken);
-    f(e,args);
-    uint totSup2 = poolTotalSupply(poolToken);
-    assert totSup1 == totSup2;
-}   
+   
 
 // For every request, the number of registered pool tokens cannot be larger
 // than the total supply.
@@ -755,6 +748,7 @@ rule providerGetsPTsBack(uint id)
 
     assert PTbalance1 + amount == PTbalance2;
 }
+
 // For any registered request, the time it was created must be earlier 
 // than the current block time and no earlier than when the request was sent.
 // Current status: FAILS
@@ -770,28 +764,12 @@ rule validRequestTime(method f)
 
     uint timeInit = e.block.timestamp;
     f(e,args);
-    uint id = initWithdrawal(e,provider,poolToken,amount);
+    uint id = initWithdrawal(e, provider, poolToken, amount);
+    uint32 tmp = _time(e);
+    uint256 tmp256 = _time256(e);
     uint time = to_uint256(requestCreatedAt(id));
     uint timeEnd = e.block.timestamp;
     assert timeEnd >= time && time >= timeInit;
 }
 
-// Reachability
-// Current status: FAILS for all functions.
-rule reachability(method f)
-{   
-    env e;
-    calldataarg args;
-    f(e, args);
-    assert false;
-}
 
-// Cancel withdrawal reachability
-rule reachCancelWithdrawal()
-{   
-    env e;
-    address provider;
-    uint id = initWithdrawal(e,provider,ptA,1);
-    cancelWithdrawal@withrevert(e,provider,id);
-    assert !lastReverted ;
-}

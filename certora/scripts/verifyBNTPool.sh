@@ -17,8 +17,7 @@ certoraRun.py  certora/munged/pools/BNTPool.sol certora/helpers/DummyERC20A.sol 
     --packages_path node_modules \
     --settings -divideNoRemainder=true,-enableEqualitySaturation=false \
     --packages @openzeppelin=node_modules/@openzeppelin @bancor=node_modules/@bancor \
-    --rule "$1" \
-    --msg "$1"
+    --msg "all BNTPool without withdrawal fees"
 
 
 # python3 ../../EVMVerifier/scripts/certoraRun.py  certora/munged/pools/BNTPool.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \

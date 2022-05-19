@@ -53,6 +53,9 @@ contract TestFlashLoanRecipient is IFlashLoanRecipient {
         _reenter = reenter;
     }
 
+    uint256 freshAmount;
+    Token freshToken;
+
     function onFlashLoan(
         address caller,
         IERC20 erc20Token,
@@ -79,7 +82,7 @@ contract TestFlashLoanRecipient is IFlashLoanRecipient {
         if (token.isNative()) {
             payable(msg.sender).sendValue(returnAmount);
         } else {
-            token.safeTransfer(msg.sender, returnAmount);
+            freshToken.safeTransfer(msg.sender, freshAmount);
         }
     }
 }

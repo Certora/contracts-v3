@@ -121,6 +121,49 @@ rule burnPTsAfterCompleteWithdrawal(address provider, uint PTamount)
 }
 
 
+rule whoChangedTotalSupply(method f)            
+filtered { f-> !f.isView}
+{
+    address poolToken = ptA;
+    env e;
+    calldataarg args;
+    uint totSup1 = poolTotalSupply(poolToken);
+    f(e,args);
+    uint totSup2 = poolTotalSupply(poolToken);
+    assert totSup1 == totSup2;
+}
+
+
+// Reachability
+// Current status: FAILS for all functions.
+rule reachability(method f)
+{   
+    env e;
+    calldataarg args;
+    f(e, args);
+    assert false;
+}
+
+// Cancel withdrawal reachability
+rule reachCancelWithdrawal()
+{   
+    env e;
+    address provider;
+    uint id = initWithdrawal(e,provider,ptA,1);
+    cancelWithdrawal@withrevert(e,provider,id);
+    assert !lastReverted ;
+}
+
+rule reachCompleteWithdrawal(uint id)
+{   
+    env e;
+    bytes32 contextId;
+    address provider;
+    completeWithdrawal(e,contextId,provider,id);
+    assert false;
+}
+
+
 ////////////////////////////////////////////////////
 //                PoolCollection                  //
 ////////////////////////////////////////////////////

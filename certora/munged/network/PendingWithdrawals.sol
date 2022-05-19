@@ -391,7 +391,7 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
             revert DoesNotExist();
         }
 
-        delete _withdrawalRequests[id];
+        // delete _withdrawalRequests[id];
     }
 
     /**
