@@ -3,19 +3,18 @@ pragma solidity 0.8.13;
 
 import { IUpgradeable } from "../../utility/interfaces/IUpgradeable.sol";
 
-import { IVault } from "../../vaults/interfaces/IVault.sol";
-
 import { IPoolToken } from "../../pools/interfaces/IPoolToken.sol";
 
 import { Token } from "../../token/Token.sol";
 
 // distribution types
 uint8 constant FLAT_DISTRIBUTION = 0;
-uint8 constant EXPONENTIAL_DECAY_DISTRIBUTION = 1;
+uint8 constant EXP_DECAY_DISTRIBUTION = 1;
 
 struct ProgramData {
     uint32 startTime;
     uint32 endTime;
+    uint32 halfLife;
     uint32 prevDistributionTimestamp;
     IPoolToken poolToken;
     bool isEnabled;
@@ -46,19 +45,33 @@ interface IAutoCompoundingRewards is IUpgradeable {
     function isProgramActive(Token pool) external view returns (bool);
 
     /**
-     * @dev creates a program for a pool
+     * @dev creates a rewards program with flat distribution for a given pool
      *
      * requirements:
      *
      * - the caller must be the admin of the contract
      * - the pool must not have an active program
      */
-    function createProgram(
+    function createFlatProgram(
         Token pool,
         uint256 totalRewards,
-        uint8 distributionType,
         uint32 startTime,
         uint32 endTime
+    ) external;
+
+    /**
+     * @dev creates a rewards program with exponential-decay distribution for a given pool
+     *
+     * requirements:
+     *
+     * - the caller must be the admin of the contract
+     * - the pool must not have an active program
+     */
+    function createExpDecayProgram(
+        Token pool,
+        uint256 totalRewards,
+        uint32 startTime,
+        uint32 halfLife
     ) external;
 
     /**

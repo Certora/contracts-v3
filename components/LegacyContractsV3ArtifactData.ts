@@ -1,17 +1,12 @@
-import { BancorNetworkV1__factory, NetworkSettingsV1__factory } from '../deployments/mainnet/types';
+import { PoolCollectionType1V1__factory } from '../deployments/mainnet/types';
 import { ArtifactData } from './ContractBuilder';
 
 /* eslint-disable camelcase */
 
 const LegacyContractsV3ArtifactData: Record<string, ArtifactData> = {
-    BancorNetworkV1: {
-        abi: BancorNetworkV1__factory.abi,
-        bytecode: BancorNetworkV1__factory.bytecode
-    },
-
-    NetworkSettingsV1: {
-        abi: NetworkSettingsV1__factory.abi,
-        bytecode: NetworkSettingsV1__factory.bytecode
+    PoolCollectionType1V1: {
+        abi: PoolCollectionType1V1__factory.abi,
+        bytecode: PoolCollectionType1V1__factory.bytecode
     }
 };
 

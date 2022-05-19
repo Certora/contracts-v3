@@ -1,8 +1,9 @@
-import { isTenderlyFork } from '../utils/Deploy';
+import { getNamedSigners, isTenderlyFork } from '../utils/Deploy';
+import Logger from '../utils/Logger';
 import { toWei } from '../utils/Types';
 import '@nomiclabs/hardhat-ethers';
 import '@typechain/hardhat';
-import { ethers, getNamedAccounts } from 'hardhat';
+import { ethers } from 'hardhat';
 import 'hardhat-deploy';
 import { setTimeout } from 'timers/promises';
 
@@ -13,17 +14,15 @@ const main = async () => {
         throw new Error('Invalid network');
     }
 
-    const { ethWhale: ethWhaleAddress } = await getNamedAccounts();
-
-    const ethWhale = await ethers.getSigner(ethWhaleAddress);
+    const { ethWhale } = await getNamedSigners();
 
     while (true) {
         try {
             const { timestamp, number } = await ethers.provider.getBlock('latest');
 
-            console.log(`Current block=${number}, timestamp=${timestamp}`);
-            console.log(`Waiting for ${TIMEOUT / 1000} seconds...`);
-            console.log('');
+            Logger.log(`Current block=${number}, timestamp=${timestamp}`);
+            Logger.log(`Waiting for ${TIMEOUT / 1000} seconds...`);
+            Logger.log('');
 
             await setTimeout(TIMEOUT);
 
@@ -32,8 +31,8 @@ const main = async () => {
                 to: ethWhale.address
             });
         } catch (e: unknown) {
-            console.error(`Failed with: ${e}. Resuming in ${TIMEOUT / 1000} seconds...`);
-            console.error('');
+            Logger.error(`Failed with: ${e}. Resuming in ${TIMEOUT / 1000} seconds...`);
+            Logger.error('');
 
             await setTimeout(TIMEOUT);
         }
@@ -43,6 +42,6 @@ const main = async () => {
 main()
     .then(() => process.exit(0))
     .catch((error) => {
-        console.error(error);
+        Logger.error(error);
         process.exit(1);
     });
