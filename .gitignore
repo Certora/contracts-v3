@@ -29,6 +29,9 @@ coverage.json
 allFiredEvents
 scTopics
 
+package.json
+yarn.lock
+
 .env
 tenderly.yaml
 
