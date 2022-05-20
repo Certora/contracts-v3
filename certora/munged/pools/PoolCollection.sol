@@ -174,16 +174,6 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     event PoolCreated(IPoolToken indexed poolToken, Token indexed token);
 
     /**
-     * @dev triggered when a pool is migrated into this pool collection
-     */
-    event PoolMigratedIn(Token indexed token);
-
-    /**
-     * @dev triggered when a pool is migrated out of this pool collection
-     */
-    event PoolMigratedOut(Token indexed token);
-
-    /**
      * @dev triggered when the default trading fee is updated
      */
     event DefaultTradingFeePPMUpdated(uint32 prevFeePPM, uint32 newFeePPM);
@@ -293,7 +283,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
      * @inheritdoc IVersioned
      */
     function version() external view virtual returns (uint16) {
-        return 1;
+        return 2;
     }
 
     /**
@@ -343,6 +333,8 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     {
         _setDefaultTradingFeePPM(newDefaultTradingFeePPM);
     }
+    
+    // IPoolToken public tmpPoolToken;
 
     /**
      * @inheritdoc IPoolCollection
@@ -353,6 +345,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         }
 
         IPoolToken newPoolToken = IPoolToken(_poolTokenFactory.createPoolToken(token));
+    // IPoolToken newPoolToken = tmpPoolToken;
 
         newPoolToken.acceptOwnership();
 
@@ -573,7 +566,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         address provider,
         Token pool,
         uint256 tokenAmount
-    ) public virtual only(address(_network)) validAddress(provider) greaterThanZero(tokenAmount) returns (uint256) {
+    ) external only(address(_network)) validAddress(provider) greaterThanZero(tokenAmount) returns (uint256) {
         Pool storage data = _poolStorage(pool);
 
         if (!data.depositingEnabled) {
@@ -609,13 +602,13 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
             _networkSettings.minLiquidityForTrading()
         );
 
-        // emit TokensDeposited({
-        //     contextId: contextId,
-        //     provider: provider,
-        //     token: pool,
-        //     tokenAmount: tokenAmount,
-        //     poolTokenAmount: poolTokenAmount
-        // });
+        emit TokensDeposited({
+            contextId: contextId,
+            provider: provider,
+            token: pool,
+            tokenAmount: tokenAmount,
+            poolTokenAmount: poolTokenAmount
+        });
 
         _dispatchTradingLiquidityEvents(
             contextId,
@@ -678,7 +671,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         uint256 sourceAmount,
         uint256 minReturnAmount
     )
-        public
+        external
         only(address(_network))
         greaterThanZero(sourceAmount)
         greaterThanZero(minReturnAmount)
@@ -713,7 +706,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         uint256 targetAmount,
         uint256 maxSourceAmount
     )
-        public // harness: internal -> public 
+        external
         only(address(_network))
         greaterThanZero(targetAmount)
         greaterThanZero(maxSourceAmount)
@@ -810,8 +803,6 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         _addPool(pool, data);
 
         data.poolToken.acceptOwnership();
-
-        emit PoolMigratedIn({ token: pool });
     }
 
     /**
@@ -831,8 +822,6 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         _removePool(pool);
 
         cachedPoolToken.transferOwnership(address(targetPoolCollection));
-
-        emit PoolMigratedOut({ token: pool });
     }
 
     /**
@@ -953,9 +942,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
             assert(amounts.bntProtocolHoldingsDelta.isNeg); // currently no support for requesting funding here
 
             _bntPool.renounceFunding(contextId, pool, amounts.bntProtocolHoldingsDelta.value);
-        }
-
-        if (amounts.bntTradingLiquidityDelta.value > 0) {
+        } else if (amounts.bntTradingLiquidityDelta.value > 0) {
             if (amounts.bntTradingLiquidityDelta.isNeg) {
                 _bntPool.burnFromVault(amounts.bntTradingLiquidityDelta.value);
             } else {
@@ -1032,7 +1019,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     /**
      * @dev returns a storage reference to pool data
      */
-    function _poolStorage(Token pool) internal view returns (Pool storage) {
+    function _poolStorage(Token pool) private view returns (Pool storage) {
         Pool storage data = _poolData[pool];
         if (address(data.poolToken) == address(0)) {
             revert DoesNotExist();
@@ -1086,18 +1073,16 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
      */
     function _calcTargetBNTTradingLiquidity(
         uint256 tokenReserveAmount,
-        uint256 poolFundingLimit,
         uint256 availableFunding,
         PoolLiquidity memory liquidity,
         Fraction memory fundingRate,
         uint256 minLiquidityForTrading
     ) private pure returns (TradingLiquidityAction memory) {
         // calculate the target BNT trading liquidity based on the smaller between the following:
-        // - pool funding limit (e.g., the total funding limit could have been reduced by the DAO)
         // - BNT liquidity required to match previously deposited based token liquidity
         // - maximum available BNT trading liquidity (current amount + available funding)
         uint256 targetBNTTradingLiquidity = Math.min(
-            Math.min(poolFundingLimit, MathEx.mulDivF(tokenReserveAmount, fundingRate.n, fundingRate.d)),
+            MathEx.mulDivF(tokenReserveAmount, fundingRate.n, fundingRate.d),
             liquidity.bntTradingLiquidity + availableFunding
         );
 
@@ -1119,16 +1104,11 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
 
             targetBNTTradingLiquidity = newTargetBNTTradingLiquidity;
         } else if (targetBNTTradingLiquidity >= liquidity.bntTradingLiquidity) {
-            // if the target is above the current trading liquidity, limit it by factoring the current value up
+            // if the target is above the current trading liquidity, limit it by factoring the current value up. Please
+            // note that if the target is below the current trading liquidity - it will be reduced to it immediately
             targetBNTTradingLiquidity = Math.min(
                 targetBNTTradingLiquidity,
                 liquidity.bntTradingLiquidity * LIQUIDITY_GROWTH_FACTOR
-            );
-        } else {
-            // if the target is below the current trading liquidity, limit it by factoring the current value down
-            targetBNTTradingLiquidity = Math.max(
-                targetBNTTradingLiquidity,
-                liquidity.bntTradingLiquidity / LIQUIDITY_GROWTH_FACTOR
             );
         }
 
@@ -1166,7 +1146,6 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
 
         TradingLiquidityAction memory action = _calcTargetBNTTradingLiquidity(
             tokenReserveAmount,
-            _networkSettings.poolFundingLimit(pool),
             _bntPool.availableFunding(pool),
             liquidity,
             fundingRate,

@@ -95,6 +95,73 @@ rule requestRegisteredForValidProvider(address provider, uint tokenAmount)
     assert ptA.balanceOf(e,currentContract) >= tokenAmount;
 }
 
+/// Should transfer to the BancorNetwork spec:
+// The protocol should burn the pool tokens it received from the provider
+// after the withdrawal request was completed.
+// Current status: ?
+rule burnPTsAfterCompleteWithdrawal(address provider, uint PTamount)
+{
+    env e; env e2;
+    bytes32 contextId;
+    address poolToken = ptA;
+    require provider != currentContract;
+
+    uint id = initWithdrawal(e,provider,poolToken,PTamount);
+
+    uint PTbalance1 = poolTokenBalance(poolToken, currentContract);
+    uint totSupply1 = poolTotalSupply(poolToken);
+
+    completeWithdrawal(e2,contextId,provider,id);
+
+    uint PTbalance2 = poolTokenBalance(poolToken, currentContract);
+    uint totSupply2 = poolTotalSupply(poolToken);
+
+    assert PTbalance2 + PTamount == PTbalance1 , "Protocol did not remove its pool tokens";
+    assert totSupply2 + PTamount == totSupply1 , "The number of burnt PTs is incorrect";
+}
+
+
+rule whoChangedTotalSupply(method f)            
+filtered { f-> !f.isView}
+{
+    address poolToken = ptA;
+    env e;
+    calldataarg args;
+    uint totSup1 = poolTotalSupply(poolToken);
+    f(e,args);
+    uint totSup2 = poolTotalSupply(poolToken);
+    assert totSup1 == totSup2;
+}
+
+
+// Reachability
+// Current status: FAILS for all functions.
+rule reachability(method f)
+{   
+    env e;
+    calldataarg args;
+    f(e, args);
+    assert false;
+}
+
+// Cancel withdrawal reachability
+rule reachCancelWithdrawal()
+{   
+    env e;
+    address provider;
+    uint id = initWithdrawal(e,provider,ptA,1);
+    cancelWithdrawal@withrevert(e,provider,id);
+    assert !lastReverted ;
+}
+
+rule reachCompleteWithdrawal(uint id)
+{   
+    env e;
+    bytes32 contextId;
+    address provider;
+    completeWithdrawal(e,contextId,provider,id);
+    assert false;
+}
 
 
 ////////////////////////////////////////////////////

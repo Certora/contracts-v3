@@ -6,6 +6,7 @@ import Contracts, {
     ExternalProtectionVault,
     ExternalRewardsVault,
     IERC20,
+    IPoolCollection,
     MasterVault,
     NetworkSettings,
     PoolMigrator,
@@ -58,7 +59,7 @@ export const proxyAdmin = async () => {
 
 const createLogic = async <F extends ContractFactory>(factory: ContractBuilder<F>, ctorArgs: CtorArgs = []) => {
     // eslint-disable-next-line @typescript-eslint/ban-types
-    return (factory.deploy as Function)(...(ctorArgs || []));
+    return (factory.deploy as Function)(...(ctorArgs ?? []));
 };
 
 const createTransparentProxy = async (
@@ -93,7 +94,7 @@ export const upgradeProxy = async <F extends ContractFactory>(
     await admin.upgradeAndCall(
         proxy.address,
         logicContract.address,
-        logicContract.interface.encodeFunctionData('postUpgrade', [args?.upgradeCallData || []])
+        logicContract.interface.encodeFunctionData('postUpgrade', [args?.upgradeCallData ?? []])
     );
 
     return factory.attach(proxy.address);
@@ -123,6 +124,7 @@ export const createStandardRewards = async (
     network: TestBancorNetwork | BancorNetwork,
     networkSettings: NetworkSettings,
     bntGovernance: TokenGovernance,
+    vbnt: IERC20,
     bntPool: TestBNTPool | BNTPool,
     externalRewardsVault: ExternalRewardsVault
 ) => {
@@ -131,6 +133,7 @@ export const createStandardRewards = async (
             network.address,
             networkSettings.address,
             bntGovernance.address,
+            vbnt.address,
             bntPool.address,
             externalRewardsVault.address
         ]
@@ -167,7 +170,7 @@ const createGovernedToken = async (
         token = testToken;
     } else {
         const legacyToken = await legacyFactory.deploy(name, symbol, decimals);
-        legacyToken.issue(deployer.address, totalSupply);
+        await legacyToken.issue(deployer.address, totalSupply);
 
         tokenGovernance = await LegacyContracts.TokenGovernance.deploy(legacyToken.address);
         await tokenGovernance.grantRole(Roles.TokenGovernance.ROLE_GOVERNOR, deployer.address);
@@ -275,7 +278,7 @@ export const createPool = async (
     reserveToken: TokenWithAddress,
     network: TestBancorNetwork,
     networkSettings: NetworkSettings,
-    poolCollection: TestPoolCollection
+    poolCollection: IPoolCollection
 ) => {
     await networkSettings.addTokenToWhitelist(reserveToken.address);
 
@@ -472,7 +475,7 @@ const setupPool = async (
         return { poolToken, token: bnt };
     }
 
-    const token = spec.token || (await createToken(spec.tokenData));
+    const token = spec.token ?? (await createToken(spec.tokenData));
     const poolToken = await createPool(token, network, networkSettings, poolCollection);
 
     await networkSettings.setFundingLimit(token.address, MAX_UINT256);
@@ -528,10 +531,7 @@ export const createToken = async (
 
         case TokenSymbol.TKN:
         case TokenSymbol.TKN1:
-        case TokenSymbol.TKN2:
-        case TokenSymbol.TKN3:
-        case TokenSymbol.TKN4:
-        case TokenSymbol.TKN5: {
+        case TokenSymbol.TKN2: {
             const token = await (burnable ? Contracts.TestERC20Burnable : Contracts.TestERC20Token).deploy(
                 tokenData.name(),
                 tokenData.symbol(),

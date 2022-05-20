@@ -1,4 +1,4 @@
-py ../../EVMVerifier/scripts/certoraRun.py \
+certoraRun.py \
     certora/harness/PendingWithdrawalsHarness.sol \
     certora/helpers/DummyERC20A.sol \
     certora/helpers/DummyERC20bnt.sol \
@@ -12,15 +12,16 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     --link  PendingWithdrawalsHarness:_bntPool=BNTPool \
             PendingWithdrawalsHarness:_bnt=DummyERC20bnt \
             PendingWithdrawalsHarness:_network=BancorNetwork \
-            \
-            \
             BNTPool:_poolToken=PoolToken \
     --solc solc8.13 \
     --staging \
     --optimistic_loop \
-    --rule validRequestTime \
-    --send_only \
+    --rule_sanity advanced \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
-    @bancor=node_modules/@bancor \
-    --msg "validRequestTime"
+            @bancor=node_modules/@bancor \
+    --rule "$1" \
+    --msg "$1"
+
+
+    # --send_only \

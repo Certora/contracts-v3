@@ -71,7 +71,7 @@ describe('PendingWithdrawals', () => {
         });
 
         it('should be properly initialized', async () => {
-            expect(await pendingWithdrawals.version()).to.equal(1);
+            expect(await pendingWithdrawals.version()).to.equal(3);
 
             await expectRoles(pendingWithdrawals, Roles.Upgradeable);
 
@@ -146,7 +146,7 @@ describe('PendingWithdrawals', () => {
 
         const MIN_LIQUIDITY_FOR_TRADING = toWei(100_000);
 
-        const testWithdrawals = async (tokenData: TokenData) => {
+        const testWithdrawals = (tokenData: TokenData) => {
             beforeEach(async () => {
                 ({ network, networkInfo, networkSettings, bntPool, bntPoolToken, pendingWithdrawals, poolCollection } =
                     await createSystem());
@@ -341,6 +341,9 @@ describe('PendingWithdrawals', () => {
                         );
                         const withdrawalRequest = await pendingWithdrawals.withdrawalRequest(id);
 
+                        const poolTokenAmount = await network.connect(provider).callStatic.cancelWithdrawal(id);
+                        expect(poolTokenAmount).to.equal(withdrawalRequest.poolTokenAmount);
+
                         const res = await network.connect(provider).cancelWithdrawal(id);
                         await expect(res)
                             .to.emit(pendingWithdrawals, 'WithdrawalCancelled')
@@ -478,7 +481,7 @@ describe('PendingWithdrawals', () => {
                             poolToken,
                             withdrawalRequest.poolTokenAmount
                         );
-                        const currentPoolTokenAmount = withdrawalRequest.poolTokenAmount
+                        const effectivePoolTokenAmount = withdrawalRequest.poolTokenAmount
                             .mul(withdrawalRequest.reserveTokenAmount)
                             .div(currentReserveTokenAmount);
 
@@ -488,7 +491,8 @@ describe('PendingWithdrawals', () => {
                             id
                         );
                         expect(completedRequest.poolToken).to.equal(withdrawalRequest.poolToken);
-                        expect(completedRequest.poolTokenAmount).to.equal(currentPoolTokenAmount);
+                        expect(completedRequest.effectivePoolTokenAmount).to.equal(effectivePoolTokenAmount);
+                        expect(completedRequest.originalPoolTokenAmount).to.equal(withdrawalRequest.poolTokenAmount);
 
                         const res = await network.completeWithdrawalT(CONTEXT_ID, provider.address, id);
 
@@ -499,12 +503,12 @@ describe('PendingWithdrawals', () => {
                                 reserveToken.address,
                                 provider.address,
                                 id,
-                                currentPoolTokenAmount,
+                                effectivePoolTokenAmount,
                                 currentReserveTokenAmount,
                                 (await pendingWithdrawals.currentTime()) - withdrawalRequest.createdAt
                             );
 
-                        const extraPoolTokenAmount = withdrawalRequest.poolTokenAmount.sub(currentPoolTokenAmount);
+                        const extraPoolTokenAmount = withdrawalRequest.poolTokenAmount.sub(effectivePoolTokenAmount);
                         if (extraPoolTokenAmount.gt(BigNumber.from(0))) {
                             await expect(res)
                                 .to.emit(poolToken, 'Transfer')
@@ -519,7 +523,7 @@ describe('PendingWithdrawals', () => {
                             pendingWithdrawalsBalance.sub(withdrawalRequest.poolTokenAmount)
                         );
                         expect(await poolToken.balanceOf(network.address)).to.equal(
-                            networkBalance.add(currentPoolTokenAmount)
+                            networkBalance.add(effectivePoolTokenAmount)
                         );
                         expect(await pendingWithdrawals.withdrawalRequestCount(provider.address)).to.equal(
                             withdrawalRequestCount.sub(1)
@@ -557,7 +561,9 @@ describe('PendingWithdrawals', () => {
                         });
 
                         it('should revert when attempting to complete a withdrawal request', async () => {
-                            await expect(testCompleteWithdrawal()).to.be.revertedWith('WithdrawalNotAllowed');
+                            await expect(
+                                network.completeWithdrawalT(CONTEXT_ID, provider.address, id)
+                            ).to.be.revertedWith('WithdrawalNotAllowed');
                         });
                     });
 

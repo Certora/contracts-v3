@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity 0.8.13;
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { ITokenGovernance } from "@bancor/token-governance/contracts/ITokenGovernance.sol";
@@ -192,7 +191,7 @@ contract BNTPool is IBNTPool, Vault {
      * @inheritdoc Upgradeable
      */
     function version() public pure override(IVersioned, Upgradeable) returns (uint16) {
-        return 1;
+        return 2;
     }
 
     /**
@@ -378,15 +377,23 @@ contract BNTPool is IBNTPool, Vault {
     function withdraw(
         bytes32 contextId,
         address provider,
-        uint256 poolTokenAmount
-    ) external only(address(_network)) validAddress(provider) greaterThanZero(poolTokenAmount) returns (uint256) {
+        uint256 poolTokenAmount,
+        uint256 originalPoolTokenAmount
+    )
+        external
+        only(address(_network))
+        validAddress(provider)
+        greaterThanZero(poolTokenAmount)
+        greaterThanZero(originalPoolTokenAmount)
+        returns (uint256)
+    {
         InternalWithdrawalAmounts memory amounts = _withdrawalAmounts(poolTokenAmount);
 
         // get the pool tokens from the caller
         _poolToken.transferFrom(msg.sender, address(this), poolTokenAmount);
 
         // burn the respective VBNT amount
-        _vbntGovernance.burn(poolTokenAmount);
+        _vbntGovernance.burn(originalPoolTokenAmount);
 
         // mint BNT to the provider
         _bntGovernance.mint(provider, amounts.bntAmount);
@@ -396,7 +403,7 @@ contract BNTPool is IBNTPool, Vault {
             provider: provider,
             bntAmount: amounts.bntAmount,
             poolTokenAmount: poolTokenAmount,
-            vbntAmount: poolTokenAmount,
+            vbntAmount: originalPoolTokenAmount,
             withdrawalFeeAmount: amounts.withdrawalFeeAmount
         });
 
@@ -584,7 +591,7 @@ contract BNTPool is IBNTPool, Vault {
         // deduct the exit fee from BNT amount
         uint256 withdrawalFeeAmount = MathEx.mulDivF(bntAmount, _networkSettings.withdrawalFeePPM(), PPM_RESOLUTION);
 
-        bntAmount -= withdrawalFeeAmount;
+        // bntAmount -= withdrawalFeeAmount;
 
         return InternalWithdrawalAmounts({ bntAmount: bntAmount, withdrawalFeeAmount: withdrawalFeeAmount });
     }

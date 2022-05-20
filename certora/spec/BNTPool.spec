@@ -63,16 +63,6 @@ methods {
 }
 
 
-function preSet(env e){
-    require _bntGovernance() == BntGovern;
-    require _vbntGovernance() == VbntGovern;
-    require _poolToken() == PoolT;
-    require _bntGovernance() != _vbntGovernance();
-    require _bntGovernance() != _poolToken();
-    require _poolToken() != _vbntGovernance();
-}
-
-
 function requests(env e, address pool){
     requireInvariant bntCorrelation();
     requireInvariant bntMintingLimit(pool);
@@ -235,9 +225,9 @@ rule imposterAdminCheck(method f, env e){
 
 
 
-// STATUS - in progress. issue with vbnt, init values are picked in the way that calculations produce > 0 value for depositFor(a + b) 
+// STATUS - in progress. Round off issue. issue with vbnt, init values are picked in the way that calculations produce > 0 value for depositFor(a + b) 
 // and 0 for separated deposits: depostFor(a) and DepositFor(b)
-// https://vaas-stg.certora.com/output/3106/cd9694b7b6f0f7517522/?anonymousKey=bf7cc8028a8a5a0a55a1ca04cb9fd09984673686
+// https://vaas-stg.certora.com/output/3106/6560511b6266620250c6/?anonymousKey=3a746426debec45825993efed77dfc7a478b1cd8
 // `depositFor()` is additive: `depositFor(a)` + `depositFor(b)` has the same effect as `depositFor(a + b)`
 rule depositForAdditivity(env e){
     bytes32 contextId;
@@ -274,10 +264,10 @@ rule depositForAdditivity(env e){
 }
 
 
-// STATUS - in progress. init values are picked in the way that calculations for withdraw(a + b) 
-// and withdraw(a), withdraw(b) prodeces different results, but I don't know if it's a feasable state
-// https://vaas-stg.certora.com/output/3106/86ded3826711175175fd/?anonymousKey=9246465893dea345ede09bb4549767a020a5d15d
-// `withdraw()` is additive: `withdraw(a)` + `withdraw(b)` has the same effect as `withdraw(a + b)`
+// STATUS - in progress.
+// `withdraw()` is additive: `withdraw(a)` + `withdraw(b)` has the same effect as `withdraw(a + b)` *
+// * we don't calculate fees in `_withdrawalAmounts()`, otherwise can found a counterexample where for (a + b)
+// fees will be > 0, but for case `a`, then `b`, fees will be 0. Tool doesn't know about migration data passed from other versions. 
 rule withdrawAdditivity(env e){
     bytes32 contextId;
     address provider;

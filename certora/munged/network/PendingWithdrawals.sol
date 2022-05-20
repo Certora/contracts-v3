@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity 0.8.13;
 
-import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import { EnumerableSetUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/structs/EnumerableSetUpgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -16,7 +15,6 @@ import { Time } from "../utility/Time.sol";
 import { MathEx } from "../utility/MathEx.sol";
 
 import { IPoolToken } from "../pools/interfaces/IPoolToken.sol";
-import { IPoolCollection } from "../pools/interfaces/IPoolCollection.sol";
 import { IBNTPool } from "../pools/interfaces/IBNTPool.sol";
 
 import { IBancorNetwork } from "./interfaces/IBancorNetwork.sol";
@@ -139,7 +137,7 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
      * @inheritdoc Upgradeable
      */
     function version() public pure override(IVersioned, Upgradeable) returns (uint16) {
-        return 1;
+        return 3;
     }
 
     /**
@@ -215,14 +213,14 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
     /**
      * @inheritdoc IPendingWithdrawals
      */
-    function cancelWithdrawal(address provider, uint256 id) external only(address(_network)) {
+    function cancelWithdrawal(address provider, uint256 id) external only(address(_network)) returns (uint256) {
         WithdrawalRequest memory request = _withdrawalRequests[id];
 
         if (request.provider != provider) {
             revert AccessDenied();
         }
 
-        _cancelWithdrawal(request, id);
+        return _cancelWithdrawal(request, id);
     }
 
     /**
@@ -256,29 +254,34 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
         assert(currentReserveTokenAmount >= request.reserveTokenAmount);
 
         // burn the delta between the recorded pool token amount and the amount represented by the reserve token value
-        uint256 currentPoolTokenAmount = request.reserveTokenAmount == currentReserveTokenAmount
+        uint256 effectivePoolTokenAmount = request.reserveTokenAmount == currentReserveTokenAmount
             ? request.poolTokenAmount
             : MathEx.mulDivF(request.poolTokenAmount, request.reserveTokenAmount, currentReserveTokenAmount);
 
         // since pool token value can only go up, there’s usually burning
-        if (request.poolTokenAmount > currentPoolTokenAmount) {
-            request.poolToken.burn(request.poolTokenAmount - currentPoolTokenAmount);
+        if (request.poolTokenAmount > effectivePoolTokenAmount) {
+            request.poolToken.burn(request.poolTokenAmount - effectivePoolTokenAmount);
         }
 
         // transfer the locked pool tokens back to the caller
-        request.poolToken.safeTransfer(msg.sender, currentPoolTokenAmount);
+        request.poolToken.safeTransfer(msg.sender, effectivePoolTokenAmount);
 
         emit WithdrawalCompleted({
             contextId: contextId,
             pool: request.reserveToken,
             provider: provider,
             requestId: id,
-            poolTokenAmount: currentPoolTokenAmount,
+            poolTokenAmount: effectivePoolTokenAmount,
             reserveTokenAmount: currentReserveTokenAmount,
             timeElapsed: currentTime - request.createdAt
         });
 
-        return CompletedWithdrawal({ poolToken: request.poolToken, poolTokenAmount: currentPoolTokenAmount });
+        return
+            CompletedWithdrawal({
+                poolToken: request.poolToken,
+                effectivePoolTokenAmount: effectivePoolTokenAmount,
+                originalPoolTokenAmount: request.poolTokenAmount
+            });
     }
 
     /**
@@ -366,7 +369,7 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
     /**
      * @dev cancels a withdrawal request
      */
-    function _cancelWithdrawal(WithdrawalRequest memory request, uint256 id) private {
+    function _cancelWithdrawal(WithdrawalRequest memory request, uint256 id) private returns (uint256) {
         // remove the withdrawal request and its id from the storage
         _removeWithdrawalRequest(request.provider, id);
 
@@ -381,6 +384,8 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
             reserveTokenAmount: request.reserveTokenAmount,
             timeElapsed: _time() - request.createdAt
         });
+
+        return request.poolTokenAmount;
     }
 
     /**
@@ -391,7 +396,7 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
             revert DoesNotExist();
         }
 
-        delete _withdrawalRequests[id];
+        // delete _withdrawalRequests[id];
     }
 
     /**

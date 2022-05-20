@@ -19,7 +19,7 @@ import { TokenGovernance } from '../../components/LegacyContracts';
 import { Profiler } from '../../components/Profiler';
 import { TradeAmountAndFeeStructOutput } from '../../typechain-types/contracts/helpers/TestPoolCollection';
 import {
-    ExponentialDecay,
+    EXP2_INPUT_TOO_HIGH,
     MAX_UINT256,
     PPM_RESOLUTION,
     RewardsDistributionType,
@@ -180,7 +180,7 @@ describe('Profile @profile', () => {
                                 }
                             };
 
-                            const testDepositAmount = async (amount: BigNumber) => {
+                            const testDepositAmount = (amount: BigNumber) => {
                                 const COUNT = 3;
 
                                 const testMultipleDeposits = async () => {
@@ -338,7 +338,7 @@ describe('Profile @profile', () => {
                                 }
                             };
 
-                            const testDepositAmount = async (amount: BigNumber) => {
+                            const testDepositAmount = (amount: BigNumber) => {
                                 const test = async () =>
                                     profiler.profile(`deposit ${tokenData.symbol()}`, deposit(amount));
 
@@ -428,7 +428,7 @@ describe('Profile @profile', () => {
             creationTime: number;
         }
 
-        const testWithdraw = async (tokenData: TokenData) => {
+        const testWithdraw = (tokenData: TokenData) => {
             let provider: SignerWithAddress;
             let poolToken: PoolToken;
             let token: TokenWithAddress;
@@ -1041,7 +1041,7 @@ describe('Profile @profile', () => {
             recipient = await Contracts.TestFlashLoanRecipient.deploy(network.address);
         });
 
-        const testFlashLoan = async (tokenData: TokenData, flashLoanFeePPM: number) => {
+        const testFlashLoan = (tokenData: TokenData, flashLoanFeePPM: number) => {
             const FEE_AMOUNT = LOAN_AMOUNT.mul(flashLoanFeePPM).div(PPM_RESOLUTION);
 
             beforeEach(async () => {
@@ -1183,6 +1183,9 @@ describe('Profile @profile', () => {
     });
 
     describe('auto-compounding rewards', () => {
+        const EXP_DECAY_HALF_LIFE = duration.days(561);
+        const EXP_DECAY_MAX_DURATION = EXP2_INPUT_TOO_HIGH.mul(EXP_DECAY_HALF_LIFE).sub(1).ceil().toNumber();
+
         let network: TestBancorNetwork;
         let networkInfo: BancorNetworkInfo;
         let networkSettings: NetworkSettings;
@@ -1262,13 +1265,21 @@ describe('Profile @profile', () => {
                     beforeEach(async () => {
                         startTime = await latest();
 
-                        await autoCompoundingRewards.createProgram(
-                            token.address,
-                            totalRewards,
-                            distributionType,
-                            startTime,
-                            distributionType === RewardsDistributionType.Flat ? startTime + programDuration : 0
-                        );
+                        if (distributionType === RewardsDistributionType.Flat) {
+                            await autoCompoundingRewards.createFlatProgram(
+                                token.address,
+                                totalRewards,
+                                startTime,
+                                startTime + programDuration
+                            );
+                        } else {
+                            await autoCompoundingRewards.createExpDecayProgram(
+                                token.address,
+                                totalRewards,
+                                startTime,
+                                EXP_DECAY_HALF_LIFE
+                            );
+                        }
                     });
 
                     const testMultipleDistributions = (step: number, totalSteps: number) => {
@@ -1304,7 +1315,7 @@ describe('Profile @profile', () => {
 
                             break;
 
-                        case RewardsDistributionType.ExponentialDecay:
+                        case RewardsDistributionType.ExpDecay:
                             for (const step of [duration.hours(1), duration.weeks(1)]) {
                                 for (const totalSteps of [5]) {
                                     testMultipleDistributions(step, totalSteps);
@@ -1332,8 +1343,8 @@ describe('Profile @profile', () => {
 
                     break;
 
-                case RewardsDistributionType.ExponentialDecay:
-                    for (const programDuration of [ExponentialDecay.MAX_DURATION]) {
+                case RewardsDistributionType.ExpDecay:
+                    for (const programDuration of [EXP_DECAY_MAX_DURATION]) {
                         context(
                             `program duration of ${humanizeDuration(programDuration * 1000, { units: ['y'] })}`,
                             () => {
@@ -1374,6 +1385,7 @@ describe('Profile @profile', () => {
         let networkInfo: BancorNetworkInfo;
         let networkSettings: NetworkSettings;
         let bntGovernance: TokenGovernance;
+        let vbnt: IERC20;
         let bntPool: TestBNTPool;
         let poolCollection: TestPoolCollection;
         let externalRewardsVault: ExternalRewardsVault;
@@ -1388,13 +1400,22 @@ describe('Profile @profile', () => {
         });
 
         beforeEach(async () => {
-            ({ network, networkInfo, networkSettings, bntGovernance, bntPool, externalRewardsVault, poolCollection } =
-                await createSystem());
+            ({
+                network,
+                networkInfo,
+                networkSettings,
+                bntGovernance,
+                vbnt,
+                bntPool,
+                externalRewardsVault,
+                poolCollection
+            } = await createSystem());
 
             standardRewards = await createStandardRewards(
                 network,
                 networkSettings,
                 bntGovernance,
+                vbnt,
                 bntPool,
                 externalRewardsVault
             );

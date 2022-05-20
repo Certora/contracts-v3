@@ -61,5 +61,4 @@ contract PoolToken is IPoolToken, ERC20Permit, ERC20Burnable, Owned, Utils {
     function mint(address recipient, uint256 amount) external onlyOwner validExternalAddress(recipient) {
         _mint(recipient, amount);
     }
-
 }
