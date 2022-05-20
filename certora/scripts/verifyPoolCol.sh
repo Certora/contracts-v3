@@ -26,7 +26,8 @@ fi
     --solc solc8.13 \
     --staging \
     $RULE  \
-    --settings -divideNoRemainder=true,-enableEqualitySaturation=false \
+    --settings -divideNoRemainder=true,-enableEqualitySaturation=false,-solver=z3,-t=20,-depth=16 \
+    --disable_auto_cache_key_gen \
     --optimistic_loop \
     --short_output \
     --packages_path node_modules \

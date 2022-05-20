@@ -47,7 +47,7 @@ contract PoolCollectionHarness is PoolCollection{
         uint256 tokenAmount
     ) public override returns (uint256) {
         pool.safeTransferFrom(msg.sender, address(_masterVault) , tokenAmount);
-        return super.depositFor(contextId,provider,pool,tokenAmount);
+        return super.depositFor(contextId, msg.sender, pool, tokenAmount);
     }
     function getPoolDataTradingEnabled(Token pool) public view returns (bool) {
         Pool storage data = _poolStorage(pool);

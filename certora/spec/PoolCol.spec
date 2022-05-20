@@ -153,22 +153,32 @@ rule more_poolTokens_less_TKN(method f){
     uint256 tkn_balance1 = tokenA.balanceOf(e,e.msg.sender);
     uint256 poolToken_balance1 = ptA.balanceOf(e,e.msg.sender);
 
-    // f(e,args);
+    if(f.selector == depositFor(bytes32,address,address,uint256).selector){
         bytes32 contextId;
-        address provider;
+        address provider = e.msg.sender;
         address pool = tokenA;
         uint256 tokenAmount;
 
-    // env e1;
-    // uint amount;
-    // tokenA.transferFrom(e1,e.msg.sender, _masterVault(e), amount);
-    depositFor(e,contextId,provider,pool,tokenAmount);
+        uint256 amount = depositFor(e,contextId,provider,pool,tokenAmount);        
+    }
+    else
+    if(f.selector == withdraw(bytes32, address, address, uint256).selector){
+        bytes32 contextId;
+        address provider = e.msg.sender;
+        address pool = tokenA;
+        uint256 poolTokenAmount;
+        
+        withdraw(e,contextId, provider, pool, poolTokenAmount);
+    }
+    else
+    f(e,args);
 
     uint256 tkn_balance2 = tokenA.balanceOf(e,e.msg.sender);
     uint256 poolToken_balance2 = ptA.balanceOf(e,e.msg.sender);
 
     assert tkn_balance2 > tkn_balance1 <=> poolToken_balance2 < poolToken_balance1;
     assert tkn_balance2 < tkn_balance1 <=> poolToken_balance2 > poolToken_balance1;
+    // assert tokenAmount > 0 => amount > 0;
 }
 
 rule tradeChangeExchangeRate(){
@@ -196,12 +206,13 @@ rule tradeChangeExchangeRate(){
 
 invariant tradingEnabledImplLiquidity(address pool, env e)
     getPoolDataTradingEnabled(e,pool) => 
-                                        //  getPoolDataBaseTokenLiquidity(e,pool) > 0 &&
-                                        //  getPoolDataBntTradingLiquidity(e,pool) > 0 &&
-                                        //  getPoolDataStakedBalance(e,pool) > 0 &&
-                                        //  getPoolDataTotalSupply(e,pool) > 0 //&&
+                                             getPoolDataBaseTokenLiquidity(e,pool) > 0 &&
+                                         getPoolDataBntTradingLiquidity(e,pool) > 0 &&
+                                         getPoolDataStakedBalance(e,pool) > 0 &&
+                                         getPoolDataTotalSupply(e,pool) > 0 &&
                                          isPoolValid(e,pool)
-
+filtered { f -> !f.isView ||
+                f.selector == migratePoolIn(address,(address,uint32,bool,bool,(uint32,(uint112,uint112)),uint256,(uint128,uint128,uint256))).selector}
 
 rule tradeAllBaseTokensShouldFail(){
     env e;
