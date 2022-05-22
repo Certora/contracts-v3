@@ -222,7 +222,7 @@ invariant tradingEnabledImplLiquidity(address pool, env e)
         preserved withdraw(bytes32 contextId,address provider,address pool2, uint256 tokenAmount) with (env e1)
                   {
                     require provider == user;
-                    require pool2 == tokenB;
+                    require pool2 == tokenA;
                   }
 
     }
