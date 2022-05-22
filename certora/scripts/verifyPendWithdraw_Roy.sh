@@ -1,4 +1,4 @@
-certoraRun.py \
+py ../../EVMVerifier/scripts/certoraRun.py \
     certora/harness/PendingWithdrawalsHarness.sol \
     certora/helpers/DummyERC20A.sol \
     certora/helpers/DummyERC20bnt.sol \
@@ -15,13 +15,11 @@ certoraRun.py \
             BNTPool:_poolToken=PoolToken \
     --solc solc8.13 \
     --staging \
-    --optimistic_loop \
     --rule_sanity advanced \
+    --send_only \
+    --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
             @bancor=node_modules/@bancor \
-    --rule "$1" \
-    --msg "$1"
-
-
-    # --send_only \
+    --msg "Advanced sanity check"
+#--method "completeWithdrawal(bytes32,address,uint256)" \

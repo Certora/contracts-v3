@@ -9,8 +9,8 @@ using DummyERC20A as erc20
 using PendingWithdrawalsHarness as MAIN
 
 /* *************************
-LAST SANITY CHECK (rule_sanity basic) 28/04 :
-https://vaas-stg.certora.com/output/41958/f3e175bb27d0b6b5e87d/?anonymousKey=6a8e0fc0949d1287e8824f1ab4b814c20cd3361a
+LAST SANITY CHECK (rule_sanity basic) 22/05 :
+https://vaas-stg.certora.com/output/41958/4d0f98faa692c1f5aa89/?anonymousKey=cbe100110510822f35ed4e26731aa4a42fee86a6
 *****************************/
 
 methods {
@@ -51,10 +51,6 @@ methods {
 */
 //////////////////////////////////////
 
-// The sum of balances for some token
-//ghost sumOfBalances(address token) returns uint256{
-//    init_state axiom forall address token. sumOfBalances(token) ==0;
-//}
 
 // Total pool tokens in registerd requests
 ghost sumRequestPoolTokens(address) returns uint256 {
@@ -85,7 +81,6 @@ hook Sstore _withdrawalRequests[KEY uint256 id].provider address Provider STORAG
 
 // Hook to havoc the total number of pool tokens registered in requests.
 hook Sstore _withdrawalRequests[KEY uint256 id].poolTokenAmount uint256 balance (uint256 old_balance) STORAGE {
-    require requestPoolTokenGhost(id) !=0;
     havoc sumRequestPoolTokens assuming forall address poolToken.
         ((requestPoolTokenGhost(id) == poolToken) ?
         sumRequestPoolTokens@new(poolToken) == sumRequestPoolTokens@old(poolToken) + balance - old_balance :
@@ -141,7 +136,7 @@ function requestPoolTokenTotalSupply(uint id) returns uint256 {
     provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
         reserveTokenAmount = currentContract.withdrawalRequest(id);
     
-    return MAIN.poolTotalSupply(poolToken);
+    return poolTotalSupply(poolToken);
 }
 
 // ReserveToken in withdrawal request.
@@ -196,7 +191,7 @@ rule poolTokenToUnderlyingMono_BNT(uint256 amount1, uint256 amount2)
 {
     env e;
     address token = erc20;
-    uint TotalSupply = MAIN.poolTotalSupply(BNTp.poolToken(e));
+    uint TotalSupply = poolTotalSupply(BNTp.poolToken(e));
     uint stake = BNTp.stakedBalance(e);
 
     require TotalSupply > 0 && stake > 0;
@@ -226,7 +221,7 @@ rule poolTokenToUnderlyingMono_BNT(uint256 amount1, uint256 amount2)
     
      require PC.poolToken(e, token) == ptA;
      require TotalSupply > 0 && stake > 0;
-     require PC.poolTotalSupply(e, ptA) == TotalSupply;
+     require poolTotalSupply(ptA) == TotalSupply;
 
      uint UAmount1 = PC.poolTokenToUnderlying(e, token, amount1);
      uint UAmount2 = PC.poolTokenToUnderlying(e, token, amount2);
@@ -248,8 +243,7 @@ rule poolTokenToUnderlying_PC_check(uint256 amount, uint stake)
     address token = erc20;
 
     require PC.poolToken(e, token) == ptA;
-    // require PC.poolTotalSupply(e, token) == 1;               // Sasha:  you passed Token to the method that accepts IPoolToken. that's why you consider different total supplies
-    require PC.poolTotalSupply(e, PC.poolToken(e, token)) == 1;
+    require poolTotalSupply(ptA) == 1;
     require PC.getPoolDataStakedBalance(token) == stake;
 
     uint UAmount = PC.poolTokenToUnderlying(e, token, amount);
@@ -366,7 +360,7 @@ rule changeNextWithdrawalId()
 
 // Any cancelled request with a given id, cannot be associated
 // with any provider (including the original).
-// Current status: FAILS (deletion from mapping doesn't work because of a bug in the tool)
+// Current status: PASSES
 rule cancelWithdrawalIntegrity(uint id, address pro)
 {
     env e;
@@ -378,13 +372,13 @@ rule cancelWithdrawalIntegrity(uint id, address pro)
     uint256 reserveTokenAmount1; uint256 reserveTokenAmount2;
 
     provider1, poolToken1, reserveToken1, createdAt1, poolTokenAmount1, 
-        reserveTokenAmount1 = currentContract.withdrawalRequest(id);            // Sasha: why did you add currentContract?
+        reserveTokenAmount1 = withdrawalRequest(id);
     
     require provider1 == pro;
     cancelWithdrawal(e,provider1, id);
     
     provider2, poolToken2, reserveToken2, createdAt2, poolTokenAmount2, 
-        reserveTokenAmount2 = currentContract.withdrawalRequest(id);
+        reserveTokenAmount2 = withdrawalRequest(id);
 
     assert provider2 == 0, "A cancelled request if associated with some non-zero address";
 }
@@ -583,33 +577,6 @@ rule requestDetailsInvariance(uint id, method f)
         after invoking ${f}";
 }
 
-// Pool token withdrawal solvency: 
-// For a given pool with pool token (poolToken), the sum of all registered pool tokens
-// from all requests, must be less or equal to the total supply of that pool token.
-//
-// Current status : FAILS
-// fails for initWithdrawal*
-// * see note inside preserved block
-// Sasha: now it also fails for completeWithdrawal() because withdrawalRequest cannot be removed because of the bug
-// probably better move it to the BancorNetwork
-invariant totalRequestPTlessThanSupply(address poolToken)
-    sumRequestPoolTokens(poolToken) <= poolTotalSupply(poolToken)
-    {
-        preserved initWithdrawal(address provider, address poolToken2, uint256 poolTokenAmount) with (env e)
-        {
-            // In Bancor network, before calling initWithdrawal, the provider transfers its
-            // Pool tokens to the _pendingWithdrawal contract, i.e. the protocol.
-            require poolToken == poolToken2;
-            require poolTokenBalance(poolToken, currentContract) >= poolTokenAmount;
-            // If we require invariant of solvency:
-            // sum(requests pool tokens) <= sum(user balance) <= Total supply
-            // this should probably let the rule pass.
-            // sumRequestPoolTokens + poolTokenAmount <= sum(userbalance)   
-            require poolTotalSupply(poolToken) >= poolTokenAmount;
-        }
-    }
-   
-
 // For every request, the number of registered pool tokens cannot be larger
 // than the total supply.
 // Current status: PASSES
@@ -771,5 +738,3 @@ rule validRequestTime(method f)
     uint timeEnd = e.block.timestamp;
     assert timeEnd >= time && time >= timeInit;
 }
-
-

@@ -133,7 +133,6 @@ hook Sstore PendWit._withdrawalRequests[KEY uint256 id].provider address Provide
 
 // Hook to havoc the total number of pool tokens registered in requests.
 hook Sstore PendWit._withdrawalRequests[KEY uint256 id].poolTokenAmount uint256 balance (uint256 old_balance) STORAGE {
-    require requestPoolTokenGhost(id) !=0;
     havoc sumRequestPoolTokens assuming forall address poolToken.
     ((requestPoolTokenGhost(id) == poolToken) ?
     sumRequestPoolTokens@new(poolToken) == sumRequestPoolTokens@old(poolToken) + balance - old_balance :
