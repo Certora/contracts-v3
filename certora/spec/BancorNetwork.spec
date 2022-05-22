@@ -46,17 +46,17 @@ methods {
     createPool(address) => DISPATCHER(true)
     withdraw(bytes32,address,address,uint256) returns (uint256) => DISPATCHER(true)
     poolFundingLimit(address) returns(uint256) => DISPATCHER(true)
-    withdrawalFeePPM() returns(uint32) => DISPATCHER(true)
     poolTokenToUnderlying(address, uint256) returns (uint256) => DISPATCHER(true)
     underlyingToPoolToken(address, uint256) returns (uint256) => DISPATCHER(true)
+    PoolCol.getPoolDataTradingFee(address) returns (uint32) envfree
     PoolCol.getPoolDataBntTradingLiquidity(address) returns(uint128) envfree
+    PoolCol.getPoolDataBaseTokenLiquidity(address) returns(uint128) envfree
     PoolCol.poolToken(address) returns (address) envfree
     PoolCol.defaultTradingFeePPM() returns (uint32) envfree
     PoolCol.tokenUserBalance(address, address) returns (uint256) envfree
-    PoolCol.getPoolDataTradingFee(address) returns (uint32) envfree
 
     // BNT pool
-    BNTp.withdraw(bytes32,address,uint256) returns (uint256) 
+    BNTp.withdraw(bytes32,address,uint256,uint256) returns (uint256) 
     BNTp.poolTokenToUnderlying(uint256) returns (uint256)
     BNTp.underlyingToPoolToken(uint256) returns (uint256) 
     BNTp.availableFunding(address) returns (uint256)
@@ -67,7 +67,7 @@ methods {
     PendWit.poolTotalSupply(address) returns (uint256) envfree
     PendWit._network() returns (address)
     PendWit.lockDuration() returns(uint32) envfree
-    PendWit.completeWithdrawal(bytes32,address,uint256) returns ((address,uint256))
+    PendWit.completeWithdrawal(bytes32,address,uint256) returns ((address,uint256,uint256))
     PendWit.returnToken(address) returns (address) envfree
     PendWit.withdrawalRequest(uint256) returns 
             ((address, address, address, uint32,uint256,uint256)) envfree 
@@ -83,6 +83,7 @@ methods {
     isTokenWhitelisted(address) returns (bool) => DISPATCHER(true)
     minLiquidityForTrading() returns(uint256) => DISPATCHER(true)
     networkFeePPM() returns(uint32) => DISPATCHER(true)
+    withdrawalFeePPM() returns(uint32) => DISPATCHER(true)
     burn(uint256) => DISPATCHER(true)
     burn(address, uint256) => DISPATCHER(true)
     burnFrom(address, uint256) => DISPATCHER(true)
@@ -188,6 +189,8 @@ rule reachability(method f)
 	assert false;
 }
 
+// Conversion to pool tokens from underlying and vice-versa
+// are reciprocal actions.
 rule underlyingToPTinverse(uint amount)
 {
     env e;
@@ -204,6 +207,7 @@ rule underlyingToPTinverse(uint amount)
     assert b == amount;
 }
 
+// Verify the proper registration details in a withdrawal request.
 // Verified
 rule checkInitWithdraw(uint amount, address poolToken)
 {
@@ -235,6 +239,8 @@ rule checkInitWithdraw(uint amount, address poolToken)
     assert poolTokenAmount == amount, "Pool token amount was not registered correctly";
 }
 
+// User cannot cancel a withdrawal request twice.
+// Verified
 rule noDoubleCancelling(uint amount, address poolToken)
 {
     env e;
@@ -252,33 +258,76 @@ rule noDoubleCancelling(uint amount, address poolToken)
     assert lastReverted;
 }
 
+// Verified
+// https://vaas-stg.certora.com/output/41958/9ea0d961e2d4a84f5713/?anonymousKey=c4babec51f6bffd9468718a03a3736e21e5f348c
+rule tradeA2BLiquidity(uint amount, bool byTarget)
+{
+    env e;
+    uint256 maxMinAmount;
+    uint256 deadline;
+    address beneficiary = e.msg.sender;
+    address tknA = tokenA;
+    address tknB = tokenB;
+    uint256 deltaA;
+    uint256 deltaB; 
 
+    require e.msg.sender != masVault;
+
+    uint128 tknALiq1 = PoolCol.getPoolDataBaseTokenLiquidity(tknA);
+    uint128 tknBLiq1 = PoolCol.getPoolDataBaseTokenLiquidity(tknB);
+    uint256 bntBalance1 = bnt.balanceOf(e,e.msg.sender);
+
+    if(byTarget) {
+        deltaA = tradeByTargetAmount(e,tknA,tknB,
+                amount,maxMinAmount,deadline,beneficiary);
+        deltaB = amount; }
+    else {
+        deltaB = tradeBySourceAmount(e,tknA,tknB,
+                amount,maxMinAmount,deadline,beneficiary); 
+        deltaA = amount; }
+
+    uint128 tknALiq2 = PoolCol.getPoolDataBaseTokenLiquidity(tknA);
+    uint128 tknBLiq2 = PoolCol.getPoolDataBaseTokenLiquidity(tknB);
+    uint256 bntBalance2 = bnt.balanceOf(e,e.msg.sender);
+    
+    assert tknALiq2 == deltaA + tknALiq1, "Source token liquidity in the pool
+            didn't increase as expected";
+   
+    assert tknBLiq1 == deltaB + tknBLiq2, "Target token liquidity in the pool
+            didn't decrease as expected";
+    
+    assert bntBalance1 >= bntBalance2, "Trader cannot gain BNT through the trade";
+    
+    assert networkSettings.networkFeePPM(e) ==0 => bntBalance2 == bntBalance1,
+            "When there are no fees, trade BNT balance stays intact";
+            
+}
+
+// 
+// Verified
+// https://vaas-stg.certora.com/output/41958/6569e23d4965197f94ff/?anonymousKey=50bc6de510716037ac71bb0f578a3b6262e6bc93
 rule tradeBntLiquidity(uint amount)
 {
     env e;
     uint256 maxSourceAmount = max_uint;
-    uint256 deadline = 0;
+    uint256 deadline ;
     address beneficiary = e.msg.sender;
     address tknA = tokenA;
     address tknB = tokenB;
-    address poolTokenA = ptA;
-    address poolTokenB = ptB;
     require PoolCol.defaultTradingFeePPM() <= 10000;
 
     require e.msg.sender != masVault;
     // Assuming both tokens are in the same poolCollection
-    require poolTokenA == PoolCol.poolToken(tokenA) &&
-            _poolCollection(tknA) == PoolCol;
+    require _poolCollection(tknA) == PoolCol;
 
-    require poolTokenB == PoolCol.poolToken(tokenB) &&
-            _poolCollection(tknB) == PoolCol;
+    require _poolCollection(tknB) == PoolCol;
 
     uint128 bntLiqA1 = PoolCol.getPoolDataBntTradingLiquidity(tknA);
     uint128 bntLiqB1 = PoolCol.getPoolDataBntTradingLiquidity(tknB);
     uint256 balanceA1 = tokenA.balanceOf(e,e.msg.sender);
     uint256 balanceB1 = tokenB.balanceOf(e,e.msg.sender);
 
-    tradeByTargetAmount(e,tknA,tknB,
+    uint amountPaid = tradeByTargetAmount(e,tknA,tknB,
         amount,maxSourceAmount,deadline,beneficiary);
 
     uint128 bntLiqA2 = PoolCol.getPoolDataBntTradingLiquidity(tknA);
@@ -286,11 +335,16 @@ rule tradeBntLiquidity(uint amount)
     uint256 balanceA2 = tokenA.balanceOf(e,e.msg.sender);
     uint256 balanceB2 = tokenB.balanceOf(e,e.msg.sender);
 
-    assert bntLiqA2 <= bntLiqA1 && bntLiqB1 <= bntLiqB2;
-    assert balanceA1 >= balanceA2;
-    assert balanceB1 + amount == balanceB2;
+    assert bntLiqA2 <= bntLiqA1 && bntLiqB1 <= bntLiqB2 , 
+        "BNT liquidites in the source and target pools 
+        must decrease and increase respectively";
+
+    assert balanceA1 - amountPaid == balanceA2, "Trader must pay tokens";
+    
+    assert balanceB1 + amount == balanceB2 , "Trader must receive his tokens";
 }
 
+// Pool tokens are non-tradeable in Bancor Network.
 rule untradeablePT(address trader, address poolToken, uint amount, bool TKN_2_PT)
 {
     env e;
@@ -300,7 +354,7 @@ rule untradeablePT(address trader, address poolToken, uint amount, bool TKN_2_PT
 
     require poolToken == ptBNT || poolToken == ptA;
     // This must be replaced (and verified!) by an invariant
-    requireInvariant validPool(poolToken);
+    //requireInvariant !validPool(poolToken);
     require !isPoolValid(poolToken);
 
     if (TKN_2_PT) {
@@ -315,6 +369,7 @@ rule untradeablePT(address trader, address poolToken, uint amount, bool TKN_2_PT
     assert lastReverted;
 }
 
+// Trading should never change the amount of pool tokens for any user.
 // Verified
 // https://vaas-stg.certora.com/output/41958/48a134f59ef6d5b20e2d/?anonymousKey=7a032229bdada100875977853144ccc6bea3c01d
 rule afterTradingPTBalanceIntact(address trader, uint amount)
@@ -350,7 +405,7 @@ rule afterTradingPTBalanceIntact(address trader, uint amount)
     assert balancePT2 == balancePT1;
 }
 
-
+// After initiating a withdrawal, the user must hand over his PTs.
 // Verified
 rule RequestRegisteredForValidProvider(uint tokenAmount)
 {
@@ -368,6 +423,7 @@ rule RequestRegisteredForValidProvider(uint tokenAmount)
     assert balance1 - balance2 == tokenAmount;
 }
 
+// Checks which function change the master vault balance.
 // This is the first run:
 // https://vaas-stg.certora.com/output/41958/cd16c503a796770a2312/?anonymousKey=1c49f7b5fa0def76abb557430f90079823dcc1e3
 // This will help to modify the preserved block in the future.
@@ -389,21 +445,64 @@ filtered{f -> f.selector !=withdraw(uint).selector }
             balanceTKN1 == balanceTKN2;
 }
 
-rule noDoubleWithdrawalBNT(uint256 ptAmount)
+// No user can withdraw twice staked BNTs.
+// We actually verify that the request registered provider after withdrawal is zero.
+// Verified
+rule noDoubleWithdrawalBNT(uint256 id, uint amount)
 {
     env e;
+     // Set withdrawal request id
+    address provider;
     address poolToken;
-    address token = bnt;
+    address reserveToken;
+    uint32 createdAt;
+    uint256 poolTokenAmount;
+    uint256 reserveTokenAmount;
+    provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
+            reserveTokenAmount = PendWit.withdrawalRequest(id);
+
+    // Require consistency
+    require provider == e.msg.sender;
     require poolToken == ptBNT;
-    require ptBNT.reserveToken(e) == token;
+    require poolTokenAmount == amount;
+    require reserveToken == bnt;
+    require ptBNT.reserveToken(e) == bnt;
     
-    uint id = initWithdrawal(e,poolToken,ptAmount);
     uint256 withAmount = withdraw(e,id);
-    withdraw@withrevert(e,id);
+
+    address provider2;
+    address poolToken2;
+    address reserveToken2;
+    uint32 createdAt2;
+    uint256 poolTokenAmount2;
+    uint256 reserveTokenAmount2;
+    provider2, poolToken2, reserveToken2, createdAt2, poolTokenAmount2, 
+            reserveTokenAmount2 = PendWit.withdrawalRequest(id);
     
-    assert lastReverted;
+    assert provider2 == 0;
+    // Revert is guaranteed via verifiying the rule 'doubleWithdrawHelper'.
 }
 
+// A withdraw execution must revert if the request's provider is the zero address.
+// Verified
+rule doubleWithdrawHelper(uint256 id)
+{
+    env e;
+    address provider;
+    address poolToken;
+    address reserveToken;
+    uint32 createdAt;
+    uint256 poolTokenAmount;
+    uint256 reserveTokenAmount;
+    provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
+            reserveTokenAmount = PendWit.withdrawalRequest(id);
+
+    withdraw@withrevert(e,id);
+    assert provider ==0 => lastReverted, 
+            "Request to withdraw must revert for zero address provider";
+}
+    
+// No user can withdraw twice staked tokens.
 // Is reachable.
 // Currently hard-stops.
 // Note : I saved a call to initWithdrawal to avoid timeouts.
@@ -439,6 +538,10 @@ rule noDoubleWithdrawalTKN(uint256 ptAmount, uint id)
     assert lastReverted;
 }
 
+// A provider of BNT must deposit his tokens and 
+// get his pool tokens.
+// Also, upon requesting to withdraw, the same gained pool tokens must be given 
+// back to the protocol.
 // Verified
 rule depositBntIntegrity(uint256 amount)
 {
@@ -463,13 +566,18 @@ rule depositBntIntegrity(uint256 amount)
             "User's PT balance did not increase as expected";
 
     // Request to withdraw.
-    uint id = initWithdrawal(e,ptBNT, amountPT);
+    uint id = initWithdrawal(e,ptBNT,amountPT);
     // Balances after withdraw request.
     uint balancePT3 = ptBNT.balanceOf(e,e.msg.sender);
     uint balanceBNT3 = bnt.balanceOf(e,e.msg.sender);
 
     assert balancePT3 == balancePT1 , "User's PT balance changed unexpectedly";
 }
+
+// A provider of any TKN must deposit his tokens and 
+// get his pool tokens.
+// Also, upon requesting to withdraw, the same gained pool tokens must be given 
+// back to the protocol.
 // Verified
 //https://vaas-stg.certora.com/output/41958/5e2069df2a8c46f91103/?anonymousKey=2116b7dac8dbe7a77a68c082c2260df6bff713d8
 rule depositTknIntegrity(uint256 amount)
@@ -506,6 +614,8 @@ rule depositTknIntegrity(uint256 amount)
     assert balancePT3 == balancePT1 , "User's PT balance changed unexpectedly";
 }
 
+// The sum of balances after a trade must not change.
+// Balance (trader) + Balance (vault) = const.
 // Pass sanity
 // https://vaas-stg.certora.com/output/41958/3bdcf78e4cc6513c9a30/?anonymousKey=50637c4aa491deb6f7c2855e1feb5b0a5b8b843a
 rule afterTradeSumOfTokenBalanceIntact(address tknA, address tknB, uint amount)
@@ -542,6 +652,8 @@ rule afterTradeSumOfTokenBalanceIntact(address tknA, address tknB, uint amount)
             "Target token total balance isn't conserved after trade";
 
 }
+
+// A provider of BNT must recieve pool tokens from the protocol.
 // Verified
 // https://vaas-stg.certora.com/output/41958/fab1163326e083b448b9/?anonymousKey=6762bcb099e85bb3a57d370d7769deb923d31f1b
 rule depositBNTtransferPTsToProvider(address provider, uint amount)
@@ -569,6 +681,40 @@ rule depositBNTtransferPTsToProvider(address provider, uint amount)
 
     assert PTtotalSupply1 == PTtotalSupply2, 
             "Total supply of BNT pool tokens should not change";
+}
+
+rule tradeDoesntPreventWithdrawal(uint amount, bool sourceA)
+{
+    env e;
+    address tkn = tokenA;
+    address tkn2;
+    address provider;
+    address trader;
+    address PT = ptA;
+    uint maxSourceAmount;
+    uint deadline;
+    
+    require tkn2 == tokenB || tkn2 == _bnt(e);
+    require validUser(e,provider);
+    require PT == PoolCol.poolToken(tkn);
+    
+    // Deposit
+    uint amountPT = depositFor(e,provider,tkn,amount);
+
+    // Trade by some user
+    if(sourceA){
+        uint amountPaid = tradeByTargetAmount(e,tkn,tkn2,
+        amount,maxSourceAmount,deadline,trader);
+    }
+    else {
+        uint amountPaid = tradeByTargetAmount(e,tkn2,tkn,
+        amount,maxSourceAmount,deadline,trader);
+    }
+
+    // Request withdrawal
+    uint id = initWithdrawal@withrevert(e,PT,amountPT);
+
+    assert !lastReverted;
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -625,6 +771,7 @@ function setupTokenPoolCol(env env1, address token, address PT)
             tokenInPoolCollection(token,PoolCol);
 }
 
+// A function which assumes a constant quotient y/z or x/z q (or 1/q).
 function constQuotientMulDiv(uint256 x, uint256 y, uint256 z, uint256 q)
 returns uint256
 {
@@ -632,11 +779,14 @@ returns uint256
     require z != 0;
     require ( x == q * z && f==q * y ) || 
             ( q * x == z && f == y / q && y % q ==0 ) ||
-            ( y == 2 * z && f == 2 * x ) || 
-            ( 2 * y == z && f == x / 2 && x % 2 ==0);
+            ( y == q * z && f == q * x ) || 
+            ( q * y == z && f == x / q && x % q ==0);
     return f;
 }
 
+// Summary for mulDivF:
+// Quotients x/z, y/z are either 0,1,2,3,10 or 1/2, 1/3, 1/10.
+// We assume also no division remainders.
 function simpleMulDiv(uint256 x,uint256 y, uint256 z) returns uint256 
 {
     uint f;
@@ -658,7 +808,9 @@ function simpleMulDiv(uint256 x,uint256 y, uint256 z) returns uint256
     return f;
 }
 
-
+// Summary for mulDivF:
+// quotient y/z is either 0,1,2,3,10 or 1/2, 1/3, 1/10.
+// We do not assume anything about x/z.
 function simpleMulDivIf(uint256 x,uint256 y, uint256 z) returns uint256 
 {
     uint f;
@@ -680,7 +832,8 @@ function simpleMulDivIf(uint256 x,uint256 y, uint256 z) returns uint256
     return f;
 }
 
-
+// Summary for mulDivF:
+// quotient y/z is either 0, 1, 2 or half.
 function mulDivFactor2(uint256 x,uint256 y, uint256 z) returns uint256 
 {
     require z !=0;
@@ -717,5 +870,5 @@ function setConstants_wmn_only(env env1, address pool){
 
     require w == PoolCol.tokenUserBalance(pool,epv);
     require m == PoolCol.getPoolDataTradingFee(pool);
-    require n == networkSettings.networkFeePPM(env1);
+    require n == networkSettings.withdrawalFeePPM(env1);
 }

@@ -1385,7 +1385,7 @@ contract BancorNetwork is IBancorNetwork, Upgradeable, ReentrancyGuardUpgradeabl
     /**
      * @dev verifies that the specified pool is managed by a valid pool collection and returns it
      */
-    function _poolCollection(Token token) private view returns (IPoolCollection) {
+    function _poolCollection(Token token) public view returns (IPoolCollection) {
         // verify that the pool is managed by a valid pool collection
         IPoolCollection poolCollection = _collectionByPool[token];
         if (address(poolCollection) == address(0)) {

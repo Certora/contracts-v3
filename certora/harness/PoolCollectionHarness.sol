@@ -65,10 +65,10 @@ contract PoolCollectionHarness is PoolCollection{
         // Pool storage data = _poolStorage(pool);
         return _poolData[pool].liquidity.stakedBalance;
     }
-    // function getPoolDataTotalSupply(Token pool) public view returns (uint256) {
-    //     Pool storage data = _poolStorage(pool);
-    //     return data.poolToken.totalSupply();
-    // }
+     function getPoolDataTotalSupply(Token pool) public view returns (uint256) {
+         //Pool storage data = _poolStorage(pool);
+         return _poolData[pool].poolToken.totalSupply();
+     }
     
     function getPoolDataTradingFee(Token pool) public view returns (uint32) {
         // Pool storage data = _poolStorage(pool);

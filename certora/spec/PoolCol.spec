@@ -327,11 +327,37 @@ rule onWithdrawAllGetAtLeastStakedAmount(){
         address pool = tokenA;
         uint256 tokenAmount;
 
-
     uint poolTokenAmount = depositFor(e,contextId,provider,pool,tokenAmount);
     uint amount = withdraw(e,contextId,provider,pool,poolTokenAmount);
 
     assert amount >= tokenAmount;// * 9975 / 10000;
+}
+
+// Time-outs.
+// https://vaas-stg.certora.com/output/41958/63355dbc126351e96fa0/?anonymousKey=a0cab2704478832e9814b102c2ecd4cd740b7f05
+rule invariantShareValueUponWithdrawal(address provider, uint share)
+{
+    env e;
+    address pool = tokenA;
+    address pool2;
+    address PT = ptA;
+    address PT2 = ptB;
+    bytes32 contextId;
+    uint ptAmount;
+
+    require pool2 == tokenA || pool2 == tokenB;
+    require pool != pool2 => poolToken(pool2) == PT2;
+    require poolToken(pool) == PT;
+    
+    uint totSupply = getPoolTokenTotalSupply(e,poolToken(pool2));
+
+    uint usersValue1 = poolTokenToUnderlying(e,pool,share);
+        setConstants_wmn_only(e,pool2);
+        withdraw(e,contextId,provider,pool2,ptAmount);
+    uint usersValue2 = poolTokenToUnderlying(e,pool,share);
+
+    assert usersValue1 != usersValue2 => ptAmount == totSupply && usersValue2 == 0,
+        "A withdrawal changed the share value in the pool";
 }
     
 

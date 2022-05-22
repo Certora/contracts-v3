@@ -38,11 +38,10 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     --solc solc8.13 \
     --staging \
     --send_only \
-    --rule consistentTradingLiquidity \
+    --rule invariantShareValueUponWithdrawal \
     --settings -divideNoRemainder=true \
     --optimistic_loop \
-    --method "tradeBySourceAmount(bytes32,address,address,uint256,uint256)" \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "consistentTradingLiquidity trade"
+    --msg "invariantShareValueUponWithdrawal"
