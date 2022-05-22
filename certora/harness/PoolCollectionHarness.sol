@@ -50,45 +50,37 @@ contract PoolCollectionHarness is PoolCollection{
         return super.depositFor(contextId, msg.sender, pool, tokenAmount);
     }
     function getPoolDataTradingEnabled(Token pool) public view returns (bool) {
-        Pool storage data = _poolStorage(pool);
-        return data.tradingEnabled;
+        // Pool storage data = _poolStorage(pool);
+        return _poolData[pool].tradingEnabled;
     }
     function getPoolDataBaseTokenLiquidity(Token pool) public view returns (uint128) {
-        Pool storage data = _poolStorage(pool);
-        return data.liquidity.baseTokenTradingLiquidity;
+        // Pool storage data = _poolStorage(pool);
+        return _poolData[pool].liquidity.baseTokenTradingLiquidity;
     }
     function getPoolDataBntTradingLiquidity(Token pool) public view returns (uint128) {
-        Pool storage data = _poolStorage(pool);
-        return data.liquidity.bntTradingLiquidity;
+        // Pool storage data = _poolStorage(pool);
+        return _poolData[pool].liquidity.bntTradingLiquidity;
     }
     function getPoolDataStakedBalance(Token pool) public view returns (uint256) {
-        Pool storage data = _poolStorage(pool);
-        return data.liquidity.stakedBalance;
+        // Pool storage data = _poolStorage(pool);
+        return _poolData[pool].liquidity.stakedBalance;
     }
     // function getPoolDataTotalSupply(Token pool) public view returns (uint256) {
     //     Pool storage data = _poolStorage(pool);
     //     return data.poolToken.totalSupply();
     // }
-    // function poolTotalSupply(IPoolToken poolToken) external view returns (uint256) {
-    //     return poolToken.totalSupply();
-    // }
     
     function getPoolDataTradingFee(Token pool) public view returns (uint32) {
-        Pool storage data = _poolStorage(pool);
-        return data.tradingFeePPM;
+        // Pool storage data = _poolStorage(pool);
+        return _poolData[pool].tradingFeePPM;
     }
-    function getPoolDataTotalSupply(Token pool) public view returns (uint256) {
-        Pool storage data = _poolStorage(pool);
-        return data.poolToken.totalSupply();
-    }
-    function poolTotalSupply(IPoolToken poolToken) external view returns (uint256) {
+    function getPoolTokenTotalSupply(IPoolToken poolToken) external view returns (uint256) {
         return poolToken.totalSupply();
     }
     function hasPool(Token pool) public view returns (bool) {
         return _pools.contains(address(pool));
     }
-    function tokenUserBalance(Token pool, address user)  
-        external view returns (uint256){
+    function tokenUserBalance(Token pool, address user)  external view returns (uint256){
             return pool.balanceOf(user);
     }
     function poolWithdrawalAmounts(Token pool,uint256 poolTokenAmount) 

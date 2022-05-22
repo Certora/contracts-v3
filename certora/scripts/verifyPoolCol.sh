@@ -26,7 +26,7 @@ fi
     --solc solc8.13 \
     --staging \
     $RULE  \
-    --settings -divideNoRemainder=true,-enableEqualitySaturation=false,-solver=z3,-t=20,-depth=16 \
+    --settings -divideNoRemainder=true,-enableEqualitySaturation=false,-solver=z3 \
     --disable_auto_cache_key_gen \
     --optimistic_loop \
     --short_output \
@@ -34,6 +34,7 @@ fi
     --packages @openzeppelin=node_modules/@openzeppelin @bancor=node_modules/@bancor \
     --msg "PoolCol - $RULE"
 
+# ,-t=20,-depth=16
 #    --rule_sanity advanced \
 # certora/munged/network/NetworkSettings.sol PoolCollectionHarness:_network=BancorNetwork \ 
 # python3 ../../EVMVerifier/scripts/certoraRun.py  certora/munged/pools/PoolCollection.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
