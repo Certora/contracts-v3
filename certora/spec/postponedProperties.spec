@@ -42,6 +42,33 @@ rule StructWithdrawalRequest(uint id)
     assert var.provider == 0;
 }
 
+// Pool token withdrawal solvency: 
+// For a given pool with pool token (poolToken), the sum of all registered pool tokens
+// from all requests, must be less or equal to the total supply of that pool token.
+//
+// Current status : FAILS
+// fails for initWithdrawal*
+// * see note inside preserved block
+// Sasha: now it also fails for completeWithdrawal() because withdrawalRequest cannot be removed because of the bug
+// probably better move it to the BancorNetwork
+
+invariant totalRequestPTlessThanSupply(address poolToken)
+    sumRequestPoolTokens(poolToken) <= poolTotalSupply(poolToken)
+    {
+        preserved initWithdrawal(address provider, address poolToken2, uint256 poolTokenAmount) with (env e)
+        {
+            // In Bancor network, before calling initWithdrawal, the provider transfers its
+            // Pool tokens to the _pendingWithdrawal contract, i.e. the protocol.
+            require poolToken == poolToken2;
+            require poolTokenBalance(poolToken, currentContract) >= poolTokenAmount;
+            // If we require invariant of solvency:
+            // sum(requests pool tokens) <= sum(user balance) <= Total supply
+            // this should probably let the rule pass.
+            // sumRequestPoolTokens + poolTokenAmount <= sum(userbalance)   
+            require poolTotalSupply(poolToken) >= poolTokenAmount;
+        }
+    }
+   
 
 /// transferred to the BancorNetwork spec
 // Once a withdrawal request was registered, it should always
