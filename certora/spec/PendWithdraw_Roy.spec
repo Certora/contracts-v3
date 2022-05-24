@@ -298,23 +298,22 @@ rule initWithdrawalIntegrity()
     // where the argument is message sender. We can safely assume that 
     // providerInit is a valid non-zero address.
     // If implementation changes, we should check it in BancorNetwork.sol
-    require providerInit !=0;
+    require providerInit != 0;
 
-    id = initWithdrawal@withrevert(e,providerInit,poolTokenInit,poolTokenAmountInit);
-    bool WithdrawRevert = lastReverted;
+    id = initWithdrawal@withrevert(e, providerInit, poolTokenInit, poolTokenAmountInit);
+    bool withdrawRevert = lastReverted;
     
-    assert (poolTokenInit==0 || poolTokenAmountInit==0)
-    => WithdrawRevert, "initWithdrawal completed with zero address";
-
-    require !WithdrawRevert;
+    assert (poolTokenInit == 0 || poolTokenAmountInit == 0)
+    => withdrawRevert, "initWithdrawal completed with zero address";
 
     provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
-        reserveTokenAmount = currentContract.withdrawalRequest(id);
+        reserveTokenAmount = withdrawalRequest(id);
 
-    assert (provider == providerInit &&
-            poolTokenAmount == poolTokenAmountInit &&
-            poolToken == poolTokenInit
-            ,"initWithdrawal did not register request as expected");
+    assert !withdrawRevert => 
+                    (provider == providerInit &&
+                    poolTokenAmount == poolTokenAmountInit &&
+                    poolToken == poolTokenInit)
+                    ,"initWithdrawal did not register request as expected";
 }
 
 // Withdrawal request cannot be completed more than once.
@@ -563,7 +562,9 @@ rule requestDetailsInvariance(uint id, method f)
     //
     provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
     reserveTokenAmount = currentContract.withdrawalRequest(id);
+
     f(e,args);
+
     providerAfter, poolTokenAfter, reserveTokenAfter, createdAtAfter,
     poolTokenAmountAfter,reserveTokenAmountAfter =
     currentContract.withdrawalRequest(id);
@@ -729,6 +730,7 @@ rule validRequestTime(method f)
     uint256 amount;
     calldataarg args;
 
+    require e.block.timestamp < max_uint32;
     uint timeInit = e.block.timestamp;
     f(e,args);
     uint id = initWithdrawal(e, provider, poolToken, amount);

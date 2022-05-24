@@ -1,4 +1,4 @@
-certoraRun.py  certora/munged/pools/BNTPool.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
+certoraRun.py certora/munged/pools/BNTPool.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
     certora/munged/network/NetworkSettings.sol certora/munged/pools/PoolToken.sol certora/munged/vaults/MasterVault.sol \
     certora/helpers/DummyERC20bnt.sol certora/helpers/DummyTokenGovernanceA.sol certora/helpers/DummyTokenGovernanceB.sol \
     certora/munged/helpers/TestUpgradeable.sol \
@@ -15,9 +15,11 @@ certoraRun.py  certora/munged/pools/BNTPool.sol certora/helpers/DummyERC20A.sol 
     --optimistic_loop \
     --rule_sanity advanced \
     --packages_path node_modules \
-    --settings -divideNoRemainder=true,-enableEqualitySaturation=false \
     --packages @openzeppelin=node_modules/@openzeppelin @bancor=node_modules/@bancor \
-    --msg "all BNTPool without withdrawal fees"
+    --msg "check no settings"
+
+
+#     --settings -divideNoRemainder=true,-enableEqualitySaturation=false \
 
 
 # python3 ../../EVMVerifier/scripts/certoraRun.py  certora/munged/pools/BNTPool.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
