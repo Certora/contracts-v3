@@ -36,12 +36,12 @@ py ../../EVMVerifier/scripts/certoraRun.py \
             MasterVault:_vbntGovernance=DummyTokenGovernanceB \
             MasterVault:_bnt=DummyERC20bnt \
     --solc solc8.13 \
-    --staging \
+    --staging jtoman/bancor-opt \
     --send_only \
-    --rule invariantShareValueUponWithdrawal \
+    --rule consistentTradingLiquidity \
     --settings -divideNoRemainder=true \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "invariantShareValueUponWithdrawal"
+    --msg "consistentTradingLiquidity maxFee1%"

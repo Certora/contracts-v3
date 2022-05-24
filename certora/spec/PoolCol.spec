@@ -62,9 +62,9 @@ function setConstants_x_e(env env1, address pool){
     require c == tokenUserBalance(env1,pool,_masterVault(env1)) - 
                 getPoolDataBaseTokenLiquidity(env1,pool);
     //require e == getPoolDataStakedBalance(env1,pool);
-    require w == tokenUserBalance(env1,pool,epv);
-    require m == getPoolDataTradingFee(env1,pool);
-    require n == networkSettings.networkFeePPM(env1);
+    require w == tokenUserBalance(env1, pool, epv);
+    require m == getPoolDataTradingFee(env1, pool);
+    require n == networkSettings.withdrawalFeePPM(env1);
 }
 
 // Set all withdrawal parameters, but (x,a), to constants (deficit)
@@ -83,9 +83,9 @@ function setConstants_x_a(env env1, address pool){
     require c == tokenUserBalance(env1,pool,_masterVault(env1)) - 
                 getPoolDataBaseTokenLiquidity(env1,pool);
     require e == getPoolDataStakedBalance(env1,pool);
-    require w == tokenUserBalance(env1,pool,epv);
-    require m == getPoolDataTradingFee(env1,pool);
-    require n == networkSettings.networkFeePPM(env1);
+    require w == tokenUserBalance(env1, pool, epv);
+    require m == getPoolDataTradingFee(env1, pool);
+    require n == networkSettings.withdrawalFeePPM(env1);
 }
 
 // Set all withdrawal parameters, but x, to constants (deficit)
@@ -105,9 +105,9 @@ function setConstants_x(env env1, address pool){
     require c == tokenUserBalance(env1,pool,_masterVault(env1)) - 
                 getPoolDataBaseTokenLiquidity(env1,pool);
     require e == getPoolDataStakedBalance(env1,pool);
-    require w == tokenUserBalance(env1,pool,epv);
-    require m == getPoolDataTradingFee(env1,pool);
-    require n == networkSettings.networkFeePPM(env1);
+    require w == tokenUserBalance(env1, pool, epv);
+    require m == getPoolDataTradingFee(env1, pool);
+    require n == networkSettings.withdrawalFeePPM(env1);
 }
 
 // Set withdrawal parameters (w,m,n) to constants.
@@ -117,9 +117,9 @@ function setConstants_wmn_only(env env1, address pool){
     uint256 n = 2500;
     address epv = _externalProtectionVault(env1);  
 
-    require w == tokenUserBalance(env1,pool,epv);
-    require m == getPoolDataTradingFee(env1,pool);
-    require n == networkSettings.networkFeePPM(env1);
+    require w == tokenUserBalance(env1, pool, epv);
+    require m == getPoolDataTradingFee(env1, pool);
+    require n == networkSettings.withdrawalFeePPM(env1);
 }
 
 function santasLittleHelper(method f, env e){
@@ -464,6 +464,7 @@ invariant differentTokens(address tknA, address tknB)
     {
         preserved
         {
+            require getPoolDataTradingFee(e, pool) <= 10000;
             require pool == tokenA;
             require hasPool(pool);
         }
