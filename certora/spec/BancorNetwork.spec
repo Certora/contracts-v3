@@ -160,11 +160,6 @@ invariant whiteListedToken(env e, address token)
 // https://vaas-stg.certora.com/output/41958/dd6b365803a568c539cd/?anonymousKey=68692b3845ee183ded9e5145dc37f63e8e041e73
 invariant validPool(address token)
     !isPoolValid(token) => _poolCollection(token) == 0
-    {
-        //preserved with (env e) {
-        //    require e.msg.sender != currentContract;
-        //}
-    }
 
 //https://vaas-stg.certora.com/output/41958/dcdc01d1ce1740249872/?anonymousKey=42f1ef1a1e0a739ed3b34b06109fae02ffb6abcb
 invariant poolLinkPoolCollection(address pool)
@@ -187,12 +182,34 @@ invariant withdrawalRequestPTsSolvency(address token)
 //                       Rules                                            //
 ////////////////////////////////////////////////////////////////////////////
 
-rule reachability(method f)
+// Verified
+// https://vaas-stg.certora.com/output/41958/3724e32fa452a367a6c5/?anonymousKey=e38bd0786d57db27ef993a6b3b26219b73504bc1
+// I'm splitting the validPool invariant to several rules with different functions.
+rule invariantValidPoolAfterTrade(method f)
 {
-	env e;
-	calldataarg args;
-	f(e,args);
-	assert false;
+    env e;
+    calldataarg args;
+    address token = tokenA;
+
+    require !isPoolValid(token) => _poolCollection(token) == 0;
+    require tradeLikeMethod(f);
+        f(e,args);
+    assert !isPoolValid(token) => _poolCollection(token) == 0;
+}
+
+// Verified
+// https://vaas-stg.certora.com/output/41958/b3ed87cf62c965ec924d/?anonymousKey=1ee88cf59667a1dc5bfbc2a1a3c395199ef96df8
+// I'm splitting the validPool invariant to several rules with different functions.
+rule invariantValidPoolAfterDeposit(method f)
+{
+    env e;
+    calldataarg args;
+    address token = tokenA;
+    
+    require !isPoolValid(token) => _poolCollection(token) == 0;
+    require depositLikeMethod(f);
+        f(e,args);
+    assert !isPoolValid(token) => _poolCollection(token) == 0;
 }
 
 // Conversion to pool tokens from underlying and vice-versa
@@ -218,6 +235,7 @@ rule underlyingToPTinverse(uint amount)
     assert b == amount && d == amount, "Calculations are not reciprocal";
 }
 
+// Verified
 rule underlyingToPTmono(uint amount1, uint amount2)
 {
     env e;
@@ -227,8 +245,6 @@ rule underlyingToPTmono(uint amount1, uint amount2)
     require PoolCol.poolToken(token) == PT;
     uint256 a = PoolCol.underlyingToPoolToken(e, token, amount1);
     uint256 b = PoolCol.underlyingToPoolToken(e, token, amount2);
-    //uint256 c = PoolCol.underlyingToPoolToken(e,token,a);
-    //uint256 d = PoolCol.underlyingToPoolToken(e,token,b);
     
     assert amount1 > amount2 => a > b, "Not monotonic";
 }
@@ -326,7 +342,6 @@ rule tradeA2BLiquidity(uint amount, bool byTarget)
     
     assert networkSettings.networkFeePPM(e) ==0 => bntBalance2 == bntBalance1,
             "When there are no fees, trade BNT balance stays intact"; 
-            
 }
 
 // 
@@ -435,6 +450,7 @@ rule afterTradingPTBalanceIntact(address trader, uint amount)
 
     assert balancePT2 == balancePT1;
 }
+
 // It is always possible to cancel a withdrawal request (without time limit).
 // Verified *
 // *Lines 395-396 in PendingWithdrawals.sol can lead to revert, but remove should
@@ -719,7 +735,7 @@ rule depositBNTtransferPTsToProvider(address provider, uint amount)
     uint256 PTtotalSupply2 =  PendWit.poolTotalSupply(PT);
 
     assert networkPTBntBalance2 + amountPT == networkPTBntBalance1,
-            "Vault BNT pool tokens should not change";
+            "Protocol should transfer its pool tokens to provider";
 
     assert providerPTBntBalance1 + amountPT == providerPTBntBalance2,
             "The amount of PTs minted to provider is wrong";
@@ -729,6 +745,7 @@ rule depositBNTtransferPTsToProvider(address provider, uint amount)
 }
 
 // Can some trader prevent me from taking my money?
+// Hard-stops
 rule tradeFrontRunsWithdrawal(uint amount, bool sourceA)
 {
     env e;
@@ -778,6 +795,7 @@ filtered{f -> f.selector != withdraw(uint).selector && !f.isView}
 {
     env e;
     calldataarg args;
+    // Assuming no trade function.
     require !tradeLikeMethod(f);
     require validUser(e,user);
 
@@ -792,6 +810,7 @@ filtered{f -> f.selector != withdraw(uint).selector && !f.isView}
             "Only deposit can increase pool tokens balance";
 }
 
+// IN PROGRESS...
 rule withdrawDoesntChangePT(address user)
 {
     env e;
@@ -800,15 +819,43 @@ rule withdrawDoesntChangePT(address user)
     require validUser(e, user);
  
     uint256 id;
-    require requestReserveToken(id) != PT;
-   
-    uint256 balance1 = PoolCol.tokenUserBalance(PT, user);
-    constantsForWithdrawal(e, requestReserveToken(id));
-        withdraw(e, id);
-    uint256 balance2 = PoolCol.tokenUserBalance(PT, user);
+    address provider;
+    address poolToken;
+    address reserveToken1;
+    uint32 createdAt;
+    uint256 poolTokenAmount;
+    uint256 reserveTokenAmount;
+
+    uint256 balance1;
+    uint256 balance2;
+
+    provider, poolToken, reserveToken1, createdAt, poolTokenAmount, 
+            reserveTokenAmount = PendWit.withdrawalRequest(id);
+
+    require poolToken == PT;
+    if(PT == ptBNT)
+    {
+        require reserveToken1 == _bnt(e);
+        require ptBNT.reserveToken(e) == reserveToken1;
+        balance1 = ptBNT.balanceOf(e, user);
+    }
+    else 
+    {
+        require reserveToken1 == tokenA;
+        require ptA.reserveToken(e) == reserveToken1;
+        balance1 = ptA.balanceOf(e, user);
+        constantsForWithdrawal(e, reserveToken1);
+    }
+    
+    withdraw(e, id);
+
+    if(PT == ptBNT)
+        { balance2 = ptBNT.balanceOf(e, user); }
+    else 
+        { balance2 = ptA.balanceOf(e, user); }
     
     assert balance1 == balance2,
-            "Pool token balance cannot change after withdrawal";
+            "Pool token balance changed unexpectedly";
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -865,21 +912,6 @@ function tokenInPoolCollection(address tkn, address PoolCollect) returns bool
     return _poolCollection(tkn) == PoolCollect;
 }
 
-function requestReserveToken(uint id) returns address
-{
-    address provider;
-    address poolToken;
-    address reserveToken;
-    uint32 createdAt;
-    uint256 poolTokenAmount;
-    uint256 reserveTokenAmount;
-
-    provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
-            reserveTokenAmount = PendWit.withdrawalRequest(id);
-
-    return reserveToken;
-}
-
 // For any two different tokens, we require them to either be in the same
 // pool collection or different ones. Note that any two pool collections cannot
 // share the same token.
@@ -926,11 +958,11 @@ function simpleMulDiv(uint256 x, uint256 y, uint256 z) returns uint256
     bool Qut1 = ( x == z && f == y ) || ( y == z && f == x );
     bool Qut2 = ( x == 2 * z && f == 2 * y ) || ( y == 2 * z && f == 2 * x );
     bool Qut3 = ( x == 3 * z && f == 3 * y ) || ( y == 3 * z && f == 3 * x );
-    bool Qut10 = ( x == 10 * z && f==10*y ) || ( y== 10 * z && f == 10 * x );
-    bool Qut1_2 = ( 2 * x == z && f == y / 2 && y % 2 ==0) || ( 2 * y ==z && f == x/2 && x % 2 ==0);
-    bool Qut1_3 = ( 3 * x == z && f == y / 3 && y % 3 ==0) || ( 3 * y ==z && f == x/3 && x % 3 ==0);
-    bool Qut1_10 = ( 10 * x == z && f == y / 10 && y % 10 ==0) || 
-                    ( 10 * y == z && f == x/ 10 && x % 10 ==0);
+    bool Qut10 = ( x == 10 * z && f == 10 * y ) || ( y == 10 * z && f == 10 * x );
+    bool Qut1_2 = ( 2 * x == z && f == y / 2 && y % 2 ==0) || ( 2 * y == z && f == x/2 && x % 2 == 0);
+    bool Qut1_3 = ( 3 * x == z && f == y / 3 && y % 3 ==0) || ( 3 * y == z && f == x/3 && x % 3 == 0);
+    bool Qut1_10 = ( 10 * x == z && f == y / 10 && y % 10 == 0) || 
+                    ( 10 * y == z && f == x/ 10 && x % 10 == 0);
 
     require dontDividebyZero;
     require Qut0 || Qut1 || Qut2 || Qut3 || Qut10 || Qut1_2 || Qut1_3 || Qut1_10;
@@ -951,9 +983,9 @@ function simpleMulDivIf(uint256 x, uint256 y, uint256 z) returns uint256
     else if (y == 2 * z)     {f = 2 * x;}
     else if (y == 3 * z)     {f = 3 * x;}
     else if (y == 10 * z)    {f = 10 * x;}
-    else if (2 * y == z && x % 2 ==0)  {f = x / 2;}
-    else if (3 * y == z && x % 3 ==0)  {f = x / 3;}
-    else if (10*y == z && x % 10 ==0)    {f = x / 10;}
+    else if (2 * y == z && x % 2 == 0)  {f = x / 2;}
+    else if (3 * y == z && x % 3 == 0)  {f = x / 3;}
+    else if (10 * y == z && x % 10 == 0)    {f = x / 10;}
     else if (y == z)   { f = x;}
     else    {f = 0; Success = false;}
 

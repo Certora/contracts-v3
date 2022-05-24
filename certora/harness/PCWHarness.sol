@@ -144,13 +144,13 @@ library PoolCollectionWithdrawal
         // given the restrictions above, everything below can be declared `unchecked`
         uint256 yg = y * g;
         uint256 we = w * e;
-        //if (yg > we) {
+        if (yg > we) {
             t = a > 0 ? MathEx.mulDivF(a, yg - we, b * e) : 0;
             u = w;
-        //} else {
-        //    t = 0;
-        //    u = yg / e;
-        //}
+        } else {
+            t = 0;
+            u = yg / e;
+        }
     }
 
     function isStable(uint b,uint c,uint e,uint x)

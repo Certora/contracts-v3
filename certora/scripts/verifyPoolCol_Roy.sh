@@ -38,10 +38,10 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     --solc solc8.13 \
     --staging jtoman/bancor-opt \
     --send_only \
-    --rule consistentTradingLiquidity \
+    --rule invariantShareValueUponWithdrawal \
     --settings -divideNoRemainder=true \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "consistentTradingLiquidity maxFee1%"
+    --msg "invariantShareValueUponWithdrawal"
