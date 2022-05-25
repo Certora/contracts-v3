@@ -149,6 +149,44 @@ hook Sstore PendWit._withdrawalRequests[KEY uint256 id].poolTokenAmount uint256 
 //    sumPTbalances@new(poolToken) == sumPTbalances@old(poolToken));
 //}
 
+definition depositLikeMethod(method f) returns bool = 
+        f.selector == depositFor(address, address, uint256).selector ||
+        f.selector == deposit(address, uint256).selector ||
+
+        f.selector == depositForPermitted(address, address, uint256, uint256, 
+            uint8, bytes32, bytes32).selector ||
+
+        f.selector == depositPermitted(address, uint256, uint256, 
+            uint8, bytes32, bytes32).selector ;  
+
+definition tradeLikeMethod(method f) returns bool = 
+        f.selector == 
+        tradeBySourceAmount(address, address, uint256, uint256, uint256, address)
+        .selector ||
+        
+        f.selector == 
+        tradeByTargetAmount(address, address, uint256, uint256, uint256, address)
+        .selector ||
+
+        f.selector == 
+        tradeBySourceAmountPermitted(address, address, uint256, uint256, uint256, address,
+        uint8, bytes32, bytes32).selector ||
+
+        f.selector == 
+        tradeByTargetAmountPermitted(address, address, uint256, uint256, uint256, address,
+        uint8, bytes32, bytes32).selector;
+
+// A restriction upon the value of f = x * y / z
+// The division quotient y/z or x/z can be either q or 1/q.
+// No division remainders are assumed.
+// Important : do not set q=0.
+definition constQuotient(uint256 x, uint256 y, uint256 z, uint256 q, uint256 f) 
+        returns bool = 
+        ( x == q * z && f == q * y ) || 
+        ( q * x == z && f == y / q && y % q ==0 ) ||
+        ( y == q * z && f == q * x ) || 
+        ( q * y == z && f == x / q && x % q ==0);
+
 ////////////////////////////////////////////////////////////////////////////
 //                       Invariants                                       //
 ////////////////////////////////////////////////////////////////////////////
@@ -160,6 +198,7 @@ invariant whiteListedToken(env e, address token)
 // https://vaas-stg.certora.com/output/41958/dd6b365803a568c539cd/?anonymousKey=68692b3845ee183ded9e5145dc37f63e8e041e73
 invariant validPool(address token)
     !isPoolValid(token) => _poolCollection(token) == 0
+    filtered{f -> !depositLikeMethod(f) && !tradeLikeMethod(f)}
 
 //https://vaas-stg.certora.com/output/41958/dcdc01d1ce1740249872/?anonymousKey=42f1ef1a1e0a739ed3b34b06109fae02ffb6abcb
 invariant poolLinkPoolCollection(address pool)
@@ -186,13 +225,13 @@ invariant withdrawalRequestPTsSolvency(address token)
 // https://vaas-stg.certora.com/output/41958/3724e32fa452a367a6c5/?anonymousKey=e38bd0786d57db27ef993a6b3b26219b73504bc1
 // I'm splitting the validPool invariant to several rules with different functions.
 rule invariantValidPoolAfterTrade(method f)
+filtered{f -> tradeLikeMethod(f)}
 {
     env e;
     calldataarg args;
     address token = tokenA;
 
     require !isPoolValid(token) => _poolCollection(token) == 0;
-    require tradeLikeMethod(f);
         f(e,args);
     assert !isPoolValid(token) => _poolCollection(token) == 0;
 }
@@ -201,16 +240,17 @@ rule invariantValidPoolAfterTrade(method f)
 // https://vaas-stg.certora.com/output/41958/b3ed87cf62c965ec924d/?anonymousKey=1ee88cf59667a1dc5bfbc2a1a3c395199ef96df8
 // I'm splitting the validPool invariant to several rules with different functions.
 rule invariantValidPoolAfterDeposit(method f)
+filtered{f -> depositLikeMethod(f)}
 {
     env e;
     calldataarg args;
     address token = tokenA;
     
     require !isPoolValid(token) => _poolCollection(token) == 0;
-    require depositLikeMethod(f);
         f(e,args);
     assert !isPoolValid(token) => _poolCollection(token) == 0;
 }
+
 
 // Conversion to pool tokens from underlying and vice-versa
 // are reciprocal actions.
@@ -489,11 +529,10 @@ rule RequestRegisteredForValidProvider(uint tokenAmount)
 // https://vaas-stg.certora.com/output/41958/cd16c503a796770a2312/?anonymousKey=1c49f7b5fa0def76abb557430f90079823dcc1e3
 // This will help to modify the preserved block in the future.
 rule whoChangedMasterVaultBalance(method f)
-filtered{f -> f.selector != withdraw(uint).selector }
+filtered{f -> f.selector != withdraw(uint).selector && !depositLikeMethod(f)}
 {
     env e;
     calldataarg args;
-    require !depositLikeMethod(f);
     address Vault = _masterVault(e);
 
     uint balanceTKN1 = tokenA.balanceOf(e, Vault);
@@ -581,16 +620,17 @@ rule noDoubleWithdrawalTKN(uint256 ptAmount, uint id)
     // Set withdrawal request id
     address provider;
     address poolToken2;
-    address reserveToken;
+    address reserveToken2;
     uint32 createdAt;
     uint256 poolTokenAmount;
     uint256 reserveTokenAmount;
-    provider, poolToken2, reserveToken, createdAt, poolTokenAmount, 
+    provider, poolToken2, reserveToken2, createdAt, poolTokenAmount, 
             reserveTokenAmount = PendWit.withdrawalRequest(id);
     // Require consistency
     require provider == e.msg.sender;
     require poolToken2 == poolToken;
     require ptAmount == poolTokenAmount;
+    require reserveToken2 == token;
 
     // Withdraw:
     constantsForWithdrawal(e, token);
@@ -788,15 +828,14 @@ rule tradeFrontRunsWithdrawal(uint amount, bool sourceA)
     assert !lastReverted;
 }
 
+// Assuming no trade function.
 // Failed:
 // https://vaas-stg.certora.com/output/41958/617c4737cc2be61d49d4/?anonymousKey=0d5c26916a572e614b8fcf008b8910957f568e89
 rule onlyDepositIncreasePT(method f, address user)
-filtered{f -> f.selector != withdraw(uint).selector && !f.isView}
+filtered{f -> f.selector != withdraw(uint).selector && !f.isView && !tradeLikeMethod(f)}
 {
     env e;
     calldataarg args;
-    // Assuming no trade function.
-    require !tradeLikeMethod(f);
     require validUser(e,user);
 
     address PT;
@@ -810,7 +849,7 @@ filtered{f -> f.selector != withdraw(uint).selector && !f.isView}
             "Only deposit can increase pool tokens balance";
 }
 
-// IN PROGRESS...
+// Verified (needs to check that is sane).
 rule withdrawDoesntChangePT(address user)
 {
     env e;
@@ -861,37 +900,6 @@ rule withdrawDoesntChangePT(address user)
 ////////////////////////////////////////////////////////////////////////////
 //                       Helper Functions                                 //
 ////////////////////////////////////////////////////////////////////////////
-function depositLikeMethod(method f) returns bool
-{
-    return  f.selector == depositFor(address, address, uint256).selector ||
-            f.selector == deposit(address, uint256).selector ||
-
-            f.selector == depositForPermitted(address, address, uint256, uint256, 
-                uint8, bytes32, bytes32).selector ||
-
-            f.selector == depositPermitted(address, uint256, uint256, 
-                uint8, bytes32, bytes32).selector ;  
-}
-
-function tradeLikeMethod(method f) returns bool
-{
-    return  
-        f.selector == 
-        tradeBySourceAmount(address, address, uint256, uint256, uint256, address)
-        .selector ||
-        
-        f.selector == 
-        tradeByTargetAmount(address, address, uint256, uint256, uint256, address)
-        .selector ||
-
-        f.selector == 
-        tradeBySourceAmountPermitted(address, address, uint256, uint256, uint256, address,
-        uint8, bytes32, bytes32).selector ||
-
-        f.selector == 
-        tradeByTargetAmountPermitted(address, address, uint256, uint256, uint256, address,
-        uint8, bytes32, bytes32).selector;
-}
 
 function validUser(env env1, address user) returns bool
 {
@@ -932,16 +940,14 @@ function setupTokenPoolCol(env env1, address token, address PT)
             tokenInPoolCollection(token, PoolCol);
 }
 
+// Summary for mulDivF:
 // A function which assumes a constant quotient y/z or x/z q (or 1/q).
 function constQuotientMulDiv(uint256 x, uint256 y, uint256 z, uint256 q)
 returns uint256
 {
     uint256 f;
     require z != 0;
-    require ( x == q * z && f== q * y ) || 
-            ( q * x == z && f == y / q && y % q ==0 ) ||
-            ( y == q * z && f == q * x ) || 
-            ( q * y == z && f == x / q && x % q ==0);
+    require constQuotient(q);
     return f;
 }
 
@@ -954,24 +960,27 @@ function simpleMulDiv(uint256 x, uint256 y, uint256 z) returns uint256
     bool dontDividebyZero = z != 0;
     // We restrict to no remainders
     // Possible quotients : Qut[q] means that y/z or x/z is q.
-    bool Qut0 = (x ==0 || y ==0) && (f == 0);
+    bool Qut0 = ( x ==0 || y ==0) && (f == 0);
     bool Qut1 = ( x == z && f == y ) || ( y == z && f == x );
-    bool Qut2 = ( x == 2 * z && f == 2 * y ) || ( y == 2 * z && f == 2 * x );
-    bool Qut3 = ( x == 3 * z && f == 3 * y ) || ( y == 3 * z && f == 3 * x );
-    bool Qut10 = ( x == 10 * z && f == 10 * y ) || ( y == 10 * z && f == 10 * x );
-    bool Qut1_2 = ( 2 * x == z && f == y / 2 && y % 2 ==0) || ( 2 * y == z && f == x/2 && x % 2 == 0);
-    bool Qut1_3 = ( 3 * x == z && f == y / 3 && y % 3 ==0) || ( 3 * y == z && f == x/3 && x % 3 == 0);
-    bool Qut1_10 = ( 10 * x == z && f == y / 10 && y % 10 == 0) || 
-                    ( 10 * y == z && f == x/ 10 && x % 10 == 0);
+    bool Qut2 = constQuotient(x, y, z, 2, f);
+    bool Qut3 = constQuotient(x, y, z, 3, f);
+    bool Qut10 = constQuotient(x, y, z, 10, f);
+    bool Qut100 = constQuotient(x, y, z, 100, f);
+    bool Qut250 = constQuotient(x, y, z, 250, f);
+    bool Qut400 = constQuotient(x, y, z, 400, f);
+    bool Qut500 = constQuotient(x, y, z, 500, f);
+    bool Qut1000 = constQuotient(x, y, z, 1000, f);
+    bool Qut2000 = constQuotient(x, y, z, 2000, f);
 
     require dontDividebyZero;
-    require Qut0 || Qut1 || Qut2 || Qut3 || Qut10 || Qut1_2 || Qut1_3 || Qut1_10;
+    require Qut0 || Qut1 || Qut2 || Qut3 || Qut10 || Qut100 || Qut250 || Qut400 ||
+    Qut500 || Qut1000 || Qut2000;
     return f;
 }
 
 // Summary for mulDivF:
 // quotient y/z is either 0,1,2,3,10 or 1/2, 1/3, 1/10.
-// We do not assume anything about x/z.
+// Nothing resticts the value of x/z;
 function simpleMulDivIf(uint256 x, uint256 y, uint256 z) returns uint256 
 {
     uint f;
