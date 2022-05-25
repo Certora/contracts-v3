@@ -24,7 +24,7 @@ fi
             MasterVault:_vbntGovernance=DummyTokenGovernanceB \
             MasterVault:_bnt=DummyERC20bnt \
     --solc solc8.13 \
-    --staging \
+    --staging jtoman/bancor-opt \
     $RULE  \
     --settings -divideNoRemainder=true,-enableEqualitySaturation=false,-solver=z3 \
     --disable_auto_cache_key_gen \

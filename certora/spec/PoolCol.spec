@@ -13,9 +13,10 @@ methods {
     // requestFunding(bytes32, address, uint256) => DISPATCHER(true)
     // availableFunding(address) returns(uint256) => DISPATCHER(true)
     networkFeePPM() returns (uint32) => DISPATCHER(true)
+    networkSettings.networkFeePPM()  returns(uint32) envfree
     poolFundingLimit(address) returns(uint256) => DISPATCHER(true)
     minLiquidityForTrading() returns(uint256) => DISPATCHER(true)
-    networkSettings.minLiquidityForTrading() returns(uint256)
+    networkSettings.minLiquidityForTrading() returns(uint256) envfree
     withdrawalFeePPM() returns(uint32) => DISPATCHER(true)
     acceptOwnership() => DISPATCHER(true)
     withdrawFunds(address, address, uint256) => DISPATCHER(true)   
@@ -44,6 +45,8 @@ methods {
 function setUp() {
     require poolToken(tokenA) == ptA;
     require poolToken(tokenB) == ptB;
+    require networkSettings.minLiquidityForTrading() > 0;
+    require networkSettings.networkFeePPM() <= 1000000;
 }
 
 // Set all withdrawal parameters, but (x,e), to constants (deficit)
@@ -62,9 +65,9 @@ function setConstants_x_e(env env1, address pool){
     require c == tokenUserBalance(env1,pool,_masterVault(env1)) - 
                 getPoolDataBaseTokenLiquidity(env1,pool);
     //require e == getPoolDataStakedBalance(env1,pool);
-    require w == tokenUserBalance(env1, pool, epv);
-    require m == getPoolDataTradingFee(env1, pool);
-    require n == networkSettings.withdrawalFeePPM(env1);
+    require w == tokenUserBalance(env1,pool,epv);
+    require m == getPoolDataTradingFee(env1,pool);
+    require n == networkSettings.networkFeePPM();
 }
 
 // Set all withdrawal parameters, but (x,a), to constants (deficit)
@@ -83,9 +86,9 @@ function setConstants_x_a(env env1, address pool){
     require c == tokenUserBalance(env1,pool,_masterVault(env1)) - 
                 getPoolDataBaseTokenLiquidity(env1,pool);
     require e == getPoolDataStakedBalance(env1,pool);
-    require w == tokenUserBalance(env1, pool, epv);
-    require m == getPoolDataTradingFee(env1, pool);
-    require n == networkSettings.withdrawalFeePPM(env1);
+    require w == tokenUserBalance(env1,pool,epv);
+    require m == getPoolDataTradingFee(env1,pool);
+    require n == networkSettings.networkFeePPM();
 }
 
 // Set all withdrawal parameters, but x, to constants (deficit)
@@ -105,9 +108,9 @@ function setConstants_x(env env1, address pool){
     require c == tokenUserBalance(env1,pool,_masterVault(env1)) - 
                 getPoolDataBaseTokenLiquidity(env1,pool);
     require e == getPoolDataStakedBalance(env1,pool);
-    require w == tokenUserBalance(env1, pool, epv);
-    require m == getPoolDataTradingFee(env1, pool);
-    require n == networkSettings.withdrawalFeePPM(env1);
+    require w == tokenUserBalance(env1,pool,epv);
+    require m == getPoolDataTradingFee(env1,pool);
+    require n == networkSettings.networkFeePPM();
 }
 
 // Set withdrawal parameters (w,m,n) to constants.
@@ -117,9 +120,9 @@ function setConstants_wmn_only(env env1, address pool){
     uint256 n = 2500;
     address epv = _externalProtectionVault(env1);  
 
-    require w == tokenUserBalance(env1, pool, epv);
-    require m == getPoolDataTradingFee(env1, pool);
-    require n == networkSettings.withdrawalFeePPM(env1);
+    require w == tokenUserBalance(env1,pool,epv);
+    require m == getPoolDataTradingFee(env1,pool);
+    require n == networkSettings.networkFeePPM();
 }
 
 function santasLittleHelper(method f, env e){
@@ -193,7 +196,8 @@ uint256 tokenAmount;
 // 	assert false;
 // }
 
-rule more_poolTokens_less_TKN(method f){
+rule more_poolTokens_less_TKN(method f)    filtered { f -> !f.isView && !f.isFallback }
+{
     env e;
         setUp();
 
@@ -267,8 +271,7 @@ invariant tradingEnabledImplLiquidity(address pool, env e)
     {
         preserved {
                     require pool == tokenA;
-                    require networkSettings.minLiquidityForTrading(e) > 0;
-
+                    setUp();
                   }
         preserved withdraw(bytes32 contextId,address provider,address pool2, uint256 tokenAmount) with (env e1)
                   {
@@ -281,8 +284,6 @@ invariant tradingEnabledImplLiquidity(address pool, env e)
 rule tradeAllBntTokensShouldFail(){
     env e;
         setUp();
-
-    require networkSettings.minLiquidityForTrading(e) > 0;
 
     bytes32 contextId;
     address sourceToken = tokenA;
@@ -302,8 +303,6 @@ rule tradeAllBntTokensShouldFail(){
 rule tradeWhenZeroTokensFail(){
     env e;
         setUp();
-
-    require networkSettings.minLiquidityForTrading(e) > 0;
 
     bytes32 contextId;
     address sourceToken = tokenA;
@@ -338,7 +337,7 @@ rule tradeWhenZeroLiquidity(){
     uint256 networkFeeAmount;
 
     require sourceToken == tokenA || targetToken == tokenA; // the other token is BNT
-    require networkSettings.minLiquidityForTrading(e) == 0;
+    require networkSettings.minLiquidityForTrading() == 0;
     require getPoolDataBntTradingLiquidity(e,tokenA) == 0;
 
     amount,tradingFeeAmount,networkFeeAmount = tradeByTargetAmount@withrevert(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
@@ -348,16 +347,14 @@ rule tradeWhenZeroLiquidity(){
 
 rule withdrawAll(address provider){
     env e;
+        setUp();
     //require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
     require provider !=currentContract && provider !=_bntPool(e) && provider != _masterVault(e);
 
         bytes32 contextId;
         //address provider = e.msg.sender;
         address pool = tokenA;
-        require ptA == poolToken(pool);
         uint256 poolTokenAmount = ptA.totalSupply(e);
-
-            require networkSettings.minLiquidityForTrading(e) > 0;
 
     uint256 stakedBalance = getPoolDataStakedBalance(e,pool);
     // setConstants_wmn_only(e,pool); // Insert here function to set parameters to constants.
@@ -454,33 +451,31 @@ invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
     getPoolTokenTotalSupply(e,poolToken(pool)) == 0 <=> getPoolDataStakedBalance(e,pool) == 0
     {
         preserved {
+            setUp();
             require pool == tokenA;
             require hasPool(pool);
         }
     }
 
-invariant consistentTradingLiquidity(env e,address pool)
-    getPoolDataBntTradingLiquidity(e, pool) == 0 <=> 
-    getPoolDataBaseTokenLiquidity(e, pool) == 0
+    invariant consistentTradingLiquidity(env e,address pool)
+        getPoolDataBntTradingLiquidity(e,pool) == 0 <=> getPoolDataBaseTokenLiquidity(e,pool) == 0
     {
         preserved
         {
             require getPoolDataTradingFee(e, pool) <= 10000;
             require pool == tokenA;
             require hasPool(pool);
+            setUp();
         }
     }
 
 invariant stakedBalanceMasterVaultBalance(env e)
-    tokenA.balanceOf(e,_masterVault(e)) == 0 => getPoolDataStakedBalance(e,tokenA) == 0 
-    // {
-    //     preserved{
-    //         require poolToken(tokenA) == ptA;
-    //         address pool;
-    //         require pool !=0 && pool !=_masterVault(e);
-    //         require (pool != tokenA =>  getPoolDataStakedBalance(e,pool)==0);
-    //     }
-    // }
+    tokenA.balanceOf(e,_masterVault(e)) ==0 => getPoolDataStakedBalance(e,tokenA) ==0 
+    {
+        preserved{
+            setUp();
+        }
+    }
 
     invariant zeroStakedBalanceZeroLiquidity(env e, address pool)
         getPoolDataStakedBalance(e,pool) == 0 => getPoolDataBntTradingLiquidity(e,pool) ==0
@@ -488,9 +483,8 @@ invariant stakedBalanceMasterVaultBalance(env e)
                 f.selector != migratePoolIn(address,(address,uint32,bool,bool,(uint32,(uint112,uint112)),uint256,(uint128,uint128,uint256))).selector}
     {
         preserved {
+                    setUp();
                     require pool == tokenA;
-                    require networkSettings.minLiquidityForTrading(e) > 0;
-
                   }
         preserved withdraw(bytes32 contextId,address provider,address pool2, uint256 tokenAmount) with (env e1)
                   {
@@ -514,7 +508,7 @@ invariant stakedBalanceMasterVaultBalance(env e)
         // require ptA == poolToken(pool);
         // require ptA.balanceOf(e,provider) == ptA.totalSupply(e); // assume one LP
 
-    require getPoolDataBntTradingLiquidity(e,pool) ==0;
+    require getPoolDataBntTradingLiquidity(e,pool) == 0;
         uint amount = withdraw@withrevert(e,contextId,provider,pool,poolTokenAmount);
 
     assert !lastReverted => amount == 0;
