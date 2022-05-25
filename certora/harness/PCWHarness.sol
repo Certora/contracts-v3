@@ -27,36 +27,36 @@ library PoolCollectionWithdrawal
         uint256 x /// <= e <= 2**128-1
     ) internal pure returns (Output memory output){
         
-        // require ((e * (M - n)) / M > b + c, "Only deficit");
+        require ((e * (M - n)) / M > b + c, "Only deficit");
 
-        // if (
-        //     a > type(uint128).max ||
-        //     b > type(uint128).max ||
-        //     c > type(uint128).max ||
-        //     e > type(uint128).max ||
-        //     w > type(uint128).max ||
-        //     m > M ||
-        //     n > M ||
-        //     x > e
-        // ) {
-        //     revert ("Invalid");
-        // }
+        if (
+            a > type(uint128).max ||
+            b > type(uint128).max ||
+            c > type(uint128).max ||
+            e > type(uint128).max ||
+            w > type(uint128).max ||
+            m > M ||
+            n > M ||
+            x > e
+        ) {
+            revert ("Invalid");
+        }
 
-        // uint256 f = (e * (M - n)) / M - (b + c);
-        // uint256 g = e - (b + c);
+        uint256 f = (e * (M - n)) / M - (b + c);
+        uint256 g = e - (b + c);
 
-        // if(isStable(b, c, e, x) && affordableDeficit(b, e, f, g, m, n, x)){
-        //     output = arbitrageDeficit(a,b,c,e,w,m,n,x);
-        // }
-        // else if(a>0){
-        //     output = defaultDeficit(a,b,c,e,w,m,n,x);
-        // }
-        // else{
-        //     uint256 y = (x * (M - n)) / M;
-        //     output.s = (y * c) / e;
-        //     (output.t, output.u) = externalProtection(a, b, e, g, y, w);
-        // }
-        x = output.s;
+        if(isStable(b, c, e, x) && affordableDeficit(b, e, f, g, m, n, x)){
+            output = arbitrageDeficit(a,b,c,e,w,m,n,x);
+        }
+        else if(a>0){
+            output = defaultDeficit(a,b,c,e,w,m,n,x);
+        }
+        else{
+            uint256 y = (x * (M - n)) / M;
+            output.s = (y * c) / e;
+            (output.t, output.u) = externalProtection(a, b, e, g, y, w);
+        }
+        // output.s = x;
     }
 
     function arbitrageDeficit(
