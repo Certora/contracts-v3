@@ -342,7 +342,6 @@ rule noDoubleCancellation(address provider, uint256 id)
 rule changeNextWithdrawalId()
 {
     env e;
-    calldataarg args;
     address user;
     address pool;
     uint amount;

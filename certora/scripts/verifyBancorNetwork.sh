@@ -63,16 +63,15 @@ py ../../EVMVerifier/scripts/certoraRun.py \
             ExternalProtectionVault:_vbntGovernance=DummyTokenGovernanceB \
             \
     --solc solc8.13 \
-    --staging \
+    --staging jtoman/bancor-opt \
     --send_only \
-    --rule underlyingToPTinverse \
-    --rule_sanity advanced \
+    --rule noDoubleWithdrawalTKN \
     --disable_auto_cache_key_gen \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "underlyingToPTinverse"
+    --msg "noDoubleWithdrawalTKN SAN."
 
 #DummyPoolColA:_bnt=DummyERC20bnt \
 #DummyPoolColA:_masterVault=MasterVault \

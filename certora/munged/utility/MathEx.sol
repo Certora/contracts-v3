@@ -33,8 +33,8 @@ library MathEx {
      * - The exponentiation of the input is calculated by multiplying the intermediate results above
      * - For example: e^5.521692859 = e^(4 + 1 + 0.5 + 0.021692859) = e^4 * e^1 * e^0.5 * e^0.021692859
      */
-    function exp2(Fraction memory f) internal pure returns (Fraction memory) {
-        uint256 x = mulDivF(LN2, f.n, f.d);          // HARNESS: removed MathEx.
+/*    function exp2(Fraction memory f) internal pure returns (Fraction memory) {
+        uint256 x = mulDivF(LN2, f.n, f.d);
         uint256 y;
         uint256 z;
         uint256 n;
@@ -103,7 +103,7 @@ library MathEx {
 
         return Fraction({ n: n, d: ONE });
     }
-
+*/
     /**
      * @dev returns a fraction with reduced components
      */

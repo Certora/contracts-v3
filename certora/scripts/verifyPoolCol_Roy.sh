@@ -36,7 +36,7 @@ py ../../EVMVerifier/scripts/certoraRun.py \
             MasterVault:_vbntGovernance=DummyTokenGovernanceB \
             MasterVault:_bnt=DummyERC20bnt \
     --solc solc8.13 \
-    --staging \
+    --staging jtoman/bancor-opt \
     --send_only \
     --rule invariantShareValueUponWithdrawal \
     --settings -divideNoRemainder=true \

@@ -27,35 +27,35 @@ library PoolCollectionWithdrawal
         uint256 x /// <= e <= 2**128-1
     ) internal pure returns (Output memory output){
         
-        require ((e * (M - n)) / M > b + c, "Only deficit");
+         require ((e * (M - n)) / M > b + c, "Only deficit");
 
-        if (
-            a > type(uint128).max ||
-            b > type(uint128).max ||
-            c > type(uint128).max ||
-            e > type(uint128).max ||
-            w > type(uint128).max ||
-            m > M ||
-            n > M ||
-            x > e
-        ) {
-            revert ("Invalid");
-        }
+         if (
+             a > type(uint128).max ||
+             b > type(uint128).max ||
+             c > type(uint128).max ||
+             e > type(uint128).max ||
+             w > type(uint128).max ||
+             m > M ||
+             n > M ||
+             x > e
+         ) {
+             revert ("Invalid");
+         }
 
-        uint256 f = (e * (M - n)) / M - (b + c);
-        uint256 g = e - (b + c);
+         uint256 f = (e * (M - n)) / M - (b + c);
+         uint256 g = e - (b + c);
 
-        if(isStable(b, c, e, x) && affordableDeficit(b, e, f, g, m, n, x)){
-            output = arbitrageDeficit(a,b,c,e,w,m,n,x);
-        }
-        else if(a>0){
-            output = defaultDeficit(a,b,c,e,w,m,n,x);
-        }
-        else{
-            uint256 y = (x * (M - n)) / M;
-            output.s = (y * c) / e;
-            (output.t, output.u) = externalProtection(a, b, e, g, y, w);
-        }
+         if(isStable(b, c, e, x) && affordableDeficit(b, e, f, g, m, n, x)){
+             output = arbitrageDeficit(a,b,c,e,w,m,n,x);
+         }
+         else if(a>0){
+             output = defaultDeficit(a,b,c,e,w,m,n,x);
+         }
+         else{
+             uint256 y = (x * (M - n)) / M;
+             output.s = (y * c) / e;
+             (output.t, output.u) = externalProtection(a, b, e, g, y, w);
+         }
     }
 
     function arbitrageDeficit(
@@ -144,13 +144,13 @@ library PoolCollectionWithdrawal
         // given the restrictions above, everything below can be declared `unchecked`
         uint256 yg = y * g;
         uint256 we = w * e;
-        //if (yg > we) {
+        if (yg > we) {
             t = a > 0 ? MathEx.mulDivF(a, yg - we, b * e) : 0;
             u = w;
-        //} else {
-        //    t = 0;
-        //    u = yg / e;
-        //}
+        } else {
+            t = 0;
+            u = yg / e;
+        }
     }
 
     function isStable(uint b,uint c,uint e,uint x)
