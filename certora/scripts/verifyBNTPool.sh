@@ -16,7 +16,8 @@ certoraRun.py certora/munged/pools/BNTPool.sol certora/helpers/DummyERC20A.sol c
     --rule_sanity advanced \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin @bancor=node_modules/@bancor \
-    --msg "check no settings"
+    --rule "$1" \
+    --msg "$1"
 
 
 #     --settings -divideNoRemainder=true,-enableEqualitySaturation=false \

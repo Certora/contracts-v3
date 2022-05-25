@@ -450,8 +450,8 @@ invariant differentTokens(address tknA, address tknB)
     }
 
 
-    invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
-        getPoolTokenTotalSupply(e,poolToken(pool))== 0 <=> getPoolDataStakedBalance(e,pool) == 0
+invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
+    getPoolTokenTotalSupply(e,poolToken(pool)) == 0 <=> getPoolDataStakedBalance(e,pool) == 0
     {
         preserved {
             require pool == tokenA;
@@ -459,8 +459,9 @@ invariant differentTokens(address tknA, address tknB)
         }
     }
 
-    invariant consistentTradingLiquidity(env e,address pool)
-        getPoolDataBntTradingLiquidity(e,pool) ==0 <=> getPoolDataBaseTokenLiquidity(e,pool) ==0
+invariant consistentTradingLiquidity(env e,address pool)
+    getPoolDataBntTradingLiquidity(e, pool) == 0 <=> 
+    getPoolDataBaseTokenLiquidity(e, pool) == 0
     {
         preserved
         {
@@ -471,7 +472,7 @@ invariant differentTokens(address tknA, address tknB)
     }
 
 invariant stakedBalanceMasterVaultBalance(env e)
-    tokenA.balanceOf(e,_masterVault(e)) ==0 => getPoolDataStakedBalance(e,tokenA) ==0 
+    tokenA.balanceOf(e,_masterVault(e)) == 0 => getPoolDataStakedBalance(e,tokenA) == 0 
     // {
     //     preserved{
     //         require poolToken(tokenA) == ptA;

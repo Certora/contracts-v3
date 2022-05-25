@@ -66,14 +66,15 @@ certoraRun.py \
     --solc solc8.13 \
     --staging \
     --send_only \
-    --rule "$1" \
+    --rule mustBeBurned \
     --rule_sanity advanced \
     --disable_auto_cache_key_gen \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --msg "$1 no john's branch, 1st 3"
+    --settings -enableEqualitySaturation=false \
+    --msg "mustBeBurned"
 
 #DummyPoolColA:_bnt=DummyERC20bnt \
 #DummyPoolColA:_masterVault=MasterVault \

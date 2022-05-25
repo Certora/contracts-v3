@@ -35,6 +35,8 @@ methods {
     depositPermitted(address, uint256, uint256,
             uint8, bytes32, bytes32) returns (uint256) 
 
+    _withdrawContextId(uint256, address) returns(bytes32)
+
     // Pool collection
     depositFor(bytes32, address, address, uint256) returns (uint256) => DISPATCHER(true)
     tradeByTargetAmount(bytes32, address, address, uint256, uint256)
@@ -55,6 +57,10 @@ methods {
     PoolCol.poolToken(address) returns (address) envfree
     PoolCol.defaultTradingFeePPM() returns (uint32) envfree
     PoolCol.tokenUserBalance(address, address) returns (uint256) envfree
+    PoolCol.isPoolValid(address) returns(bool) envfree
+
+    createPoolToken(address) returns(address) => DISPATCHER(true)
+    acceptOwnership() => DISPATCHER(true)
 
     // BNT pool
     BNTp.withdraw(bytes32, address, uint256, uint256) returns (uint256) 
@@ -96,6 +102,8 @@ methods {
     reserveToken() returns (address) => DISPATCHER(true)
     mulDivF(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDiv(x,y,z)
     mulDivC(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDiv(x,y,z)
+    hasRole(bytes32, address) returns(bool) envfree
+    roleAdmin() returns(bytes32) envfree
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -1042,3 +1050,179 @@ function setConstants_wmn_only(env env1, address pool){
     require m == PoolCol.getPoolDataTradingFee(pool);
     require n == networkSettings.withdrawalFeePPM(env1);
 }
+
+
+
+
+
+
+
+
+
+
+
+// STATUS - in progress
+// No token duplicates in the same pool collection.
+// A token can be inside one pool collection only.
+// john:
+// basic:
+invariant lonelyToken(env e, method f, address token, address randToken)
+    (isPoolValid(token) && isPoolValid(randToken) && collectionByPool(token) == collectionByPool(randToken)) => token == randToken
+    filtered { f -> f.selector != certorafallback_0().selector
+                        && (
+                            // f.selector == createPool(uint16, address).selector 
+                            // || f.selector == migratePools(address[]).selector
+                            // || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
+                            // f.selector == setLatestPoolCollection(address).selector
+                            // || f.selector == flashLoan(address, uint256, address, bytes).selector
+                            // || f.selector == deposit(address, uint256).selector
+                            // f.selector == withdraw(uint256).selector
+                            f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
+                            || f.selector == addPoolCollection(address).selector 
+                            || f.selector == removePoolCollection(address, address).selector
+                        )
+    }
+
+
+// STATUS - in progress
+// john:
+// basic:
+// A token can be inside one pool collection only.
+invariant lonelyToken2(env e, method f, address token, address randToken)
+    isPoolValid(token) && isPoolValid(randToken) && token == randToken => collectionByPool(token) == collectionByPool(randToken)
+    filtered { f -> f.selector != certorafallback_0().selector
+                        && (
+                            // f.selector == createPool(uint16, address).selector 
+                            // || f.selector == migratePools(address[]).selector
+                            // || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
+                            // f.selector == setLatestPoolCollection(address).selector
+                            // || f.selector == flashLoan(address, uint256, address, bytes).selector
+                            // || f.selector == deposit(address, uint256).selector
+                            // f.selector == withdraw(uint256).selector
+                            f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
+                            || f.selector == addPoolCollection(address).selector 
+                            || f.selector == removePoolCollection(address, address).selector
+                        )
+    }
+
+
+// STATUS - in progress
+// john:
+// basic:
+// check correlation of isPoolValid() in PoolCollection and BancorNetwork
+invariant correlationCheck(address token)
+    isPoolValid(token) == PoolCol.isPoolValid(token)
+    filtered { f -> f.selector != certorafallback_0().selector
+                        && (
+                            // f.selector == createPool(uint16, address).selector 
+                            // || f.selector == migratePools(address[]).selector
+                            // || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
+                            // f.selector == setLatestPoolCollection(address).selector
+                            // || f.selector == flashLoan(address, uint256, address, bytes).selector
+                            // || f.selector == deposit(address, uint256).selector
+                            // f.selector == withdraw(uint256).selector
+                            f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
+                            || f.selector == addPoolCollection(address).selector 
+                            || f.selector == removePoolCollection(address, address).selector
+                        )
+    }
+
+
+// STATUS - in progress
+// Pool tokens must be burnt after withdrawal.
+// john:
+// basic:
+rule mustBeBurned(env e) {
+    uint256 id;
+    address poolToken; uint256 ptToBeBurned; uint256 originalPTAmount;
+    bytes32 contextId;
+
+    require contextId == _withdrawContextId(e, id, e.msg.sender);
+
+    uint256 ptBalanceBefore = ptA.balanceOf(e, currentContract);    
+    uint256 ptTotalBefore = ptA.totalSupply(e);  
+
+    storage initialStorage = lastStorage;
+    
+    poolToken, ptToBeBurned, originalPTAmount = PendWit.completeWithdrawal(e, contextId, e.msg.sender, id);
+    
+    require poolToken != _bntPoolToken(e);
+    
+    withdraw(e, id) at initialStorage;
+
+    uint256 ptBalanceAfter = ptA.balanceOf(e, currentContract);
+    uint256 ptTotalAfter = ptA.totalSupply(e);
+
+    assert ptBalanceBefore == ptBalanceAfter + ptToBeBurned;
+    assert ptTotalBefore == ptTotalAfter + ptToBeBurned;
+}
+
+
+// STATUS - in progress
+// only bancorNetwork contract can call certain functions
+// john:
+// basic:
+rule reentracncyCheck(env e, method f) filtered { f -> f.selector == addPoolCollection(address).selector 
+                                                || f.selector == removePoolCollection(address, address).selector 
+                                                || f.selector == setLatestPoolCollection(address).selector
+                                                || f.selector == createPool(uint16, address).selector 
+                                                || f.selector == createPools(uint16, address[]).selector
+                                                || f.selector == migratePools(address[]).selector 
+                                                || f.selector == depositFor(address, address, uint256).selector
+                                                || f.selector == deposit(address, uint256).selector 
+                                                || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
+                                                || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+                                                || f.selector == initWithdrawal(address, uint256).selector
+                                                || f.selector == initWithdrawalPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+                                                || f.selector == cancelWithdrawal(uint256).selector
+                                                || f.selector == withdraw(uint256).selector 
+                                                || f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
+                                                || f.selector == tradeBySourceAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector
+                                                || f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
+                                                || f.selector == tradeByTargetAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector 
+                                                || f.selector == flashLoan(address, uint256, address, bytes).selector
+                                                || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector} {
+                                                   
+    uint256 status = _status(e);
+    require status == 2;
+
+    calldataarg args;
+    f@withrevert(e, args);
+    assert lastReverted, "Mortal soul cannot get God's power!";
+}
+
+
+// STATUS - in progress
+// only users with admin role can call certain functions
+// john:
+// basic:
+rule almightyAdmin(env e, method f) filtered { f -> !f.isView && f.selector != certorafallback_0().selector } {
+    bool roleBefore = hasRole(roleAdmin(), e.msg.sender);
+    
+    calldataarg args;
+    f@withrevert(e, args);
+
+    bool isReverted = lastReverted;
+
+    assert  isReverted => (!roleBefore 
+                                && f.selector == addPoolCollection(address).selector 
+                                    || f.selector == removePoolCollection(address, address).selector 
+                                    || f.selector == setLatestPoolCollection(address).selector
+                                    || f.selector == createPool(uint16, address).selector 
+                                    || f.selector == createPools(uint16, address[]).selector)
+    , "With great power comes great responsibility";
+}
+
+
+
+invariant balanceCorrelationCheck(address PT, address user, env e)
+    PoolCol.tokenUserBalance(PT, user) == ptA.balanceOf(e, user)
+    filtered { f -> f.selector == deposit(address, uint256).selector || f.selector == createPool(uint16, address).selector || f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector }
+    {
+        preserved {
+            require PT == ptA;
+        }
+    }
+    
+
+// check as above for modifier onlyRoleMember
