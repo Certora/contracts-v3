@@ -73,7 +73,6 @@ certoraRun.py \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --settings -enableEqualitySaturation=false \
     --msg "mustBeBurned"
 
 #DummyPoolColA:_bnt=DummyERC20bnt \
