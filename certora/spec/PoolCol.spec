@@ -462,6 +462,7 @@ invariant differentTokens(address tknA, address tknB)
     {
         preserved
         {
+            require getPoolDataTradingFee(e, pool) <= 10000;
             require pool == tokenA;
             require hasPool(pool);
             setUp();
