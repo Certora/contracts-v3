@@ -116,8 +116,8 @@ function setConstants_x(env env1, address pool){
 // Set withdrawal parameters (w,m,n) to constants.
 function setConstants_wmn_only(env env1, address pool){
     uint256 w = 0;
-    uint256 m = 2000;
-    uint256 n = 2500;
+    uint256 m = 0;//2000;
+    uint256 n = 0;//2500;
     address epv = _externalProtectionVault(env1);  
 
     require w == tokenUserBalance(env1,pool,epv);
@@ -202,7 +202,6 @@ rule more_poolTokens_less_TKN(method f)    filtered { f -> !f.isView && !f.isFal
         setUp();
 
     require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
-    // calldataarg args;
 
     uint256 tkn_balance1 = tokenA.balanceOf(e,e.msg.sender);
     uint256 poolToken_balance1 = ptA.balanceOf(e,e.msg.sender);
@@ -229,17 +228,36 @@ rule more_poolTokens_less_TKN(method f)    filtered { f -> !f.isView && !f.isFal
 
     assert tkn_balance2 > tkn_balance1 <=> poolToken_balance2 < poolToken_balance1;
     assert tkn_balance2 < tkn_balance1 <=> poolToken_balance2 > poolToken_balance1;
-    // assert tokenAmount > 0 => amount > 0;
 }
 
-rule tradeChangeExchangeRate(){
+
+rule afterDepositAmountGzero(method f)    filtered { f -> !f.isView && !f.isFallback }
+{
+    env e;
+        setUp();
+
+    require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
+
+        bytes32 contextId;
+        address provider = e.msg.sender;
+        address pool = tokenA;
+        uint256 tokenAmount;
+
+        uint256 amount = depositFor(e,contextId,provider,pool,tokenAmount);        
+
+    assert amount > 0;
+}
+
+
+rule tradeChangeExchangeRate(method f) filtered { f -> !f.isView && !f.isFallback }
+{
     env e;
         setUp();
 
     bytes32 contextId;
     address sourceToken;
     address targetToken;
-    uint256 sourceAmount;
+    uint256 sourceAmount; require sourceAmount > 1000;
     uint256 minReturnAmount;
 
     uint256 amount1; uint256 amount2;
@@ -266,7 +284,7 @@ invariant tradingEnabledImplLiquidity(address pool, env e)
                                         //  getPoolTokenTotalSupply(e,poolToken(pool)) > 0
                                         //  &&
                                         //  isPoolValid(e,pool)
-    filtered { f -> !f.isView &&
+    filtered { f -> !f.isView && !f.isFallback &&
                 f.selector != migratePoolIn(address,(address,uint32,bool,bool,(uint32,(uint112,uint112)),uint256,(uint128,uint128,uint256))).selector}
     {
         preserved {
@@ -281,7 +299,8 @@ invariant tradingEnabledImplLiquidity(address pool, env e)
 
     }
 
-rule tradeAllBntTokensShouldFail(){
+rule tradeAllBntTokensShouldFail(method f) filtered { f -> !f.isView && !f.isFallback }
+{
     env e;
         setUp();
 
@@ -300,7 +319,9 @@ rule tradeAllBntTokensShouldFail(){
 
     assert  lastReverted;
 }
-rule tradeWhenZeroTokensFail(){
+
+rule tradeWhenZeroTokensFail(method f) filtered { f -> !f.isView && !f.isFallback }
+{
     env e;
         setUp();
 
@@ -322,7 +343,9 @@ rule tradeWhenZeroTokensFail(){
     assert  lastReverted;
 }
 
-rule tradeWhenZeroLiquidity(){
+
+rule tradeWhenZeroLiquidity(method f) filtered { f -> !f.isView && !f.isFallback }
+{
     env e;
         // setUp();
 
@@ -345,7 +368,8 @@ rule tradeWhenZeroLiquidity(){
     assert lastReverted;
 }
 
-rule withdrawAll(address provider){
+rule withdrawAll(method f, address provider) filtered { f -> !f.isView && !f.isFallback } 
+{
     env e;
         setUp();
     //require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
@@ -357,18 +381,21 @@ rule withdrawAll(address provider){
         uint256 poolTokenAmount = ptA.totalSupply(e);
 
     uint256 stakedBalance = getPoolDataStakedBalance(e,pool);
-    // setConstants_wmn_only(e,pool); // Insert here function to set parameters to constants.
+    setConstants_wmn_only(e,pool); // Insert here function to set parameters to constants.
+    
     uint256 balance1 = tokenA.balanceOf(e,provider);
         uint amount = withdraw(e,contextId,provider,pool,poolTokenAmount);
     uint256 balance2 = tokenA.balanceOf(e,provider);
 
 
-    assert balance2 - balance1 == stakedBalance ;    
-    assert !getPoolDataTradingEnabled(e,pool); 
+    assert getPoolDataBntTradingLiquidity(e,pool) == 0 && getPoolDataBaseTokenLiquidity(e,pool) == 0;
+    // assert balance2 - balance1 == stakedBalance ;    
+    // assert !getPoolDataTradingEnabled(e,pool); 
     //assert false;
 }
 
-rule laterWithdrawGreaterWithdraw(){
+rule laterWithdrawGreaterWithdraw(method f) filtered { f -> !f.isView && !f.isFallback }
+{
     env e1;env e2;
 
     storage init = lastStorage;
@@ -388,7 +415,8 @@ rule laterWithdrawGreaterWithdraw(){
 }
 
 
-rule onWithdrawAllGetAtLeastStakedAmount(){
+rule onWithdrawAllGetAtLeastStakedAmount(method f) filtered { f -> !f.isView && !f.isFallback }
+{
     env e;
         setUp();
     require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
@@ -407,7 +435,7 @@ rule onWithdrawAllGetAtLeastStakedAmount(){
 
 // Time-outs.
 // https://vaas-stg.certora.com/output/41958/63355dbc126351e96fa0/?anonymousKey=a0cab2704478832e9814b102c2ecd4cd740b7f05
-rule invariantShareValueUponWithdrawal(address provider, uint share)
+rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered { f -> !f.isView && !f.isFallback }
 {
     env e;
     address pool = tokenA;
@@ -431,11 +459,11 @@ rule invariantShareValueUponWithdrawal(address provider, uint share)
     assert usersValue1 != usersValue2 => ptAmount == totSupply && usersValue2 == 0,
         "A withdrawal changed the share value in the pool";
 }
-    
+  
 
-invariant differentTokens(address tknA, address tknB)
+    invariant differentTokens(address tknA, address tknB)
     hasPool(tknA) && hasPool(tknB) && tknA != tknB => poolToken(tknA) != poolToken(tknB)
-    filtered { f -> !f.isView &&
+    filtered { f -> !f.isView && !f.isFallback &&
                 f.selector != migratePoolIn(address,(address,uint32,bool,bool,(uint32,(uint112,uint112)),uint256,(uint128,uint128,uint256))).selector &&
                 f.selector != migratePoolOut(address,address).selector
             }
@@ -448,12 +476,18 @@ invariant differentTokens(address tknA, address tknB)
 
 
     invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
-        getPoolTokenTotalSupply(e,poolToken(pool))== 0 <=> getPoolDataStakedBalance(e,pool) == 0
+        getPoolDataStakedBalance(e,pool) == 0 => getPoolTokenTotalSupply(e,poolToken(pool))== 0
     {
         preserved {
             setUp();
             require pool == tokenA;
             require hasPool(pool);
+            // requireInvariant consistentTradingLiquidity(e,pool);
+        }
+        preserved depositFor(bytes32 contextId,address provider, address pool1, uint256 tokenAmount) with (env e1){
+            setUp();
+            require pool1 == tokenA;
+            require hasPool(pool1);
         }
     }
 
@@ -462,14 +496,13 @@ invariant differentTokens(address tknA, address tknB)
     {
         preserved
         {
-            require getPoolDataTradingFee(e, pool) <= 10000;
             require pool == tokenA;
             require hasPool(pool);
             setUp();
         }
     }
 
-invariant stakedBalanceMasterVaultBalance(env e)
+    invariant stakedBalanceMasterVaultBalance(env e)
     tokenA.balanceOf(e,_masterVault(e)) ==0 => getPoolDataStakedBalance(e,tokenA) ==0 
     {
         preserved{
@@ -479,12 +512,13 @@ invariant stakedBalanceMasterVaultBalance(env e)
 
     invariant zeroStakedBalanceZeroLiquidity(env e, address pool)
         getPoolDataStakedBalance(e,pool) == 0 => getPoolDataBntTradingLiquidity(e,pool) ==0
-    filtered { f -> !f.isView &&
+    filtered { f -> !f.isView && !f.isFallback &&
                 f.selector != migratePoolIn(address,(address,uint32,bool,bool,(uint32,(uint112,uint112)),uint256,(uint128,uint128,uint256))).selector}
     {
         preserved {
                     setUp();
                     require pool == tokenA;
+                    require hasPool(pool);
                   }
         preserved withdraw(bytes32 contextId,address provider,address pool2, uint256 tokenAmount) with (env e1)
                   {
@@ -493,10 +527,10 @@ invariant stakedBalanceMasterVaultBalance(env e)
                   }
 
     }
-
-    rule withdrawWhenBntIsZero(){
+/*
+rule withdrawWhenBntIsZero(method f) filtered { f -> !f.isView && !f.isFallback }
+{
     env e;
-
 
     address provider = e.msg.sender;
     require provider !=currentContract && provider !=_bntPool(e) && provider != _masterVault(e);
@@ -513,7 +547,7 @@ invariant stakedBalanceMasterVaultBalance(env e)
 
     assert !lastReverted => amount == 0;
 
-}
+}*/
 
 
 /*

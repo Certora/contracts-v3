@@ -100,7 +100,7 @@ library PoolCollectionWithdrawal
             output.u = (x * (M-n)/M * (e - b - c))/e - output.t*b/a;
         }
         output.v = x - y;
-        output.r.value == output.s - x*(b+c)/e;
+        output.r.value == output.s - c;
         output.r.isNeg == true;
         output.p.value = output.r.value*a*(M-m)/(b*M-output.r.value*(M-m));
         output.p.isNeg == true;
