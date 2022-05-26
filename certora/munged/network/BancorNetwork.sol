@@ -949,7 +949,7 @@ contract BancorNetwork is IBancorNetwork, Upgradeable, ReentrancyGuardUpgradeabl
     /**
      * @dev generates context ID for a withdraw request
      */
-    function _withdrawContextId(uint256 id, address caller) private view returns (bytes32) {
+    function _withdrawContextId(uint256 id, address caller) public view returns (bytes32) {    // HRANESS: private -> public
         return keccak256(abi.encodePacked(caller, _time(), id));
     }
 

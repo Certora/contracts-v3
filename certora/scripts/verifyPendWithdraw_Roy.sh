@@ -1,4 +1,4 @@
-py ../../EVMVerifier/scripts/certoraRun.py \
+certoraRun.py \
     certora/harness/PendingWithdrawalsHarness.sol \
     certora/helpers/DummyERC20A.sol \
     certora/helpers/DummyERC20bnt.sol \
@@ -21,5 +21,6 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
             @bancor=node_modules/@bancor \
+    --rule initWithdrawalIntegrity \
     --msg "Advanced sanity check"
 #--method "completeWithdrawal(bytes32,address,uint256)" \

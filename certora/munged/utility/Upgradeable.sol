@@ -67,7 +67,7 @@ abstract contract Upgradeable is IUpgradeable, AccessControlEnumerableUpgradeabl
     /**
      * @dev returns the admin role
      */
-    function roleAdmin() external pure returns (bytes32) {
+    function roleAdmin() public pure returns (bytes32) {  // HARNESS: external -> public
         return ROLE_ADMIN;
     }
 

@@ -23,7 +23,7 @@ methods {
     PoolT.balanceOf(address) returns(uint256) envfree
     PoolT.totalSupply() returns(uint256) envfree
 
-    // Upgrade.
+    // Upgradeable
     hasRole(bytes32, address) returns(bool) envfree
 
     DungeonMaster.roleAssetManager() returns(bytes32) envfree
@@ -409,10 +409,6 @@ rule doppelganger(method f, env e) {
 
     require provider != _network();
     require provider != currentContract;
-    require f.selector == onFeesCollected(address, uint256, bool).selector 
-                || f.selector == withdraw(bytes32, address, uint256, uint256).selector 
-                || f.selector == depositFor(bytes32, address, uint256, bool, uint256).selector
-            => provider != e.msg.sender;
 
     uint256 providerPTBefore = PoolT.balanceOf(provider);
 
