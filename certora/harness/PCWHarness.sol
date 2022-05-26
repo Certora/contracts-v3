@@ -91,7 +91,7 @@ library PoolCollectionWithdrawal
         uint256 x /// <= e <= 2**128-1
     ) internal pure returns (Output memory output) {
         uint256 y = (x * (M - n)) / M;
-        output.s = (x*(M-n)/M) * (b+c)/e;
+        output.s = y * (b+c)/e;
         output.t = a*(x*(M-n)/M-output.s)/b;
         if(w==0){
             output.u = 0;
@@ -100,7 +100,7 @@ library PoolCollectionWithdrawal
             output.u = (x * (M-n)/M * (e - b - c))/e - output.t*b/a;
         }
         output.v = x - y;
-        output.r.value == output.s - x*(b+c)/e;
+        output.r.value ==  MathEx.subMax0(y * b, c * (e - y))/e ;
         output.r.isNeg == true;
         output.p.value = output.r.value*a*(M-m)/(b*M-output.r.value*(M-m));
         output.p.isNeg == true;
