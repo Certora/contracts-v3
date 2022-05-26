@@ -196,6 +196,9 @@ uint256 tokenAmount;
 // 	assert false;
 // }
 
+/////////////////////////////////////////////////////////////////
+//          In progress
+
 rule more_poolTokens_less_TKN(method f)    filtered { f -> !f.isView && !f.isFallback }
 {
     env e;
@@ -230,6 +233,9 @@ rule more_poolTokens_less_TKN(method f)    filtered { f -> !f.isView && !f.isFal
     assert tkn_balance2 < tkn_balance1 <=> poolToken_balance2 > poolToken_balance1;
 }
 
+/////////////////////////////////////////////////////////////////
+//      Passed
+//      https://vaas-stg.certora.com/output/65782/5505dcf517a6c928bbdc/?anonymousKey=5eb974218e0dd482167f4abedeb00073ecc5370d
 
 rule afterDepositAmountGzero(method f)    filtered { f -> !f.isView && !f.isFallback }
 {
@@ -248,6 +254,9 @@ rule afterDepositAmountGzero(method f)    filtered { f -> !f.isView && !f.isFall
     assert amount > 0;
 }
 
+/////////////////////////////////////////////////////////////////
+//      Fails
+//      but with some unrealistic counter examples
 
 rule tradeChangeExchangeRate(method f) filtered { f -> !f.isView && !f.isFallback }
 {
@@ -272,6 +281,9 @@ rule tradeChangeExchangeRate(method f) filtered { f -> !f.isView && !f.isFallbac
     // the returned amount from the second trade should be different from the first
     assert amount1 != amount2;
 }
+
+/////////////////////////////////////////////////////////////////
+//      In progress
 
 invariant tradingEnabledImplLiquidity(address pool, env e)
     getPoolDataTradingEnabled(e,pool) => 
@@ -299,6 +311,9 @@ invariant tradingEnabledImplLiquidity(address pool, env e)
 
     }
 
+/////////////////////////////////////////////////////////////////
+//      Passed
+
 rule tradeAllBntTokensShouldFail(method f) filtered { f -> !f.isView && !f.isFallback }
 {
     env e;
@@ -320,7 +335,10 @@ rule tradeAllBntTokensShouldFail(method f) filtered { f -> !f.isView && !f.isFal
     assert  lastReverted;
 }
 
-rule tradeWhenZeroTokensFail(method f) filtered { f -> !f.isView && !f.isFallback }
+/////////////////////////////////////////////////////////////////
+//      Passed
+
+rule tradeWhenZeroTokensRevert(method f) filtered { f -> !f.isView && !f.isFallback }
 {
     env e;
         setUp();
@@ -343,6 +361,8 @@ rule tradeWhenZeroTokensFail(method f) filtered { f -> !f.isView && !f.isFallbac
     assert  lastReverted;
 }
 
+/////////////////////////////////////////////////////////////////
+//      Passed
 
 rule tradeWhenZeroLiquidity(method f) filtered { f -> !f.isView && !f.isFallback }
 {
@@ -368,6 +388,10 @@ rule tradeWhenZeroLiquidity(method f) filtered { f -> !f.isView && !f.isFallback
     assert lastReverted;
 }
 
+/////////////////////////////////////////////////////////////////
+//      Fails.
+//      after withdraw all an unlimitted amount of poolTokens might stay in the pool
+
 rule withdrawAll(method f, address provider) filtered { f -> !f.isView && !f.isFallback } 
 {
     env e;
@@ -383,16 +407,21 @@ rule withdrawAll(method f, address provider) filtered { f -> !f.isView && !f.isF
     uint256 stakedBalance = getPoolDataStakedBalance(e,pool);
     setConstants_wmn_only(e,pool); // Insert here function to set parameters to constants.
     
+    requireInvariant zeroStakedBalanceZeroLiquidity( e, pool);
+    requireInvariant consistentTradingLiquidity(e , pool);
+
     uint256 balance1 = tokenA.balanceOf(e,provider);
         uint amount = withdraw(e,contextId,provider,pool,poolTokenAmount);
     uint256 balance2 = tokenA.balanceOf(e,provider);
 
 
     assert getPoolDataBntTradingLiquidity(e,pool) == 0 && getPoolDataBaseTokenLiquidity(e,pool) == 0;
-    // assert balance2 - balance1 == stakedBalance ;    
+    // assert getPoolDataBaseTokenLiquidity(e,pool) == 0 => getPoolDataBntTradingLiquidity(e,pool) < 10000;
     // assert !getPoolDataTradingEnabled(e,pool); 
-    //assert false;
 }
+
+/////////////////////////////////////////////////////////////////
+//      Timeout
 
 rule laterWithdrawGreaterWithdraw(method f) filtered { f -> !f.isView && !f.isFallback }
 {
@@ -414,6 +443,9 @@ rule laterWithdrawGreaterWithdraw(method f) filtered { f -> !f.isView && !f.isFa
 
 }
 
+/////////////////////////////////////////////////////////////////
+//      Timeout
+//  seems like every rule that calls more than one method timeouts
 
 rule onWithdrawAllGetAtLeastStakedAmount(method f) filtered { f -> !f.isView && !f.isFallback }
 {
@@ -433,8 +465,10 @@ rule onWithdrawAllGetAtLeastStakedAmount(method f) filtered { f -> !f.isView && 
     assert amount >= tokenAmount;// * 9975 / 10000;
 }
 
+/////////////////////////////////////////////////////////////////
 // Time-outs.
 // https://vaas-stg.certora.com/output/41958/63355dbc126351e96fa0/?anonymousKey=a0cab2704478832e9814b102c2ecd4cd740b7f05
+
 rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered { f -> !f.isView && !f.isFallback }
 {
     env e;
@@ -460,6 +494,9 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
         "A withdrawal changed the share value in the pool";
 }
   
+/////////////////////////////////////////////////////////////////
+//      Passed
+//      https://vaas-stg.certora.com/output/65782/bffee470aa3754899a00/?anonymousKey=edde29d2f4f6a82dfd4bc72c35ded6425f964ce3
 
     invariant differentTokens(address tknA, address tknB)
     hasPool(tknA) && hasPool(tknB) && tknA != tknB => poolToken(tknA) != poolToken(tknB)
@@ -474,6 +511,9 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
        }
     }
 
+/////////////////////////////////////////////////////////////////
+//      Passed
+//      https://vaas-stg.certora.com/output/65782/8fc8f7e9eef9c8357616/?anonymousKey=25daf94c0d0e06fa182098ca2c0ea5423a3674d8
 
     invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
         getPoolDataStakedBalance(e,pool) == 0 => getPoolTokenTotalSupply(e,poolToken(pool))== 0
@@ -486,10 +526,14 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
         }
         preserved depositFor(bytes32 contextId,address provider, address pool1, uint256 tokenAmount) with (env e1){
             setUp();
-            require pool1 == tokenA;
+            require pool1 == tokenA; require pool1 == pool;
             require hasPool(pool1);
         }
     }
+
+/////////////////////////////////////////////////////////////////
+//      Passed
+//      https://vaas-stg.certora.com/output/65782/0ea4fb31f5a2d5acee52/?anonymousKey=f4e69132e1c38e2b7e7b91c077ca02d05bfaaf4d
 
     invariant consistentTradingLiquidity(env e,address pool)
         getPoolDataBntTradingLiquidity(e,pool) == 0 <=> getPoolDataBaseTokenLiquidity(e,pool) == 0
@@ -502,6 +546,10 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
         }
     }
 
+/////////////////////////////////////////////////////////////////
+//      Fails
+//      https://vaas-stg.certora.com/output/65782/7c13151acc7cbbbb152c/?anonymousKey=efcc8c515e1e8faddc749f69957187b40fb577b5
+
     invariant stakedBalanceMasterVaultBalance(env e)
     tokenA.balanceOf(e,_masterVault(e)) ==0 => getPoolDataStakedBalance(e,tokenA) ==0 
     {
@@ -509,6 +557,9 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
             setUp();
         }
     }
+/////////////////////////////////////////////////////////////////
+//      Fails
+//  and rightly so as there could be zero stacked balance and more than zero liquidity
 
     invariant zeroStakedBalanceZeroLiquidity(env e, address pool)
         getPoolDataStakedBalance(e,pool) == 0 => getPoolDataBntTradingLiquidity(e,pool) ==0
@@ -527,7 +578,18 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
                   }
 
     }
-/*
+
+/////////////////////////////////////////////////////////////////
+//      Passed
+//      https://vaas-stg.certora.com/output/65782/61e433fb575e7a5dc61d/?anonymousKey=f2edd13d9ecf6cc31b96200f4006dd6ef3e7dad9
+
+    invariant networkFeePPM()
+        networkSettings.networkFeePPM() <= 1000000
+
+
+/////////////////////////////////////////////////////////////////
+//      Passed
+
 rule withdrawWhenBntIsZero(method f) filtered { f -> !f.isView && !f.isFallback }
 {
     env e;
@@ -546,18 +608,4 @@ rule withdrawWhenBntIsZero(method f) filtered { f -> !f.isView && !f.isFallback 
         uint amount = withdraw@withrevert(e,contextId,provider,pool,poolTokenAmount);
 
     assert !lastReverted => amount == 0;
-
-}*/
-
-
-/*
-invariant isWhiteListed(address token, env e)
-    hasPool(token) => isTokenWhitelisted(e,token)
-*/
-    
-// rule poolTokenValueMonotonic(){
-//     env e1; env e2;
-
-//     uint poolTokenValue = 
-
-// }
+}
