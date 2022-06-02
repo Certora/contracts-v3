@@ -37,10 +37,31 @@ methods {
     hasPool(address) returns (bool) envfree
     _bnt() returns (address) envfree
     migratePoolOut(address, address)
-
-    callRemoveTokenFromWhiteList(address) envfree
+    //mulDivF(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIfWithRemainder(x,y,z)
+    //mulDivC(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIfWithRemainder(x,y,z)
+    //callRemoveTokenFromWhiteList(address) envfree
     // safeTransferFrom(address, address, uint256) envfree
 }
+
+function constQuotient(uint256 x, uint256 y, uint256 z, uint256 q, uint256 f) 
+        returns bool {
+            return ( x == q * z && f == q * y ) || 
+                    ( q * x == z && f == y / q && y % q ==0 ) ||
+                    ( y == q * z && f == q * x ) || 
+                    ( q * y == z && f == x / q && x % q ==0);
+        }
+        
+
+// Allowing division remainders
+function constQuotientWithRemainder(uint256 x, uint256 y, uint256 z, uint256 q, uint256 f) 
+        returns bool {
+            return 
+            ( x == q * z && f == q * y ) || 
+            ( q * x == z && f == y / q ) ||
+            ( y == q * z && f == q * x ) || 
+            ( q * y == z && f == x / q );
+        } 
+        
  
 function setUp() {
     require poolToken(tokenA) == ptA;
@@ -113,15 +134,91 @@ function setConstants_x(env env1, address pool){
     require n == networkSettings.networkFeePPM();
 }
 
+// Summary for mulDivF:
+// quotient y/z is either 0,1,2,3,10 or 1/2, 1/3, 1/10.
+// Nothing resticts the value of x/z;
+function simpleMulDivIf(uint256 x, uint256 y, uint256 z) returns uint256 
+{
+    uint f;
+    bool dontDividebyZero = z != 0;
+    bool Success = dontDividebyZero;
+
+    if (x ==0 || y ==0)      {f = 0;}
+    else if (y == z)   { f = x;}
+    else if (x == z)   { f = y;}
+    // Qut = 2, 1/2
+    else if (y == 2 * z)     {f = 2 * x;}
+    else if (x == 2 * z)     {f = 2 * y;}
+    else if (2 * y == z && x % 2 == 0)  {f = x / 2;}
+    else if (2 * x == z && y % 2 == 0)  {f = y / 2;}
+    // Qut = 3, 1/3
+    else if (y == 3 * z)     {f = 3 * x;}
+    else if (x == 3 * z)     {f = 3 * y;}
+    else if (3 * y == z && x % 3 == 0)  {f = x / 3;}
+    else if (3 * x == z && y % 3 == 0)  {f = y / 3;}
+    // Qut = 10, 1/10
+    else if (y == 10 * z)     {f = 10 * x;}
+    else if (x == 10 * z)     {f = 10 * y;}
+    else if (10 * y == z && x % 10 == 0)  {f = x / 10;}
+    else if (10 * x == z && y % 10 == 0)  {f = y / 10;}
+    // Qut = 500, 1/500
+    else if (y == 500 * z)     {f = 500 * x;}
+    else if (x == 500 * z)     {f = 500 * y;}
+    else if (500 * y == z && x % 500 == 0)  {f = x / 500;}
+    else if (500 * x == z && y % 500 == 0)  {f = y / 500;}
+    //
+    else    {f = 0; Success = false;}
+
+    require Success;
+    return f;
+}
+
+// Summary for mulDivF (with remainders)
+function simpleMulDivIfWithRemainder(uint256 x, uint256 y, uint256 z) returns uint256 
+{
+    uint f;
+    bool dontDividebyZero = z != 0;
+    bool Success = dontDividebyZero;
+
+    if (x ==0 || y ==0)      {f = 0;}
+    else if (y == z)   { f = x;}
+    else if (x == z)   { f = y;}
+    // Qut = 2, 1/2
+    else if (y == 2 * z)     {f = 2 * x;}
+    else if (x == 2 * z)     {f = 2 * y;}
+    else if (2 * y == z )  {f = x / 2;}
+    else if (2 * x == z )  {f = y / 2;}
+    // Qut = 3, 1/3
+    else if (y == 3 * z)     {f = 3 * x;}
+    else if (x == 3 * z)     {f = 3 * y;}
+    else if (3 * y == z )  {f = x / 3;}
+    else if (3 * x == z )  {f = y / 3;}
+    // Qut = 10, 1/10
+    else if (y == 10 * z)     {f = 10 * x;}
+    else if (x == 10 * z)     {f = 10 * y;}
+    else if (10 * y == z )  {f = x / 10;}
+    else if (10 * x == z )  {f = y / 10;}
+    // Qut = 500, 1/500
+    else if (y == 500 * z)     {f = 500 * x;}
+    else if (x == 500 * z)     {f = 500 * y;}
+    else if (500 * y == z )  {f = x / 500;}
+    else if (500 * x == z )  {f = y / 500;}
+    //
+    else    {f = 0; Success = false;}
+
+    require Success;
+    return f;
+}
+
 // Set withdrawal parameters (w,m,n) to constants.
-function setConstants_wmn_only(env env1, address pool){
+function setConstants_wmn_only(env e, address pool){
     uint256 w = 0;
     uint256 m = 0;//2000;
     uint256 n = 0;//2500;
-    address epv = _externalProtectionVault(env1);  
+    address epv = _externalProtectionVault(e);  
 
-    require w == tokenUserBalance(env1,pool,epv);
-    require m == getPoolDataTradingFee(env1,pool);
+    require w == tokenUserBalance(e,pool,epv);
+    require m == getPoolDataTradingFee(e,pool);
     require n == networkSettings.networkFeePPM();
 }
 
@@ -259,8 +356,8 @@ rule tradeChangeExchangeRate(method f) filtered { f -> !f.isView && !f.isFallbac
     bytes32 contextId;
     address sourceToken;
     address targetToken;
-    uint256 sourceAmount;
-    uint256 minReturnAmount;
+    uint256 sourceAmount; require sourceAmount > 0;
+    uint256 minReturnAmount = 1;
 
     uint256 amount1; uint256 amount2;
     uint256 tradingFeeAmount1; uint256 tradingFeeAmount2;
@@ -399,6 +496,7 @@ rule withdrawAll(method f, address provider) filtered { f -> !f.isView && !f.isF
         uint256 poolTokenAmount = ptA.totalSupply(e);
 
     uint256 stakedBalance = getPoolDataStakedBalance(e,pool);
+    require stakedBalance == ptA.totalSupply(e);
     setConstants_wmn_only(e,pool); // Insert here function to set parameters to constants.
     
     requireInvariant consistentTradingLiquidity(e , pool);
@@ -412,6 +510,9 @@ rule withdrawAll(method f, address provider) filtered { f -> !f.isView && !f.isF
     // assert getPoolDataBaseTokenLiquidity(e,pool) == 0 => getPoolDataBntTradingLiquidity(e,pool) < 10000;
     // assert !getPoolDataTradingEnabled(e,pool); 
 }
+
+invariant averageRateNonZero(env e, address pool)
+    getPoolDataAverageRateN(e,pool) !=0 && getPoolDataAverageRateD(e,pool) !=0 
 
 /////////////////////////////////////////////////////////////////
 //      Timeout
@@ -615,4 +716,46 @@ rule withdrawWhenBntIsZero(method f) filtered { f -> !f.isView && !f.isFallback 
         uint amount = withdraw@withrevert(e,contextId,provider,pool,poolTokenAmount);
 
     assert !lastReverted => amount == 0;
+}
+
+rule stableRateAfterTrade(uint amount)
+{
+    env e;
+    bytes32 contextId;
+    address targetToken;
+    address sourceToken;
+
+    require sourceToken == tokenA || targetToken == tokenA;
+    require amount > 0;
+    require getPoolDataBntTradingLiquidity(e,tokenA) > 0;
+    require getPoolDataBaseTokenLiquidity(e,tokenA) > 0;
+    require isPoolStable(e,tokenA);
+
+        tradeBySourceAmount(e,contextId, sourceToken, targetToken, amount, 1);
+
+    assert !isPoolUnstable(e,tokenA);
+}
+
+rule stableRateAfterTradeRealistic(uint amount)
+{
+    env e;
+    bytes32 contextId;
+    address targetToken;
+    address sourceToken;
+    uint256 tradeFee = getPoolDataTradingFee(e,tokenA);
+    uint256 networkFee = networkSettings.networkFeePPM();
+
+    require sourceToken == tokenA || targetToken == tokenA;
+    require amount > 0;
+    require getPoolDataBntTradingLiquidity(e,tokenA) >= 1000000000;
+    require getPoolDataBaseTokenLiquidity(e,tokenA) >= 1000000000;
+    require getPoolDataAverageRateD(e,tokenA) >= 0;
+    require getPoolDataAverageRateN(e,tokenA) >= 0;
+    require tradeFee  == 0;
+    require networkFee == 0;
+
+    require isPoolStable(e,tokenA);
+        //tradeBySourceAmount(e,contextId, sourceToken, targetToken, amount, 1);
+        tradeByTargetAmount(e,contextId, sourceToken, targetToken, amount, max_uint);
+    assert !isPoolUnstable(e,tokenA);
 }
