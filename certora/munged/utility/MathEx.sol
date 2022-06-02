@@ -165,7 +165,7 @@ library MathEx {
         uint256 y,
         uint256 z
     ) public pure returns (uint256) {   // harness : internal -> public
-        return x * y/z;
+        return (x * y)/z;
         // Uint512 memory xy = mul512(x, y);
 
         // // if `x * y < 2 ^ 256`

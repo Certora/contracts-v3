@@ -188,16 +188,9 @@ uint256 tokenAmount;
     }
 }
 
-// rule sanity(method f)
-// {
-// 	env e;
-// 	calldataarg args;
-// 	santasLittleHelper(f, e);
-// 	assert false;
-// }
-
 /////////////////////////////////////////////////////////////////
 //          In progress
+//      It fails on WITHDRAW 
 
 rule more_poolTokens_less_TKN(method f)    filtered { f -> !f.isView && !f.isFallback }
 {
@@ -266,7 +259,7 @@ rule tradeChangeExchangeRate(method f) filtered { f -> !f.isView && !f.isFallbac
     bytes32 contextId;
     address sourceToken;
     address targetToken;
-    uint256 sourceAmount; require sourceAmount > 1000;
+    uint256 sourceAmount;
     uint256 minReturnAmount;
 
     uint256 amount1; uint256 amount2;
@@ -278,6 +271,7 @@ rule tradeChangeExchangeRate(method f) filtered { f -> !f.isView && !f.isFallbac
     amount1,tradingFeeAmount1,networkFeeAmount1 = tradeBySourceAmount(e,contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
     amount2,tradingFeeAmount2,networkFeeAmount2 = tradeBySourceAmount(e,contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
     
+    require amount1 > 1000;
     // the returned amount from the second trade should be different from the first
     assert amount1 != amount2;
 }
@@ -407,7 +401,6 @@ rule withdrawAll(method f, address provider) filtered { f -> !f.isView && !f.isF
     uint256 stakedBalance = getPoolDataStakedBalance(e,pool);
     setConstants_wmn_only(e,pool); // Insert here function to set parameters to constants.
     
-    requireInvariant zeroStakedBalanceZeroLiquidity( e, pool);
     requireInvariant consistentTradingLiquidity(e , pool);
 
     uint256 balance1 = tokenA.balanceOf(e,provider);
@@ -500,14 +493,28 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
 
     invariant differentTokens(address tknA, address tknB)
     hasPool(tknA) && hasPool(tknB) && tknA != tknB => poolToken(tknA) != poolToken(tknB)
-    filtered { f -> !f.isView && !f.isFallback &&
-                f.selector != migratePoolIn(address,(address,uint32,bool,bool,(uint32,(uint112,uint112)),uint256,(uint128,uint128,uint256))).selector &&
-                f.selector != migratePoolOut(address,address).selector
+    filtered { f -> !f.isView && !f.isFallback //&&
+                // f.selector != migratePoolIn(address,(address,uint32,bool,bool,(uint32,(uint112,uint112)),uint256,(uint128,uint128,uint256))).selector
             }
     {
+       preserved{
+            setUp();
+            require tknA == tokenA;
+            require tknB == tokenB;
+            requireInvariant notHasPoolNotHasPoolToken(tknA);
+       }
        preserved withdraw(bytes32 contextId,address provider,address pool, uint256 tokenAmount) with (env e)
        {
            require provider == user;
+       }
+    }
+
+    invariant notHasPoolNotHasPoolToken(address pool)
+    !hasPool(pool) => poolToken(pool) == 0
+    {
+       preserved{
+            setUp();
+            require pool == tokenA;
        }
     }
 
