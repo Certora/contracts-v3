@@ -69,6 +69,14 @@ contract PoolCollectionHarness is PoolCollection{
          //Pool storage data = _poolStorage(pool);
          return _poolData[pool].poolToken.totalSupply();
      }
+     function getPoolDataAverageRateN(Token pool) public view returns (uint256) {
+         //Pool storage data = _poolStorage(pool);
+         return _poolData[pool].averageRate.rate.n;
+     }
+     function getPoolDataAverageRateD(Token pool) public view returns (uint256) {
+         //Pool storage data = _poolStorage(pool);
+         return _poolData[pool].averageRate.rate.d;
+     }
     
     function getPoolDataTradingFee(Token pool) public view returns (uint32) {
         // Pool storage data = _poolStorage(pool);
@@ -88,6 +96,20 @@ contract PoolCollectionHarness is PoolCollection{
             InternalWithdrawalAmounts memory amounts = 
             _poolWithdrawalAmounts(pool,_poolData[pool],poolTokenAmount);
             return amounts.baseTokensToTransferFromMasterVault;
+    }
+
+    function isPoolStable(Token pool) external view returns (bool)
+    {
+        PoolLiquidity memory prevLiquidity = _poolData[pool].liquidity;
+        AverageRate memory averageRate = _poolData[pool].averageRate;
+        return _poolRateState(prevLiquidity, averageRate) == PoolRateState.Stable;
+    }
+
+    function isPoolUnstable(Token pool) external view returns (bool)
+    {
+        PoolLiquidity memory prevLiquidity = _poolData[pool].liquidity;
+        AverageRate memory averageRate = _poolData[pool].averageRate;
+        return _poolRateState(prevLiquidity, averageRate) == PoolRateState.Unstable;
     }
     
     // function poolTotalSupply(Token pool) external view returns (uint) {
