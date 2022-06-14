@@ -1,0 +1,7 @@
+sh certora/scripts/verifyBancorNetworkMacOS.sh whenPausedNothingToDo511
+sh certora/scripts/verifyBancorNetworkMacOS.sh whenPausedNothingToDo512
+sh certora/scripts/verifyBancorNetworkMacOS.sh whenPausedNothingToDo521
+sh certora/scripts/verifyBancorNetworkMacOS.sh whenPausedNothingToDo522
+sh certora/scripts/verifyBancorNetworkMacOS.sh whenPausedNothingToDo61
+sh certora/scripts/verifyBancorNetworkMacOS.sh whenPausedNothingToDo62
+sh certora/scripts/verifyBancorNetworkMacOS.sh whenPausedNothingToDo63

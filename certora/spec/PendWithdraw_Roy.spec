@@ -230,8 +230,8 @@ rule poolTokenToUnderlyingMono_BNT(uint256 amount1, uint256 amount2)
      assert (amount2 > amount1) => (UAmount1 <= UAmount2), "Monotonic decreasing";
      // Checking for strong monotonicity (excluding division remainders):
      assert(
-         mulMod(stake, amount1, TotalSupply) ==0 && 
-         mulMod(stake, amount2, TotalSupply) ==0 &&
+         mulMod(stake, amount1, TotalSupply) == 0 && 
+         mulMod(stake, amount2, TotalSupply) == 0 &&
          amount2 > amount1) => (UAmount1 < UAmount2), "Non monotonic increasing";
  }
 
@@ -270,12 +270,12 @@ rule initWithdrawalNoOverride(uint id)
         reserveTokenAmount = currentContract.withdrawalRequest(id);
 
     // require that request is valid.
-    validRequest(provider,poolToken,reserveToken,poolTokenAmount);
+    validRequest(provider, poolToken, reserveToken, poolTokenAmount);
     require id < nextWithdrawalRequestId();
 
     // If initWithdrawal completed successfully, it must not override 
     // the previously defined request.
-    id2 = initWithdrawal(e,provider2,poolToken2,poolTokenAmount2);
+    id2 = initWithdrawal(e, provider2, poolToken2, poolTokenAmount2);
     assert id2 != id, "New withdrawal was created with the same ID of 
     an existing one";
 }
@@ -321,8 +321,8 @@ rule initWithdrawalIntegrity()
 rule noDoubleWithdrawal(bytes32 contID, address provider, uint256 id)
 {
     env e;
-    completeWithdrawal(e,contID,provider,id);
-    completeWithdrawal@withrevert(e,contID,provider,id);
+    completeWithdrawal(e, contID, provider, id);
+    completeWithdrawal@withrevert(e, contID, provider, id);
     assert lastReverted, "One cannot be allowed to complete a withdrawal twice";
 }
 
@@ -373,7 +373,7 @@ rule cancelWithdrawalIntegrity(uint id, address pro)
         reserveTokenAmount1 = withdrawalRequest(id);
     
     require provider1 == pro;
-    cancelWithdrawal(e,provider1, id);
+    cancelWithdrawal(e, provider1, id);
     
     provider2, poolToken2, reserveToken2, createdAt2, poolTokenAmount2, 
         reserveTokenAmount2 = withdrawalRequest(id);
@@ -381,7 +381,7 @@ rule cancelWithdrawalIntegrity(uint id, address pro)
     assert provider2 == 0, "A cancelled request if associated with some non-zero address";
 }
 
-// Checks which functions change nextWithdrawalRequestId                        // Sasha: so, we kind of check nothing. Thus it's irrelevant for verification and should be move to the postponed spec
+// Checks which functions change nextWithdrawalRequestId                       
 // Current status: PASSES
 rule nextWithIDVaries(method f)
 {
@@ -392,7 +392,7 @@ rule nextWithIDVaries(method f)
     f(e,args);
     uint id2 = nextWithdrawalRequestId();
 
-    assert id1 <= id2, "nextWithdrawalRequestId decreased unexpectedly";            // Sasha: I don't understand this combination of asserts
+    assert id1 <= id2, "nextWithdrawalRequestId decreased unexpectedly";
     
     assert ( 
         (id1 + 1 == id2) => 
@@ -448,17 +448,17 @@ rule noImmediateWithrawal(address provider, bytes32 contID)
     address poolToken;
     uint256 Amount;
     uint id;
-    id = initWithdrawal(e,provider,poolToken,Amount);
+    id = initWithdrawal(e, provider, poolToken, Amount);
 
     require poolToken == ptA;
     // This probably holds all the time. See lockDurationNotZero.
     // In the future, we can replace this by an invariant requirement.
     require lockDuration() > 0; 
     
-    assert !isReadyForWithdrawal(e,id),"the function should return it is not
+    assert !isReadyForWithdrawal(e, id),"the function should return it is not
     ready for withdrawal"; 
 
-    completeWithdrawal@withrevert(e,contID,provider,id);
+    completeWithdrawal@withrevert(e, contID, provider, id);
 
     assert lastReverted, "User managed to withdraw immediately despite
     the lock duration";
@@ -621,11 +621,11 @@ invariant poolTokenLessThanSupply(uint id)
 
 
 function bothHelper(env e, method f, address provider1, bytes32 contID, uint id1) {
-    // if (f.selector == cancelWithdrawal(address,uint).selector) {
+    if (f.selector == cancelWithdrawal(address,uint).selector) {
         cancelWithdrawal(e, provider1, id1);
-    // } else {    // f.selector == completeWithdrawal(bytes32,address,uint256).selector
-    //     completeWithdrawal(e, contID, provider1, id1);
-    // }
+    } else {    // f.selector == completeWithdrawal(bytes32,address,uint256).selector
+        completeWithdrawal(e, contID, provider1, id1);
+    }
 }
 
 
@@ -674,26 +674,6 @@ rule independentRequests(env e, method f) filtered { f ->
         after invoking ${f} on request id = ${id1}";
 }
 
-// For any provider who completes his/hers withdrawal request,
-// his/hers pool token balance must not change.
-// Current status : FAILS
-// The current implementation of completeWithdrawal transfers PT to the
-// provider. We know it should change in the future.
-rule ptInvarianceForProvider(uint id)
-{
-    env e;
-    address provider = requestProvider(id);
-    bytes32 contID;
-
-    require requestPoolToken(id) == ptA;
-    require provider != ptA;
-    
-    uint PTbalance1 = ptA.balanceOf(e,provider);
-        completeWithdrawal(e,contID,provider,id);
-    uint PTbalance2 = ptA.balanceOf(e,provider);
-
-    assert PTbalance1 == PTbalance2;
-}
 
 // After successfully cancelling a withdrawal, the provider should get
 // his/hers pool tokens back.
@@ -707,11 +687,11 @@ rule providerGetsPTsBack(uint id)
     require requestPoolToken(id) == ptA;
     require provider != ptA && provider != currentContract;
 
-    uint PTbalance1 = ptA.balanceOf(e,provider);
+    uint PTbalance1 = ptA.balanceOf(e, provider);
     
-    cancelWithdrawal(e,provider,id);
+    cancelWithdrawal(e, provider, id);
     
-    uint PTbalance2 = ptA.balanceOf(e,provider);
+    uint PTbalance2 = ptA.balanceOf(e, provider);
 
     assert PTbalance1 + amount == PTbalance2;
 }

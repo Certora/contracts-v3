@@ -1,5 +1,5 @@
 certoraRun.py \
-    certora/munged/network/BancorNetwork.sol \
+    certora/harness/BancorNetworkHarness.sol \
     certora/harness/PoolCollectionHarness.sol \
     certora/harness/PendingWithdrawalsHarness.sol \
     certora/munged/pools/BNTPool.sol \
@@ -7,6 +7,8 @@ certoraRun.py \
     certora/munged/vaults/ExternalProtectionVault.sol \
     certora/munged/network/NetworkSettings.sol \
     certora/munged/pools/PoolTokenFactory.sol \
+    certora/munged/helpers/TestFlashLoanRecipient.sol \
+    certora/munged/pools/PoolMigrator.sol \
     \
     \
     certora/helpers/DummyERC20A.sol \
@@ -21,16 +23,17 @@ certoraRun.py \
     certora/helpers/Receiver1.sol \
     \
     \
-    --verify BancorNetwork:certora/spec/BancorNetwork.spec \
-    --link  BancorNetwork:_bnt=DummyERC20bnt \
-            BancorNetwork:_vbnt=DummyERC20vbnt \
-            BancorNetwork:_bntGovernance=DummyTokenGovernanceA \
-            BancorNetwork:_vbntGovernance=DummyTokenGovernanceB \
-            BancorNetwork:_bntPool=BNTPool \
-            BancorNetwork:_bntPoolToken=DummyPoolTokenBNT \
-            BancorNetwork:_masterVault=MasterVault \
-            BancorNetwork:_externalProtectionVault=ExternalProtectionVault \
-            BancorNetwork:_pendingWithdrawals=PendingWithdrawalsHarness \
+    --verify BancorNetworkHarness:certora/spec/BancorNetwork.spec \
+    --link  BancorNetworkHarness:_bnt=DummyERC20bnt \
+            BancorNetworkHarness:_vbnt=DummyERC20vbnt \
+            BancorNetworkHarness:_bntGovernance=DummyTokenGovernanceA \
+            BancorNetworkHarness:_vbntGovernance=DummyTokenGovernanceB \
+            BancorNetworkHarness:_bntPool=BNTPool \
+            BancorNetworkHarness:_bntPoolToken=DummyPoolTokenBNT \
+            BancorNetworkHarness:_masterVault=MasterVault \
+            BancorNetworkHarness:_externalProtectionVault=ExternalProtectionVault \
+            BancorNetworkHarness:_pendingWithdrawals=PendingWithdrawalsHarness \
+            BancorNetworkHarness:_poolMigrator=PoolMigrator \
             \
             \
             PoolCollectionHarness:_bnt=DummyERC20bnt \
@@ -41,7 +44,7 @@ certoraRun.py \
             \
             PendingWithdrawalsHarness:_bnt=DummyERC20bnt \
             PendingWithdrawalsHarness:_bntPool=BNTPool \
-            PendingWithdrawalsHarness:_network=BancorNetwork \
+            PendingWithdrawalsHarness:_network=BancorNetworkHarness \
             \
             \
             BNTPool:_poolToken=DummyPoolTokenBNT \
@@ -64,16 +67,17 @@ certoraRun.py \
             ExternalProtectionVault:_vbntGovernance=DummyTokenGovernanceB \
             \
     --solc solc8.13 \
-    --staging \
+    --staging jtoman/bancor-opt \
     --send_only \
-    --rule mustBeBurned \
+    --rule "$1" \
     --rule_sanity advanced \
     --disable_auto_cache_key_gen \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
-    @bancor=node_modules/@bancor \
-    --msg "mustBeBurned"
+            @bancor=node_modules/@bancor \
+    --settings -enableEqualitySaturation=false,-divideNoRemainder=true, -optimistic_fallback \
+    --msg "$1 with no remainder"
 
 #DummyPoolColA:_bnt=DummyERC20bnt \
 #DummyPoolColA:_masterVault=MasterVault \

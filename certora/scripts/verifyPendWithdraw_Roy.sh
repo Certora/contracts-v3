@@ -21,6 +21,6 @@ certoraRun.py \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
             @bancor=node_modules/@bancor \
-    --rule initWithdrawalIntegrity \
-    --msg "Advanced sanity check"
+    --rule "$1" \
+    --msg "$1 commmented delete"
 #--method "completeWithdrawal(bytes32,address,uint256)" \

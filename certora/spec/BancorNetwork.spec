@@ -37,6 +37,8 @@ methods {
 
     _withdrawContextId(uint256, address) returns(bytes32)
 
+    flashLoan(address, uint256, address, bytes) => DISPATCHER(true)
+
     // Pool collection
     depositFor(bytes32, address, address, uint256) returns (uint256) => DISPATCHER(true)
     tradeByTargetAmount(bytes32, address, address, uint256, uint256)
@@ -50,6 +52,7 @@ methods {
     poolFundingLimit(address) returns(uint256) => DISPATCHER(true)
     poolTokenToUnderlying(address, uint256) returns (uint256) => DISPATCHER(true)
     underlyingToPoolToken(address, uint256) returns (uint256) => DISPATCHER(true)
+    onFeesCollected(address, uint256) => DISPATCHER(true)
     PoolCol.getPoolDataTradingFee(address) returns (uint32) envfree
     PoolCol.getPoolDataStakedBalance(address) returns (uint256) envfree
     PoolCol.getPoolDataBntTradingLiquidity(address) returns(uint128) envfree
@@ -58,6 +61,8 @@ methods {
     PoolCol.defaultTradingFeePPM() returns (uint32) envfree
     PoolCol.tokenUserBalance(address, address) returns (uint256) envfree
     PoolCol.isPoolValid(address) returns(bool) envfree
+    migratePoolOut(address, address) => DISPATCHER(true)
+    migratePoolIn(address, address) => DISPATCHER(true)
 
     createPoolToken(address) returns(address) => DISPATCHER(true)
     acceptOwnership() => DISPATCHER(true)
@@ -84,6 +89,7 @@ methods {
     VbntGovern._token() returns(address) envfree
 
     // Others
+    onFlashLoan(address, address, uint256, uint256, bytes) => DISPATCHER(true)
     permit(address, address, uint256, uint256, uint8, bytes32, bytes32) => DISPATCHER(true)
     EPV.withdrawFunds(address, address, uint256)
     masVault.withdrawFunds(address, address, uint256)
@@ -104,7 +110,16 @@ methods {
     mulDivC(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDiv(x,y,z)
     hasRole(bytes32, address) returns(bool) envfree
     roleAdmin() returns(bytes32) envfree
+    roleMigrationManager() returns(bytes32) envfree
+    roleEmergencyStopper() returns(bytes32) envfree
+    roleNetworkFeeManager() returns(bytes32) envfree
+    isPaused() returns(bool) envfree
+    ethBalance() returns(uint256) envfree
+
+    // PoolMigrator
+    migratePool(address) returns(address) => DISPATCHER(true)
 }
+
 
 ////////////////////////////////////////////////////////////////////////////
 //                       Ghosts and definitions                           //
@@ -388,7 +403,7 @@ rule tradeA2BLiquidity(uint amount, bool byTarget)
     
     assert bntBalance1 >= bntBalance2, "Trader cannot gain BNT through the trade";
     
-    assert networkSettings.networkFeePPM(e) ==0 => bntBalance2 == bntBalance1,
+    assert networkSettings.networkFeePPM(e) == 0 => bntBalance2 == bntBalance1,
             "When there are no fees, trade BNT balance stays intact"; 
 }
 
@@ -526,7 +541,9 @@ rule RequestRegisteredForValidProvider(uint tokenAmount)
     setupTokenPoolCol(e, token, poolToken);
 
     uint balance1 = ptA.balanceOf(e, provider);
-        uint id = initWithdrawal(e, poolToken, tokenAmount);
+    
+    uint id = initWithdrawal(e, poolToken, tokenAmount);
+    
     uint balance2 = ptA.balanceOf(e, provider);
 
     assert balance1 - balance2 == tokenAmount;
@@ -606,7 +623,7 @@ rule doubleWithdrawHelper(uint256 id)
             reserveTokenAmount = PendWit.withdrawalRequest(id);
 
     withdraw@withrevert(e, id);
-    assert provider ==0 => lastReverted, 
+    assert provider == 0 => lastReverted, 
             "Request to withdraw must revert for zero address provider";
 }
     
@@ -1061,86 +1078,80 @@ function setConstants_wmn_only(env env1, address pool){
 
 
 
-// STATUS - in progress
-// No token duplicates in the same pool collection.
-// A token can be inside one pool collection only.
-// john:
-// basic:
-invariant lonelyToken(env e, method f, address token, address randToken)
-    (isPoolValid(token) && isPoolValid(randToken) && collectionByPool(token) == collectionByPool(randToken)) => token == randToken
-    filtered { f -> f.selector != certorafallback_0().selector
-                        && (
-                            // f.selector == createPool(uint16, address).selector 
-                            // || f.selector == migratePools(address[]).selector
-                            // || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
-                            // f.selector == setLatestPoolCollection(address).selector
-                            // || f.selector == flashLoan(address, uint256, address, bytes).selector
-                            // || f.selector == deposit(address, uint256).selector
-                            // f.selector == withdraw(uint256).selector
-                            f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
-                            || f.selector == addPoolCollection(address).selector 
-                            || f.selector == removePoolCollection(address, address).selector
-                        )
+// STATUS - in progress 
+// No pool collection for non-valid pool.
+// https://vaas-stg.certora.com/output/3106/63730db64262484991f2/?anonymousKey=300b7184a5b674b34d149318b80080f3b97d0ecd
+invariant noPoolNoParty1(address token)
+    !isPoolValid(token) => collectionByPool(token) == 0
+    filtered { f -> // f.selector == addPoolCollection(address).selector 
+                        // || f.selector == removePoolCollection(address, address).selector 
+                        // || f.selector == setLatestPoolCollection(address).selector
+                        // || f.selector == createPool(uint16, address).selector     reachability fail
+                        // || f.selector == createPools(uint16, address[]).selector
+                        f.selector == migratePools(address[]).selector  // Question: dispatcher doesn't work: https://vaas-stg.certora.com/output/3106/91123c54fcb47644f992/?anonymousKey=076fff3c246b8dcd4db47371b40e85d8fb35e78b
     }
 
+// STATUS - verified
+// invariant noPoolNoParty2(address token)
+//     !isPoolValid(token) => collectionByPool(token) == 0
+//     filtered { f -> f.selector == depositFor(address, address, uint256).selector
+//                         || f.selector == deposit(address, uint256).selector 
+//                         || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
+//                         || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+//     }
 
-// STATUS - in progress
-// john:
-// basic:
-// A token can be inside one pool collection only.
-invariant lonelyToken2(env e, method f, address token, address randToken)
-    isPoolValid(token) && isPoolValid(randToken) && token == randToken => collectionByPool(token) == collectionByPool(randToken)
-    filtered { f -> f.selector != certorafallback_0().selector
-                        && (
-                            // f.selector == createPool(uint16, address).selector 
-                            // || f.selector == migratePools(address[]).selector
-                            // || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
-                            // f.selector == setLatestPoolCollection(address).selector
-                            // || f.selector == flashLoan(address, uint256, address, bytes).selector
-                            // || f.selector == deposit(address, uint256).selector
-                            // f.selector == withdraw(uint256).selector
-                            f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
-                            || f.selector == addPoolCollection(address).selector 
-                            || f.selector == removePoolCollection(address, address).selector
-                        )
+// STATUS - verified
+// invariant noPoolNoParty3(address token)
+//     !isPoolValid(token) => collectionByPool(token) == 0
+//     filtered { f -> f.selector == initWithdrawal(address, uint256).selector
+//                         || f.selector == initWithdrawalPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector
+//                         || f.selector == cancelWithdrawal(uint256).selector
+//     }
+
+
+// STATUS - verified
+// invariant noPoolNoParty4(address token)
+//     !isPoolValid(token) => collectionByPool(token) == 0
+//     filtered { f -> f.selector == withdraw(uint256).selector}
+
+// STATUS - in progress         unreachable
+// https://vaas-stg.certora.com/output/3106/d2cd60d4ca677b4918fc/?anonymousKey=5164f302556021ea4a830d776f6e66518d50ec76
+invariant noPoolNoParty51(address token)
+    !isPoolValid(token) => collectionByPool(token) == 0
+    filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
+                        || f.selector == tradeBySourceAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector
     }
 
+// STATUS - verified
+// invariant noPoolNoParty52(address token)
+//     !isPoolValid(token) => collectionByPool(token) == 0
+//     filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
+//                         || f.selector == tradeByTargetAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector 
+//     }
 
 // STATUS - in progress
-// john:
-// basic:
-// check correlation of isPoolValid() in PoolCollection and BancorNetwork
-invariant correlationCheck(address token)
-    isPoolValid(token) == PoolCol.isPoolValid(token)
-    filtered { f -> f.selector != certorafallback_0().selector
-                        && (
-                            // f.selector == createPool(uint16, address).selector 
-                            // || f.selector == migratePools(address[]).selector
-                            // || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
-                            // f.selector == setLatestPoolCollection(address).selector
-                            // || f.selector == flashLoan(address, uint256, address, bytes).selector
-                            // || f.selector == deposit(address, uint256).selector
-                            // f.selector == withdraw(uint256).selector
-                            f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
-                            || f.selector == addPoolCollection(address).selector 
-                            || f.selector == removePoolCollection(address, address).selector
-                        )
+invariant noPoolNoParty6(address token)
+    !isPoolValid(token) => collectionByPool(token) == 0     // to == receiver
+    filtered { f -> f.selector == flashLoan(address, uint256, address, bytes).selector  // error    // Question: easy way to fix havoc (payable(to).transfer(amount))?      // https://vaas-stg.certora.com/output/3106/55c1f6037e5fb1d8adab/?anonymousKey=7c57558ac12237caa7cb299f1d007e0ff7d9f498
+                        // || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
+                        // || f.selector == withdrawNetworkFees(address).selector
+                        // || f.selector == pause().selector
+                        // || f.selector == resume().selector
     }
 
 
 // STATUS - in progress
 // Pool tokens must be burnt after withdrawal.
-// john:
-// basic:
+// https://vaas-stg.certora.com/output/3106/7b1a094713921a86e022/?anonymousKey=08bc492e0fa3ecdc77389b383f4be859429de50f
 rule mustBeBurned(env e) {
     uint256 id;
     address poolToken; uint256 ptToBeBurned; uint256 originalPTAmount;
     bytes32 contextId;
 
     require contextId == _withdrawContextId(e, id, e.msg.sender);
+    require e.msg.sender != currentContract;
 
-    uint256 ptBalanceBefore = ptA.balanceOf(e, currentContract);    
-    uint256 ptTotalBefore = ptA.totalSupply(e);  
+    uint256 ptBalanceBefore = ptA.balanceOf(e, currentContract);  
 
     storage initialStorage = lastStorage;
     
@@ -1151,78 +1162,348 @@ rule mustBeBurned(env e) {
     withdraw(e, id) at initialStorage;
 
     uint256 ptBalanceAfter = ptA.balanceOf(e, currentContract);
-    uint256 ptTotalAfter = ptA.totalSupply(e);
 
     assert ptBalanceBefore == ptBalanceAfter + ptToBeBurned;
-    assert ptTotalBefore == ptTotalAfter + ptToBeBurned;
 }
 
 
-// STATUS - in progress
-// only bancorNetwork contract can call certain functions
-// john:
-// basic:
-rule reentracncyCheck(env e, method f) filtered { f -> f.selector == addPoolCollection(address).selector 
-                                                || f.selector == removePoolCollection(address, address).selector 
-                                                || f.selector == setLatestPoolCollection(address).selector
-                                                || f.selector == createPool(uint16, address).selector 
-                                                || f.selector == createPools(uint16, address[]).selector
-                                                || f.selector == migratePools(address[]).selector 
-                                                || f.selector == depositFor(address, address, uint256).selector
-                                                || f.selector == deposit(address, uint256).selector 
-                                                || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
-                                                || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
-                                                || f.selector == initWithdrawal(address, uint256).selector
-                                                || f.selector == initWithdrawalPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
-                                                || f.selector == cancelWithdrawal(uint256).selector
-                                                || f.selector == withdraw(uint256).selector 
-                                                || f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
-                                                || f.selector == tradeBySourceAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector
-                                                || f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
-                                                || f.selector == tradeByTargetAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector 
-                                                || f.selector == flashLoan(address, uint256, address, bytes).selector
-                                                || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector} {
-                                                   
-    uint256 status = _status(e);
-    require status == 2;
+// STATUS - verified
+// Check functions for non-reentracncy.
+// rule reentrancyCheck1(env e, method f) 
+// filtered { f -> f.selector == addPoolCollection(address).selector 
+//                     || f.selector == removePoolCollection(address, address).selector 
+//                     || f.selector == setLatestPoolCollection(address).selector
+//                     || f.selector == createPool(uint16, address).selector 
+//                     || f.selector == createPools(uint16, address[]).selector
+//                     || f.selector == migratePools(address[]).selector 
+//     }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
+
+// STATUS - verified
+// rule reentrancyCheck2(env e, method f)
+// filtered { f -> f.selector == depositFor(address, address, uint256).selector
+//                         || f.selector == deposit(address, uint256).selector 
+//                         || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
+//                         || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+//     }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
+
+// STATUS - verified
+// rule reentrancyCheck3(env e, method f) 
+// filtered { f -> f.selector == initWithdrawal(address, uint256).selector
+//                         || f.selector == initWithdrawalPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+//                         || f.selector == cancelWithdrawal(uint256).selector
+//     }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
+
+// STATUS - verified
+// rule reentrancyCheck4(env e, method f) 
+// filtered { f -> f.selector == withdraw(uint256).selector}
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
+
+// STATUS - verified
+// rule reentrancyCheck511(env e, method f) 
+// filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
+// }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
+
+// STATUS - verified
+// rule reentrancyCheck512(env e, method f) 
+// filtered { f ->  f.selector == tradeBySourceAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector
+// }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
+
+// STATUS - verified
+// rule reentrancyCheck521(env e, method f) 
+// filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
+// }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
+
+// STATUS - verified
+// rule reentrancyCheck522(env e, method f) 
+// filtered { f -> f.selector == tradeBySourceAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector
+// }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
+
+// STATUS - verified
+// rule reentrancyCheck6(env e, method f) 
+// filtered { f -> f.selector == flashLoan(address, uint256, address, bytes).selector
+//                         || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
+//     }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
 
-// STATUS - in progress
-// only users with admin role can call certain functions
-// john:
-// basic:
-rule almightyAdmin(env e, method f) filtered { f -> !f.isView && f.selector != certorafallback_0().selector } {
-    bool roleBefore = hasRole(roleAdmin(), e.msg.sender);
+
+// STATUS - verified
+// Only user with admin role can call certain functions
+// rule almightyAdmin1(env e, method f) filtered 
+// { f -> f.selector == addPoolCollection(address).selector 
+//         || f.selector == removePoolCollection(address, address).selector 
+//         || f.selector == setLatestPoolCollection(address).selector
+//         || f.selector == createPool(uint16, address).selector 
+//         || f.selector == createPools(uint16, address[]).selector 
+// } {
+//     bool roleBefore = hasRole(roleAdmin(), e.msg.sender);
     
-    calldataarg args;
-    f@withrevert(e, args);
+//     calldataarg args;
+//     f@withrevert(e, args);
 
-    bool isReverted = lastReverted;
+//     bool isReverted = lastReverted;
 
-    assert  isReverted => (!roleBefore 
-                                && f.selector == addPoolCollection(address).selector 
-                                    || f.selector == removePoolCollection(address, address).selector 
-                                    || f.selector == setLatestPoolCollection(address).selector
-                                    || f.selector == createPool(uint16, address).selector 
-                                    || f.selector == createPools(uint16, address[]).selector)
-    , "With great power comes great responsibility";
-}
+//     assert !roleBefore => isReverted, "With great power comes great responsibility";
+// }
 
 
 
-invariant balanceCorrelationCheck(address PT, address user, env e)
-    PoolCol.tokenUserBalance(PT, user) == ptA.balanceOf(e, user)
-    filtered { f -> f.selector == deposit(address, uint256).selector || f.selector == createPool(uint16, address).selector || f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector }
-    {
-        preserved {
-            require PT == ptA;
-        }
+// STATUS - verified
+// Only user with concrete role can call concrete functions.
+// rule almightyAdmin2(method f, env e) filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
+//                                             || f.selector == withdrawNetworkFees(address).selector
+//                                             || f.selector == pause().selector
+//                                             || f.selector == resume().selector} {
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     bool isReverted = lastReverted;
+
+//     assert  (!isReverted && (f.selector == pause() .selector
+//                                 || f.selector == resume().selector))
+//                 => hasRole(roleEmergencyStopper(), e.msg.sender), "With great power comes great requestFunding/renounceFunding";
+//     assert  (!isReverted && f.selector == withdrawNetworkFees(address).selector)
+//                 => hasRole(roleNetworkFeeManager(), e.msg.sender), "With great power comes great mint";
+//     assert  (!isReverted && f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector)
+//                 => hasRole(roleMigrationManager(), e.msg.sender), "With great power comes great burnFromVault";
+// }
+
+
+
+// STATUS - verified
+// There is no way to call certain functions when network is paused.
+// rule whenPausedNothingToDo2(env e, method f) 
+// filtered { f -> f.selector == depositFor(address, address, uint256).selector
+//                         || f.selector == deposit(address, uint256).selector 
+//                         || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
+//                         || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+//     }
+// {
+//     require isPaused();
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     assert lastReverted, "Frozen!";
+// }
+
+// STATUS - verified
+// rule whenPausedNothingToDo3(env e, method f) 
+// filtered { f -> f.selector == initWithdrawal(address, uint256).selector
+//                         || f.selector == initWithdrawalPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+//                         || f.selector == cancelWithdrawal(uint256).selector
+//     }
+// {
+//     require isPaused();
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     assert lastReverted, "Frozen!";
+// }
+
+// STATUS - verified
+// rule whenPausedNothingToDo4(env e, method f) 
+// filtered { f -> f.selector == withdraw(uint256).selector}
+// {
+//     require isPaused();
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     assert lastReverted, "Frozen!";
+// }
+
+
+rule whenPausedNothingToDo511(env e, method f) 
+filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
+                        || f.selector == tradeBySourceAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector
     }
-    
+{
+    require isPaused();
 
-// check as above for modifier onlyRoleMember
+    calldataarg args;
+    f@withrevert(e, args);
+
+    assert lastReverted, "Frozen!";
+}
+
+rule whenPausedNothingToDo512(env e, method f) 
+filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
+                        
+    }
+{
+    require isPaused();
+
+    calldataarg args;
+    f@withrevert(e, args);
+
+    assert lastReverted, "Frozen!";
+}
+
+rule whenPausedNothingToDo521(env e, method f) 
+filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
+                            }
+{
+    require isPaused();
+
+    calldataarg args;
+    f@withrevert(e, args);
+
+    assert lastReverted, "Frozen!";
+}
+
+rule whenPausedNothingToDo522(env e, method f) 
+filtered { f -> f.selector == tradeByTargetAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector }
+{
+    require isPaused();
+
+    calldataarg args;
+    f@withrevert(e, args);
+
+    assert lastReverted, "Frozen!";
+}
+
+
+// STATUS - verified
+rule whenPausedNothingToDo61(env e, method f) 
+filtered { f -> f.selector == flashLoan(address, uint256, address, bytes).selector                       
+    }
+{
+    require isPaused();
+
+    calldataarg args;
+    f@withrevert(e, args);
+
+    assert lastReverted, "Frozen!";
+}
+
+rule whenPausedNothingToDo62(env e, method f) 
+filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector             
+    }
+{
+    require isPaused();
+
+    calldataarg args;
+    f@withrevert(e, args);
+
+    assert lastReverted, "Frozen!";
+}
+
+rule whenPausedNothingToDo63(env e, method f) 
+filtered { f -> f.selector == withdrawNetworkFees(address).selector
+    }
+{
+    require isPaused();
+
+    calldataarg args;
+    f@withrevert(e, args);
+
+    assert lastReverted, "Frozen!";
+}
+
+
+
+// STATUS - proved,  // Question: is it OK?     added dispatcher, remove cycle 
+// `flashLoan()` doesn't decrease network's balance (native or token). 
+// https://vaas-stg.certora.com/output/3106/2bc47ab2f46cb2787c8b/?anonymousKey=191d73f3dd1a519fdec25319eaeccc0fac0ec1c2
+// rule flashLoanCompleteness(env e){
+//     address token;
+//     uint256 amount;
+//     address recipient;
+//     bytes calldata;
+
+//     require token == tokenA || token == tokenB;
+
+//     uint256 nativeBalanceBefore = ethBalance();
+
+//     uint256 tokenBalanceBefore;
+//     if(token == tokenA){
+//         tokenBalanceBefore = tokenA.balanceOf(e, currentContract);
+//     } else {
+//         tokenBalanceBefore = tokenB.balanceOf(e, currentContract);
+//     }
+
+//     flashLoan(e, token, amount, recipient, calldata);
+
+//     uint256 nativeBalanceAfter = ethBalance();
+    
+//     uint256 tokenBalanceAfter;
+//     if(token == tokenA){
+//         tokenBalanceAfter = tokenA.balanceOf(e, currentContract);
+//     } else {
+//         tokenBalanceAfter = tokenB.balanceOf(e, currentContract);
+//     }
+
+//     assert nativeBalanceBefore <= nativeBalanceAfter && tokenBalanceBefore <= tokenBalanceAfter, "Flash is a cheater!";
+// }

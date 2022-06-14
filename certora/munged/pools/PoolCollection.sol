@@ -345,7 +345,6 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         }
 
         IPoolToken newPoolToken = IPoolToken(_poolTokenFactory.createPoolToken(token));
-    // IPoolToken newPoolToken = tmpPoolToken;
 
         newPoolToken.acceptOwnership();
 

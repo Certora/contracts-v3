@@ -137,56 +137,7 @@ function santasLittleHelper(method f, env e){
     }
 }
 
-function callFuncWithParams(method f, env e, address pool) {
-bool flag;
-uint256 x;
-bytes32 contextId;
-address poolCollection;
-address sourceToken;
-address targetToken;
-uint256 sourceAmount;
-uint256 minReturnAmount;
-uint256 maxSourceAmount;
-address provider;
-uint256 tokenAmount;
-
-    if (f.selector == enableDepositing(address,bool).selector ) {
-        enableDepositing(e, pool, flag);
-    }
-
-    else if (f.selector == migratePoolOut(address,address).selector ) {
-        migratePoolOut(e, pool, poolCollection);
-    }
-/*else if (f.selector == tradeInputAndFeeByTargetAmount(address,address,uint256).selector) {
-}*/
-    else if (f.selector == enableTrading(address,uint256,uint256).selector) {
-        uint256 bntVirtualBalance;
-        uint256 baseTokenVirtualBalance;
-        enableTrading(e, pool, bntVirtualBalance, baseTokenVirtualBalance);
-    }
-    else if (f.selector == tradeByTargetAmount(bytes32,address,address,uint256,uint256).selector){
-        tradeByTargetAmount(e,contextId, sourceToken, targetToken, tokenAmount, maxSourceAmount);
-    } 
-    else if (f.selector == tradeBySourceAmount(bytes32,address,address,uint256,uint256).selector){
-        tradeBySourceAmount(e,contextId, sourceToken, targetToken, tokenAmount, minReturnAmount);
-    }
-    else if (f.selector == depositFor(bytes32,address,address,uint256).selector){
-        depositFor(e, contextId, provider, pool, tokenAmount);
-    }
-/* else if (f.selector == tradeOutputAndFeeBySourceAmount(address,address,uint256).selector){
-
-} */
-    else if (f.selector == disableTrading(address).selector){
-        disableTrading(e, pool);
-    }
-    else if (f.selector == withdraw(bytes32,address,address,uint256).selector){
-        withdraw(e, contextId, provider, pool, tokenAmount);
-    }
-    else {
-        calldataarg args;
-        f(e,args);
-    }
-}
+ 
 
 // rule sanity(method f)
 // {
@@ -249,7 +200,7 @@ rule afterDepositAmountGzero(method f)    filtered { f -> !f.isView && !f.isFall
         address pool = tokenA;
         uint256 tokenAmount;
 
-        uint256 amount = depositFor(e,contextId,provider,pool,tokenAmount);        
+        uint256 amount = depositFor(e, contextId, provider, pool, tokenAmount);   
 
     assert amount > 0;
 }
@@ -363,7 +314,7 @@ rule tradeWhenZeroTokensRevert(method f) filtered { f -> !f.isView && !f.isFallb
 
 /////////////////////////////////////////////////////////////////
 //      Passed
-
+// It should be imposssible to trade if BNT trading liquidity and `minLiquidityForTrading` is 0.
 rule tradeWhenZeroLiquidity(method f) filtered { f -> !f.isView && !f.isFallback }
 {
     env e;
@@ -381,7 +332,7 @@ rule tradeWhenZeroLiquidity(method f) filtered { f -> !f.isView && !f.isFallback
 
     require sourceToken == tokenA || targetToken == tokenA; // the other token is BNT
     require networkSettings.minLiquidityForTrading() == 0;
-    require getPoolDataBntTradingLiquidity(e,tokenA) == 0;
+    require getPoolDataBntTradingLiquidity(e, tokenA) == 0;
 
     amount,tradingFeeAmount,networkFeeAmount = tradeByTargetAmount@withrevert(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
 
@@ -557,6 +508,7 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
             setUp();
         }
     }
+
 /////////////////////////////////////////////////////////////////
 //      Fails
 //  and rightly so as there could be zero stacked balance and more than zero liquidity
@@ -570,12 +522,12 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
                     setUp();
                     require pool == tokenA;
                     require hasPool(pool);
-                  }
+                }
         preserved withdraw(bytes32 contextId,address provider,address pool2, uint256 tokenAmount) with (env e1)
-                  {
+                {
                     require provider == user;
                     require pool2 == tokenA;
-                  }
+                }
 
     }
 
