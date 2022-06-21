@@ -373,6 +373,36 @@ rule tradeChangeExchangeRate(method f) filtered { f -> !f.isView && !f.isFallbac
     assert amount1 != amount2;
 }
 
+rule tradeAdditivity(method f) filtered { f -> !f.isView && !f.isFallback }
+{
+    env e;
+        setUp();
+
+    require networkSettings.networkFeePPM() == 0;
+    require getPoolDataTradingFee(e,tokenA) == 0;
+
+    storage init = lastStorage;
+
+    bytes32 contextId;
+    address sourceToken;
+    address targetToken;
+    uint256 sourceAmount;
+    uint256 minReturnAmount;
+
+    uint256 amount1; uint256 amount2; uint256 amount3;
+    uint256 tradingFeeAmount1; uint256 tradingFeeAmount2; uint256 tradingFeeAmount3;
+    uint256 networkFeeAmount1; uint256 networkFeeAmount2; uint256 networkFeeAmount3;
+
+    require sourceToken == tokenA || targetToken == tokenA; // the other token is BNT
+
+    amount1,tradingFeeAmount1,networkFeeAmount1 = tradeBySourceAmount(e,contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
+    amount2,tradingFeeAmount2,networkFeeAmount2 = tradeBySourceAmount(e,contextId, sourceToken, targetToken, sourceAmount, minReturnAmount);
+    
+    amount3,tradingFeeAmount3,networkFeeAmount3 = tradeBySourceAmount(e,contextId, sourceToken, targetToken, sourceAmount * 2, minReturnAmount) at init;
+
+    assert amount1 + amount2 >= amount3;
+}
+
 /////////////////////////////////////////////////////////////////
 //      In progress
 
@@ -479,6 +509,7 @@ rule tradeWhenZeroLiquidity(method f) filtered { f -> !f.isView && !f.isFallback
     assert lastReverted;
 }
 
+
 /////////////////////////////////////////////////////////////////
 //      Fails.
 //      after withdraw all an unlimitted amount of poolTokens might stay in the pool
@@ -507,13 +538,34 @@ rule withdrawAll(method f, address provider) filtered { f -> !f.isView && !f.isF
 
 
     assert getPoolDataBntTradingLiquidity(e,pool) == 0 && getPoolDataBaseTokenLiquidity(e,pool) == 0;
-    // assert getPoolDataBaseTokenLiquidity(e,pool) == 0 => getPoolDataBntTradingLiquidity(e,pool) < 10000;
-    // assert !getPoolDataTradingEnabled(e,pool); 
 }
 
-invariant averageRateNonZero(env e, address pool)
-    getPoolDataAverageRateN(e,pool) !=0 && getPoolDataAverageRateD(e,pool) !=0 
+invariant rateIsPositive(env e, address pool)
+    averageRateIsPositive(e,pool)
+        {
+       preserved{
+            setUp();
+            require pool == tokenA;
+            require hasPool(pool);
+                }
+        }
 
+/////////////////////////////////////////////////////////////////
+//      Passed
+rule averageRateNonZero(env e, method f, address pool)filtered { f -> !f.isView && !f.isFallback &&
+                f.selector != migratePoolOut(address, address).selector}
+    {
+    calldataarg args;
+        setUp();
+        require pool == tokenA;
+        require hasPool(pool);
+
+        require getPoolDataAverageRateD(e,pool) !=0;
+
+    f(e,args);
+
+        assert getPoolDataAverageRateD(e,pool) !=0;
+    }
 /////////////////////////////////////////////////////////////////
 //      Timeout
 
@@ -594,8 +646,8 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
 
     invariant differentTokens(address tknA, address tknB)
     hasPool(tknA) && hasPool(tknB) && tknA != tknB => poolToken(tknA) != poolToken(tknB)
-    filtered { f -> !f.isView && !f.isFallback //&&
-                // f.selector != migratePoolIn(address,(address,uint32,bool,bool,(uint32,(uint112,uint112)),uint256,(uint128,uint128,uint256))).selector
+    filtered { f -> !f.isView && !f.isFallback &&
+                f.selector != migratePoolIn(address,(address,uint32,bool,bool,(uint32,(uint112,uint112)),uint256,(uint128,uint128,uint256))).selector
             }
     {
        preserved{
@@ -606,7 +658,12 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
        }
        preserved withdraw(bytes32 contextId,address provider,address pool, uint256 tokenAmount) with (env e)
        {
-           require provider == user;
+            setUp();
+            require provider == user;
+            require tknA == tokenA;
+            require tknB == tokenB;
+            require pool == tknA || pool == tknB;
+            require hasPool(pool);
        }
     }
 
@@ -637,6 +694,13 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
             require pool1 == tokenA; require pool1 == pool;
             require hasPool(pool1);
         }
+       preserved withdraw(bytes32 contextId,address provider,address pool2, uint256 tokenAmount) with (env e2)
+       {
+            setUp();
+            require pool2 == tokenA; require pool2 == pool;
+            require hasPool(pool2);
+            require provider == user;
+       }
     }
 
 /////////////////////////////////////////////////////////////////
@@ -648,43 +712,83 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
     {
         preserved
         {
+            setUp();
             require pool == tokenA;
             require hasPool(pool);
-            setUp();
         }
     }
 
 /////////////////////////////////////////////////////////////////
 //      Fails
-//      https://vaas-stg.certora.com/output/65782/7c13151acc7cbbbb152c/?anonymousKey=efcc8c515e1e8faddc749f69957187b40fb577b5
+//      https://vaas-stg.certora.com/output/65782/10e9c2d5beefadc44703/?anonymousKey=885f44fd094a6d88a4a6ef353d601857c631572c
 
-    invariant stakedBalanceMasterVaultBalance(env e)
-    tokenA.balanceOf(e,_masterVault(e)) ==0 => getPoolDataStakedBalance(e,tokenA) ==0 
+    invariant masterVaultBalanceBaseLiquidity(env e, address pool)
+    tokenA.balanceOf(e,_masterVault(e)) == 0 => getPoolDataBaseTokenLiquidity(e,pool) == 0
+    {
+        preserved
+        {
+            setUp();
+            require pool == tokenA;
+            require hasPool(pool);
+        }
+        preserved depositFor(bytes32 contextId,address provider, address pool1, uint256 tokenAmount) with (env e1){
+            setUp();
+            require pool1 == tokenA; require pool1 == pool;
+            require hasPool(pool1);
+        }
+        preserved withdraw(bytes32 contextId,address provider,address pool2, uint256 tokenAmount) with (env e2)
+        {
+            setUp();
+            require provider == user;
+            require pool2 == tokenA; require pool2 == pool;
+            require hasPool(pool2);
+        }
+        preserved disableTrading(address pool3) with (env e3){
+            setUp();
+            require pool3 == tokenA; require pool3 == pool;
+            require hasPool(pool3);
+        }
+        preserved enableTrading(address pool4, uint256 bntVirtualBalance, uint256 baseTokenVirtualBalance) with (env e4){
+            setUp();
+            require pool4 == tokenA; require pool4 == pool;
+            require hasPool(pool4);
+        }
+    }
+
+/////////////////////////////////////////////////////////////////
+//      Fails
+//      https://vaas-stg.certora.com/output/65782/9ebfa7176e83f22e70e3/?anonymousKey=8cd44f516be267bac8202d0b7960726bc7137458
+
+    invariant stakedBalanceMasterVaultBalance(env e, address pool)
+    tokenA.balanceOf(e,_masterVault(e)) == 0 => getPoolDataStakedBalance(e,pool) == 0 
     {
         preserved{
             setUp();
+            require pool == tokenA;
+            require hasPool(pool);
         }
-    }
-/////////////////////////////////////////////////////////////////
-//      Fails
-//  and rightly so as there could be zero stacked balance and more than zero liquidity
-
-    invariant zeroStakedBalanceZeroLiquidity(env e, address pool)
-        getPoolDataStakedBalance(e,pool) == 0 => getPoolDataBntTradingLiquidity(e,pool) ==0
-    filtered { f -> !f.isView && !f.isFallback &&
-                f.selector != migratePoolIn(address,(address,uint32,bool,bool,(uint32,(uint112,uint112)),uint256,(uint128,uint128,uint256))).selector}
-    {
-        preserved {
-                    setUp();
-                    require pool == tokenA;
-                    require hasPool(pool);
-                  }
-        preserved withdraw(bytes32 contextId,address provider,address pool2, uint256 tokenAmount) with (env e1)
-                  {
-                    require provider == user;
-                    require pool2 == tokenA;
-                  }
-
+        preserved depositFor(bytes32 contextId,address provider, address pool1, uint256 tokenAmount) with (env e1){
+            setUp();
+            require pool1 == tokenA; require pool1 == pool;
+            require hasPool(pool1);
+        }
+        preserved withdraw(bytes32 contextId,address provider,address pool2, uint256 tokenAmount) with (env e2)
+        {
+            setUp();
+            require provider == user;
+            require pool2 == tokenA; require pool2 == pool;
+            require hasPool(pool2);
+        }
+        preserved disableTrading(address pool3) with (env e3){
+            setUp();
+            require pool3 == tokenA; require pool3 == pool;
+            require hasPool(pool3);
+        }
+        preserved enableTrading(address pool4, uint256 bntVirtualBalance, uint256 baseTokenVirtualBalance) with (env e4){
+            setUp();
+            require pool4 == tokenA; require pool4 == pool;
+            require hasPool(pool4);
+        }
     }
 
 /////////////////////////////////////////////////////////////////
@@ -708,9 +812,6 @@ rule withdrawWhenBntIsZero(method f) filtered { f -> !f.isView && !f.isFallback 
     bytes32 contextId;
     address pool = tokenA;
     uint256 poolTokenAmount;
-
-        // require ptA == poolToken(pool);
-        // require ptA.balanceOf(e,provider) == ptA.totalSupply(e); // assume one LP
 
     require getPoolDataBntTradingLiquidity(e,pool) == 0;
         uint amount = withdraw@withrevert(e,contextId,provider,pool,poolTokenAmount);
@@ -755,7 +856,7 @@ rule stableRateAfterTradeRealistic(uint amount)
     require networkFee == 0;
 
     require isPoolStable(e,tokenA);
-        //tradeBySourceAmount(e,contextId, sourceToken, targetToken, amount, 1);
         tradeByTargetAmount(e,contextId, sourceToken, targetToken, amount, max_uint);
+
     assert !isPoolUnstable(e,tokenA);
 }

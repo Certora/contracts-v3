@@ -2,10 +2,14 @@
 pragma solidity 0.8.13;
 
 import "../munged/pools/PoolCollection.sol";
+import "../munged/utility/FractionLibrary.sol";
+
 
 contract PoolCollectionHarness is PoolCollection{
    using EnumerableSet for EnumerableSet.AddressSet;
    using TokenLibrary for Token;
+   
+   using FractionLibrary for Fraction112;
    
     constructor(
         IBancorNetwork initNetwork,
@@ -112,7 +116,12 @@ contract PoolCollectionHarness is PoolCollection{
         return _poolRateState(prevLiquidity, averageRate) == PoolRateState.Unstable;
     }
     
-    // function poolTotalSupply(Token pool) external view returns (uint) {
+    function averageRateIsPositive(Token pool) public view returns (bool) {
+        AverageRate memory averageRateInfo = _poolData[pool].averageRate;
+        Fraction112 memory averageRate = averageRateInfo.rate;
+         return averageRate.isPositive();
+     }
+         // function poolTotalSupply(Token pool) external view returns (uint) {
     //     return _poolData[pool].poolToken.totalSupply();
     // }
 
