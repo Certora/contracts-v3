@@ -148,47 +148,28 @@ rule burnPTsAfterCompleteWithdrawal(address provider, uint PTamount)
 }
 
 
-rule whoChangedTotalSupply(method f)            
-filtered { f-> !f.isView}
+
+// For any provider who completes his/hers withdrawal request,
+// his/hers pool token balance must not change.
+// Current status : FAILS
+// The current implementation of completeWithdrawal transfers PT to the
+// provider. We know it should change in the future.
+rule ptInvarianceForProvider(uint id)
 {
-    address poolToken = ptA;
     env e;
-    calldataarg args;
-    uint totSup1 = poolTotalSupply(poolToken);
-    f(e,args);
-    uint totSup2 = poolTotalSupply(poolToken);
-    assert totSup1 == totSup2;
+    address provider = requestProvider(id);
+    bytes32 contID;
+
+    require requestPoolToken(id) == ptA;
+    require provider != ptA;
+    
+    uint PTbalance1 = ptA.balanceOf(e,provider);
+        completeWithdrawal(e,contID,provider,id);
+    uint PTbalance2 = ptA.balanceOf(e,provider);
+
+    assert PTbalance1 == PTbalance2;
 }
 
-
-// Reachability
-// Current status: FAILS for all functions.
-rule reachability(method f)
-{   
-    env e;
-    calldataarg args;
-    f(e, args);
-    assert false;
-}
-
-// Cancel withdrawal reachability
-rule reachCancelWithdrawal()
-{   
-    env e;
-    address provider;
-    uint id = initWithdrawal(e,provider,ptA,1);
-    cancelWithdrawal@withrevert(e,provider,id);
-    assert !lastReverted ;
-}
-
-rule reachCompleteWithdrawal(uint id)
-{   
-    env e;
-    bytes32 contextId;
-    address provider;
-    completeWithdrawal(e,contextId,provider,id);
-    assert false;
-}
 
 
 ////////////////////////////////////////////////////

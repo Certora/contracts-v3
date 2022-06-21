@@ -74,9 +74,9 @@ contract TestFlashLoanRecipient is IFlashLoanRecipient {
             receivedAmount: token.balanceOf(address(this)) - _snapshots[erc20Token]
         });
 
-        if (_reenter) {
-            _network.flashLoan(token, amount, IFlashLoanRecipient(address(this)), new bytes(0));
-        }
+        // if (_reenter) {
+        //     _network.flashLoan(token, amount, IFlashLoanRecipient(address(this)), new bytes(0));
+        // }
 
         uint256 returnAmount = _amountToReturn != 0 ? _amountToReturn : amount + feeAmount;
         if (token.isNative()) {

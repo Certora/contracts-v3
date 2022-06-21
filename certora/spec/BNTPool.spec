@@ -1,11 +1,9 @@
 import "../helpers/erc20.spec"
 
-using DummyERC20bnt as DummyBNT
 using DummyTokenGovernanceA as BntGovern
 using DummyTokenGovernanceB as VbntGovern
 using PoolToken as PoolT
 using MasterVault as DungeonMaster
-using TestUpgradeable as Upgrade
 using NetworkSettings as NetSet
 
 methods {
@@ -66,7 +64,7 @@ methods {
 function requests(env e, address pool){
     requireInvariant bntCorrelation();
     requireInvariant bntMintingLimit(pool);
-    requireInvariant zeroCorrelation(e);
+    require stakedBalance() == 0 <=> PoolT.totalSupply() == 0; // proved by `zeroCorrelation` rule. Cannot make invariant becuase some functions revert and I need to cover it.
 }
 
 
@@ -98,26 +96,29 @@ invariant bntMintingLimit(address pool)
 
 // STATUS - verified
 // If `_stakedBalance` is 0 then `totalSupply` of `poolToken` is 0 too and vice versa (assume only calls from users without any role. Users with manager roles can violated it).
-invariant zeroCorrelation(env e)
-    stakedBalance() == 0 <=> PoolT.totalSupply() == 0
-    {
-        preserved with (env e2){
-            require e.msg.sender == e2.msg.sender;
-            require e.msg.sender != _network();
+rule zeroCorrelation(method f, env e){
+    require e.msg.sender != _network();
 
-            bytes32 bntPoolM = roleBNTPoolTokenManager();
-            bytes32 bntM = roleBNTManager();
-            bytes32 vaultM = roleVaultManager();
-            bytes32 funcdingM = roleFundingManager();
-            bytes32 assetM = DungeonMaster.roleAssetManager();
+    bytes32 bntPoolM = roleBNTPoolTokenManager();
+    bytes32 bntM = roleBNTManager();
+    bytes32 vaultM = roleVaultManager();
+    bytes32 funcdingM = roleFundingManager();
+    bytes32 assetM = DungeonMaster.roleAssetManager();
 
-            require !hasRole(bntPoolM, e.msg.sender)
-                        && !hasRole(bntM, e.msg.sender)
-                        && !hasRole(vaultM, e.msg.sender)
-                        && !hasRole(funcdingM, e.msg.sender)
-                        && !hasRole(assetM, e.msg.sender);
-        }
-    }
+    require stakedBalance() == 0 <=> PoolT.totalSupply() == 0;
+    require !hasRole(bntPoolM, e.msg.sender)
+                && !hasRole(bntM, e.msg.sender)
+                && !hasRole(vaultM, e.msg.sender)
+                && !hasRole(funcdingM, e.msg.sender)
+                && !hasRole(assetM, e.msg.sender);
+
+    calldataarg args;
+    f@withrevert(e, args);
+    bool isReverted = lastReverted;
+
+    assert isReverted || (stakedBalance() == 0 <=> PoolT.totalSupply() == 0), "Wrong correlation";
+}
+
 
 
 // STATUS - verified
@@ -236,6 +237,7 @@ rule depositForAdditivity(env e){
     
     require bntAmount == bntAmount1 + bntAmount2;
     require BntGovern._token() != VbntGovern._token();
+
     require isMigrating == false;
 
     uint256 providerPTBefore = PoolT.balanceOf(provider);
@@ -496,5 +498,3 @@ rule cofferIsEmptyMyLiege(env e) {
 
     assert providerPTBefore < underlyingToPoolToken(bntAmount) => isReverted, "Huston, we have a problem";
 }
-
-

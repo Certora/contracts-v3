@@ -127,7 +127,7 @@ contract BancorNetwork is IBancorNetwork, Upgradeable, ReentrancyGuardUpgradeabl
     IPendingWithdrawals public _pendingWithdrawals; // HARNESS: internal -> public, removed "immutable"
 
     // the pool migrator contract
-    IPoolMigrator internal _poolMigrator;
+    IPoolMigrator public _poolMigrator; // HARNESS: internal -> public
 
     // the set of all valid pool collections
     EnumerableSetUpgradeable.AddressSet private _poolCollections;
