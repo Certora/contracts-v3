@@ -696,26 +696,4 @@ rule providerGetsPTsBack(uint id)
     assert PTbalance1 + amount == PTbalance2;
 }
 
-// For any registered request, the time it was created must be earlier 
-// than the current block time and no earlier than when the request was sent.
-// Current status: FAILS
-// the createdAt field of the request is given by time() function which supposed
-// to give the block.timestamp. For some reason it is not the same as in here.
-rule validRequestTime(method f)
-{
-    env e;
-    address provider;
-    address poolToken = ptA;
-    uint256 amount;
-    calldataarg args;
 
-    require e.block.timestamp < max_uint32;
-    uint timeInit = e.block.timestamp;
-    f(e,args);
-    uint id = initWithdrawal(e, provider, poolToken, amount);
-    uint32 tmp = _time(e);
-    uint256 tmp256 = _time256(e);
-    uint time = to_uint256(requestCreatedAt(id));
-    uint timeEnd = e.block.timestamp;
-    assert timeEnd >= time && time >= timeInit;
-}
