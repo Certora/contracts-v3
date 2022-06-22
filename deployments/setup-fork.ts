@@ -1,5 +1,4 @@
 import Contracts from '../components/Contracts';
-import { MAX_UINT256 } from '../utils/Constants';
 import { DeployedContracts, getNamedSigners, isTenderlyFork, runPendingDeployments } from '../utils/Deploy';
 import Logger from '../utils/Logger';
 import { NATIVE_TOKEN_ADDRESS } from '../utils/TokenData';
@@ -60,35 +59,40 @@ const fundAccounts = async () => {
     Logger.log('Funding test accounts...');
     Logger.log();
 
-    const { dai, link } = await getNamedAccounts();
-    const { ethWhale, bntWhale, daiWhale, linkWhale } = await getNamedSigners();
+    const { dai, link, usdc, wbtc } = await getNamedAccounts();
+    const { ethWhale, bntWhale, daiWhale, linkWhale, usdcWhale, wbtcWhale } = await getNamedSigners();
     const bnt = await DeployedContracts.BNT.deployed();
-
-    const ethAmount = 10_000;
-    const bntAmount = 10_000;
-    const daiAmount = 500_000;
-    const linkAmount = 10_000;
 
     const fundingRequests = [
         {
             token: NATIVE_TOKEN_ADDRESS,
-            amount: toWei(ethAmount),
+            amount: toWei(10_000),
             whale: ethWhale
         },
         {
             token: bnt.address,
-            amount: toWei(bntAmount),
+            amount: toWei(10_000),
             whale: bntWhale
         },
         {
             token: dai,
-            amount: toWei(daiAmount),
+            amount: toWei(500_000),
             whale: daiWhale
         },
         {
             token: link,
-            amount: toWei(linkAmount),
+            amount: toWei(10_000),
             whale: linkWhale
+        },
+        {
+            token: usdc,
+            amount: toWei(500_000, 6),
+            whale: usdcWhale
+        },
+        {
+            token: wbtc,
+            amount: toWei(100, 9),
+            whale: wbtcWhale
         }
     ];
 
@@ -99,18 +103,6 @@ const fundAccounts = async () => {
     }
 
     Logger.log();
-};
-
-const removeDepositLimits = async (tokens: string[]) => {
-    Logger.log('Removing deposit limits...');
-    Logger.log();
-
-    const { daoMultisig } = await getNamedSigners();
-
-    const poolCollection = await DeployedContracts.PoolCollectionType1V2.deployed();
-    for (const token of tokens) {
-        await poolCollection.connect(daoMultisig).setDepositLimit(token, MAX_UINT256);
-    }
 };
 
 const setLockDuration = async (lockDuration: number) => {
@@ -159,9 +151,6 @@ const main = async () => {
     const lockDuration = 2;
 
     if (isResearch) {
-        const { dai, link } = await getNamedAccounts();
-
-        await removeDepositLimits([NATIVE_TOKEN_ADDRESS, dai, link]);
         await setLockDuration(lockDuration);
     }
 
@@ -177,7 +166,6 @@ const main = async () => {
     Logger.log(`   Dashboard: https://dashboard.tenderly.co/${TENDERLY_USERNAME}/${TENDERLY_PROJECT}/fork/${forkId}`);
     if (isResearch) {
         Logger.log();
-        Logger.log(`   * Unlimited deposits`);
         Logger.log(`   * Withdrawal locking duration was set to ${lockDuration} seconds`);
     }
     Logger.log();

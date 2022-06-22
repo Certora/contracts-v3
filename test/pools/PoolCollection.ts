@@ -14,7 +14,7 @@ import Contracts, {
     TestPoolCollection,
     TestPoolMigrator
 } from '../../components/Contracts';
-import { PoolLiquidityStructOutput } from '../../typechain-types/contracts/helpers/TestPoolCollection';
+import { PoolLiquidityStructOutput } from '../../typechain-types/contracts/pools/PoolCollection';
 import {
     BOOTSTRAPPING_LIQUIDITY_BUFFER_FACTOR,
     DEFAULT_TRADING_FEE_PPM,
@@ -22,17 +22,17 @@ import {
     EMA_SPOT_RATE_WEIGHT,
     LIQUIDITY_GROWTH_FACTOR,
     MAX_UINT256,
+    NETWORK_FEE_PPM,
     PoolType,
     PPM_RESOLUTION,
     RATE_MAX_DEVIATION_PPM,
     TradingStatusUpdateReason,
     ZERO_ADDRESS,
-    ZERO_BYTES32,
     ZERO_FRACTION
 } from '../../utils/Constants';
 import { Roles } from '../../utils/Roles';
 import { TokenData, TokenSymbol } from '../../utils/TokenData';
-import { max, min, toPPM, toWei } from '../../utils/Types';
+import { Fraction, max, min, toPPM, toWei } from '../../utils/Types';
 import { latestBlockNumber } from '..//helpers/BlockNumber';
 import { getBalance, transfer } from '..//helpers/Utils';
 import {
@@ -51,7 +51,7 @@ import Decimal from 'decimal.js';
 import { BigNumber, BigNumberish, ContractTransaction, utils } from 'ethers';
 import { ethers } from 'hardhat';
 
-const { formatBytes32String } = utils;
+const { formatBytes32String, solidityKeccak256 } = utils;
 
 describe('PoolCollection', () => {
     const BNT_VIRTUAL_BALANCE = 1;
@@ -80,13 +80,14 @@ describe('PoolCollection', () => {
             await expect(res).to.emit(poolCollection, 'TradingEnabled').withArgs(token.address, false, expectedReason);
         }
 
+        expect(await poolCollection.tradingEnabled(token.address)).to.be.false;
+
         const data = await poolCollection.poolData(token.address);
-        const { liquidity } = data;
+        expect(data.averageRates.blockNumber).to.equal(0);
+        expect(data.averageRates.rate).to.equal(ZERO_FRACTION);
+        expect(data.averageRates.invRate).to.equal(ZERO_FRACTION);
 
-        expect(data.tradingEnabled).to.be.false;
-        expect(data.averageRate.blockNumber).to.equal(0);
-        expect(data.averageRate.rate).to.equal(ZERO_FRACTION);
-
+        const liquidity = await poolCollection.poolLiquidity(token.address);
         expect(liquidity.bntTradingLiquidity).to.equal(0);
         expect(liquidity.baseTokenTradingLiquidity).to.equal(0);
         expect(liquidity.stakedBalance).to.equal(expectedStakedBalance);
@@ -150,6 +151,56 @@ describe('PoolCollection', () => {
         }
     };
 
+    const updatedAverageRates = (poolData: AsyncReturnType<TestPoolCollection['poolData']>, blockNumber: number) => {
+        if (blockNumber === poolData.averageRates.blockNumber) {
+            return poolData.averageRates;
+        }
+
+        const averageRate = poolData.averageRates.rate;
+        const spotRate = {
+            n: poolData.liquidity.bntTradingLiquidity,
+            d: poolData.liquidity.baseTokenTradingLiquidity
+        };
+        const newAverageRate = {
+            n: averageRate.n
+                .mul(spotRate.d)
+                .mul(EMA_AVERAGE_RATE_WEIGHT)
+                .add(averageRate.d.mul(spotRate.n).mul(EMA_SPOT_RATE_WEIGHT)),
+            d: averageRate.d.mul(spotRate.d).mul(EMA_AVERAGE_RATE_WEIGHT + EMA_SPOT_RATE_WEIGHT)
+        };
+
+        const scale = max(newAverageRate.n, newAverageRate.d).sub(1).div(BigNumber.from(2).pow(112).sub(1)).add(1);
+
+        const invAverageRate = poolData.averageRates.invRate;
+        const invSpotRate = {
+            n: poolData.liquidity.baseTokenTradingLiquidity,
+            d: poolData.liquidity.bntTradingLiquidity
+        };
+        const newInvAverageRate = {
+            n: invAverageRate.n
+                .mul(invSpotRate.d)
+                .mul(EMA_AVERAGE_RATE_WEIGHT)
+                .add(invAverageRate.d.mul(invSpotRate.n).mul(EMA_SPOT_RATE_WEIGHT)),
+            d: invAverageRate.d.mul(invSpotRate.d).mul(EMA_AVERAGE_RATE_WEIGHT + EMA_SPOT_RATE_WEIGHT)
+        };
+        const invScale = max(newInvAverageRate.n, newInvAverageRate.d)
+            .sub(1)
+            .div(BigNumber.from(2).pow(112).sub(1))
+            .add(1);
+
+        return {
+            blockNumber,
+            rate: {
+                n: newAverageRate.n.div(scale),
+                d: newAverageRate.d.div(scale)
+            },
+            invRate: {
+                n: newInvAverageRate.n.div(invScale),
+                d: newInvAverageRate.d.div(invScale)
+            }
+        };
+    };
+
     describe('construction', () => {
         let network: TestBancorNetwork;
         let bnt: IERC20;
@@ -183,9 +234,10 @@ describe('PoolCollection', () => {
                     bntPool.address,
                     externalProtectionVault.address,
                     poolTokenFactory.address,
-                    poolMigrator.address
+                    poolMigrator.address,
+                    NETWORK_FEE_PPM
                 )
-            ).to.be.revertedWith('InvalidAddress');
+            ).to.be.revertedWithError('InvalidAddress');
         });
 
         it('should revert when attempting to create with an invalid BNT contract', async () => {
@@ -198,9 +250,10 @@ describe('PoolCollection', () => {
                     bntPool.address,
                     externalProtectionVault.address,
                     poolTokenFactory.address,
-                    poolMigrator.address
+                    poolMigrator.address,
+                    NETWORK_FEE_PPM
                 )
-            ).to.be.revertedWith('InvalidAddress');
+            ).to.be.revertedWithError('InvalidAddress');
         });
 
         it('should revert when attempting to create with an invalid network settings contract', async () => {
@@ -213,9 +266,10 @@ describe('PoolCollection', () => {
                     bntPool.address,
                     externalProtectionVault.address,
                     poolTokenFactory.address,
-                    poolMigrator.address
+                    poolMigrator.address,
+                    NETWORK_FEE_PPM
                 )
-            ).to.be.revertedWith('InvalidAddress');
+            ).to.be.revertedWithError('InvalidAddress');
         });
 
         it('should revert when attempting to create with an invalid master vault contract', async () => {
@@ -228,9 +282,10 @@ describe('PoolCollection', () => {
                     bntPool.address,
                     externalProtectionVault.address,
                     poolTokenFactory.address,
-                    poolMigrator.address
+                    poolMigrator.address,
+                    NETWORK_FEE_PPM
                 )
-            ).to.be.revertedWith('InvalidAddress');
+            ).to.be.revertedWithError('InvalidAddress');
         });
 
         it('should revert when attempting to create with an invalid BNT pool contract', async () => {
@@ -243,9 +298,10 @@ describe('PoolCollection', () => {
                     ZERO_ADDRESS,
                     externalProtectionVault.address,
                     poolTokenFactory.address,
-                    poolMigrator.address
+                    poolMigrator.address,
+                    NETWORK_FEE_PPM
                 )
-            ).to.be.revertedWith('InvalidAddress');
+            ).to.be.revertedWithError('InvalidAddress');
         });
 
         it('should revert when attempting to create with an invalid external protection vault contract', async () => {
@@ -258,9 +314,10 @@ describe('PoolCollection', () => {
                     bntPool.address,
                     ZERO_ADDRESS,
                     poolTokenFactory.address,
-                    poolMigrator.address
+                    poolMigrator.address,
+                    NETWORK_FEE_PPM
                 )
-            ).to.be.revertedWith('InvalidAddress');
+            ).to.be.revertedWithError('InvalidAddress');
         });
 
         it('should revert when attempting to create with an invalid pool token factory contract', async () => {
@@ -273,9 +330,10 @@ describe('PoolCollection', () => {
                     bntPool.address,
                     externalProtectionVault.address,
                     ZERO_ADDRESS,
-                    poolMigrator.address
+                    poolMigrator.address,
+                    NETWORK_FEE_PPM
                 )
-            ).to.be.revertedWith('InvalidAddress');
+            ).to.be.revertedWithError('InvalidAddress');
         });
 
         it('should revert when attempting to create with an invalid pool migrator contract', async () => {
@@ -288,9 +346,26 @@ describe('PoolCollection', () => {
                     bntPool.address,
                     externalProtectionVault.address,
                     poolTokenFactory.address,
-                    ZERO_ADDRESS
+                    ZERO_ADDRESS,
+                    NETWORK_FEE_PPM
                 )
-            ).to.be.revertedWith('InvalidAddress');
+            ).to.be.revertedWithError('InvalidAddress');
+        });
+
+        it('should revert when attempting to create with an invalid network fee', async () => {
+            await expect(
+                Contracts.PoolCollection.deploy(
+                    network.address,
+                    bnt.address,
+                    networkSettings.address,
+                    masterVault.address,
+                    bntPool.address,
+                    externalProtectionVault.address,
+                    poolTokenFactory.address,
+                    poolMigrator.address,
+                    PPM_RESOLUTION + 1
+                )
+            ).to.be.revertedWithError('InvalidFee');
         });
 
         it('should be properly initialized', async () => {
@@ -302,12 +377,14 @@ describe('PoolCollection', () => {
                 bntPool.address,
                 externalProtectionVault.address,
                 poolTokenFactory.address,
-                poolMigrator.address
+                poolMigrator.address,
+                NETWORK_FEE_PPM
             );
-            expect(await poolCollection.version()).to.equal(2);
+            expect(await poolCollection.version()).to.equal(6);
 
             expect(await poolCollection.poolType()).to.equal(PoolType.Standard);
             expect(await poolCollection.defaultTradingFeePPM()).to.equal(DEFAULT_TRADING_FEE_PPM);
+            expect(await poolCollection.networkFeePPM()).to.equal(NETWORK_FEE_PPM);
 
             await expect(poolCollection.deployTransaction)
                 .to.emit(poolCollection, 'DefaultTradingFeePPMUpdated')
@@ -334,11 +411,13 @@ describe('PoolCollection', () => {
         it('should revert when a non-owner attempts to set the default trading fee', async () => {
             await expect(
                 poolCollection.connect(nonOwner).setDefaultTradingFeePPM(newDefaultTradingFee)
-            ).to.be.revertedWith('AccessDenied');
+            ).to.be.revertedWithError('AccessDenied');
         });
 
         it('should revert when setting the default trading fee to an invalid value', async () => {
-            await expect(poolCollection.setDefaultTradingFeePPM(PPM_RESOLUTION + 1)).to.be.revertedWith('InvalidFee');
+            await expect(poolCollection.setDefaultTradingFeePPM(PPM_RESOLUTION + 1)).to.be.revertedWithError(
+                'InvalidFee'
+            );
         });
 
         it('should ignore updating to the same default trading fee', async () => {
@@ -359,8 +438,7 @@ describe('PoolCollection', () => {
             // ensure that the new default trading fee is used during the creation of newer pools
             await createPool(reserveToken, network, networkSettings, poolCollection);
 
-            const pool = await poolCollection.poolData(reserveToken.address);
-            expect(pool.tradingFeePPM).to.equal(newDefaultTradingFee);
+            expect(await poolCollection.tradingFeePPM(reserveToken.address)).to.equal(newDefaultTradingFee);
         });
     });
 
@@ -380,13 +458,13 @@ describe('PoolCollection', () => {
             it('should revert when attempting to create a pool from a non-network', async () => {
                 const nonNetwork = deployer;
 
-                await expect(poolCollection.connect(nonNetwork).createPool(reserveToken.address)).to.be.revertedWith(
-                    'AccessDenied'
-                );
+                await expect(
+                    poolCollection.connect(nonNetwork).createPool(reserveToken.address)
+                ).to.be.revertedWithError('AccessDenied');
             });
 
             it('should revert when attempting to create a pool for a non-whitelisted token', async () => {
-                await expect(network.createPoolT(poolCollection.address, reserveToken.address)).to.be.revertedWith(
+                await expect(network.createPoolT(poolCollection.address, reserveToken.address)).to.be.revertedWithError(
                     'NotWhitelisted'
                 );
             });
@@ -399,9 +477,9 @@ describe('PoolCollection', () => {
                 it('should not allow to create the same pool twice', async () => {
                     await network.createPoolT(poolCollection.address, reserveToken.address);
 
-                    await expect(network.createPoolT(poolCollection.address, reserveToken.address)).to.be.revertedWith(
-                        'AlreadyExists'
-                    );
+                    await expect(
+                        network.createPoolT(poolCollection.address, reserveToken.address)
+                    ).to.be.revertedWithError('AlreadyExists');
                 });
 
                 it('should create a pool', async () => {
@@ -414,20 +492,12 @@ describe('PoolCollection', () => {
                     const pool = await poolCollection.poolData(reserveToken.address);
 
                     await expect(res)
-                        .to.emit(poolCollection, 'PoolCreated')
-                        .withArgs(pool.poolToken, reserveToken.address);
-                    await expect(res)
                         .to.emit(poolCollection, 'TradingFeePPMUpdated')
                         .withArgs(reserveToken.address, 0, pool.tradingFeePPM);
                     await expect(res)
                         .to.emit(poolCollection, 'TradingEnabled')
                         .withArgs(reserveToken.address, false, TradingStatusUpdateReason.Default);
-                    await expect(res)
-                        .to.emit(poolCollection, 'DepositingEnabled')
-                        .withArgs(reserveToken.address, pool.depositingEnabled);
-                    await expect(res)
-                        .to.emit(poolCollection, 'DepositLimitUpdated')
-                        .withArgs(reserveToken.address, 0, pool.depositLimit);
+                    await expect(res).to.emit(poolCollection, 'DepositingEnabled').withArgs(reserveToken.address, true);
 
                     expect(await poolCollection.isPoolValid(reserveToken.address)).to.be.true;
                     expect(await poolCollection.pools()).to.include(reserveToken.address);
@@ -438,12 +508,13 @@ describe('PoolCollection', () => {
                     expect(await poolCollection.poolToken(reserveToken.address)).to.equal(pool.poolToken);
                     expect(await poolToken.reserveToken()).to.equal(reserveToken.address);
 
-                    expect(pool.tradingFeePPM).to.equal(DEFAULT_TRADING_FEE_PPM);
-                    expect(pool.tradingEnabled).to.be.false;
-                    expect(pool.depositingEnabled).to.be.true;
-                    expect(pool.averageRate.blockNumber).to.equal(0);
-                    expect(pool.averageRate.rate).to.equal(ZERO_FRACTION);
-                    expect(pool.depositLimit).to.equal(0);
+                    expect(await poolCollection.tradingFeePPM(reserveToken.address)).to.equal(DEFAULT_TRADING_FEE_PPM);
+                    expect(await poolCollection.tradingEnabled(reserveToken.address)).to.be.false;
+                    expect(await poolCollection.depositingEnabled(reserveToken.address)).to.be.true;
+
+                    expect(pool.averageRates.blockNumber).to.equal(0);
+                    expect(pool.averageRates.rate).to.equal(ZERO_FRACTION);
+                    expect(pool.averageRates.invRate).to.equal(ZERO_FRACTION);
 
                     const { liquidity } = pool;
                     expect(liquidity.baseTokenTradingLiquidity).to.equal(0);
@@ -488,19 +559,19 @@ describe('PoolCollection', () => {
             it('should revert when a non-owner attempts to set the trading fee', async () => {
                 await expect(
                     poolCollection.connect(nonOwner).setTradingFeePPM(reserveToken.address, newTradingFee)
-                ).to.be.revertedWith('AccessDenied');
+                ).to.be.revertedWithError('AccessDenied');
             });
 
             it('should revert when setting an invalid trading fee', async () => {
                 await expect(
                     poolCollection.setTradingFeePPM(reserveToken.address, PPM_RESOLUTION + 1)
-                ).to.be.revertedWith('InvalidFee');
+                ).to.be.revertedWithError('InvalidFee');
             });
 
             it('should revert when setting the trading fee of a non-existing pool', async () => {
                 await expect(
                     poolCollection.setTradingFeePPM(newReserveToken.address, newTradingFee)
-                ).to.be.revertedWith('DoesNotExist');
+                ).to.be.revertedWithError('DoesNotExist');
             });
 
             it('should ignore updating to the same trading fee', async () => {
@@ -540,11 +611,11 @@ describe('PoolCollection', () => {
             it('should revert when a non-owner attempts to enable depositing', async () => {
                 await expect(
                     poolCollection.connect(nonOwner).enableDepositing(reserveToken.address, true)
-                ).to.be.revertedWith('AccessDenied');
+                ).to.be.revertedWithError('AccessDenied');
             });
 
             it('should revert when enabling depositing for a non-existing pool', async () => {
-                await expect(poolCollection.enableDepositing(newReserveToken.address, true)).to.be.revertedWith(
+                await expect(poolCollection.enableDepositing(newReserveToken.address, true)).to.be.revertedWithError(
                     'DoesNotExist'
                 );
             });
@@ -557,71 +628,17 @@ describe('PoolCollection', () => {
             });
 
             it('should allow enabling and disabling depositing', async () => {
-                let pool = await poolCollection.poolData(reserveToken.address);
-                let { depositingEnabled } = pool;
-                expect(depositingEnabled).to.be.true;
+                expect(await poolCollection.depositingEnabled(reserveToken.address)).to.be.true;
 
                 const res = await poolCollection.enableDepositing(reserveToken.address, false);
                 await expect(res).to.emit(poolCollection, 'DepositingEnabled').withArgs(reserveToken.address, false);
 
-                pool = await poolCollection.poolData(reserveToken.address);
-                ({ depositingEnabled } = pool);
-                expect(depositingEnabled).to.be.false;
+                expect(await poolCollection.depositingEnabled(reserveToken.address)).to.be.false;
 
                 const res2 = await poolCollection.enableDepositing(reserveToken.address, true);
                 await expect(res2).to.emit(poolCollection, 'DepositingEnabled').withArgs(reserveToken.address, true);
 
-                pool = await poolCollection.poolData(reserveToken.address);
-                ({ depositingEnabled } = pool);
-                expect(depositingEnabled).to.be.true;
-            });
-        });
-
-        describe('setting the deposit limit', () => {
-            const newDepositLimit = 99_999;
-
-            it('should revert when a non-owner attempts to set the deposit limit', async () => {
-                await expect(
-                    poolCollection.connect(nonOwner).setDepositLimit(reserveToken.address, newDepositLimit)
-                ).to.be.revertedWith('AccessDenied');
-            });
-
-            it('should revert when setting the deposit limit of a non-existing pool', async () => {
-                await expect(
-                    poolCollection.setDepositLimit(newReserveToken.address, newDepositLimit)
-                ).to.be.revertedWith('DoesNotExist');
-            });
-
-            it('should ignore updating to the same deposit limit', async () => {
-                await poolCollection.setDepositLimit(reserveToken.address, newDepositLimit);
-
-                const res = await poolCollection.setDepositLimit(reserveToken.address, newDepositLimit);
-                await expect(res).not.to.emit(poolCollection, 'DepositLimitUpdated');
-            });
-
-            it('should allow setting and updating the deposit limit', async () => {
-                let pool = await poolCollection.poolData(reserveToken.address);
-                let { depositLimit } = pool;
-                expect(depositLimit).to.equal(0);
-
-                const res = await poolCollection.setDepositLimit(reserveToken.address, newDepositLimit);
-                await expect(res)
-                    .to.emit(poolCollection, 'DepositLimitUpdated')
-                    .withArgs(reserveToken.address, depositLimit, newDepositLimit);
-
-                pool = await poolCollection.poolData(reserveToken.address);
-                ({ depositLimit } = pool);
-                expect(depositLimit).to.equal(newDepositLimit);
-
-                const newDepositLimit2 = 1;
-                const res2 = await poolCollection.setDepositLimit(reserveToken.address, newDepositLimit2);
-                await expect(res2)
-                    .to.emit(poolCollection, 'DepositLimitUpdated')
-                    .withArgs(reserveToken.address, depositLimit, newDepositLimit2);
-
-                pool = await poolCollection.poolData(reserveToken.address);
-                ({ depositLimit } = pool);
-                expect(depositLimit).to.equal(newDepositLimit2);
+                expect(await poolCollection.depositingEnabled(reserveToken.address)).to.be.true;
             });
         });
     });
@@ -647,8 +664,8 @@ describe('PoolCollection', () => {
             await networkSettings.setMinLiquidityForTrading(MIN_LIQUIDITY_FOR_TRADING);
         });
 
-        const testActivation = (tokenData: TokenData) => {
-            const testEnableTrading = async (totalLiquidity: BigNumber) => {
+        const testEnableTrading = (tokenData: TokenData) => {
+            const verifyEnableTrading = async (totalLiquidity: BigNumber) => {
                 expect(await bntPool.currentPoolFunding(token.address)).to.equal(0);
 
                 const { liquidity: prevLiquidity } = await poolCollection.poolData(token.address);
@@ -662,10 +679,11 @@ describe('PoolCollection', () => {
                 const data = await poolCollection.poolData(token.address);
                 const { liquidity } = data;
 
-                expect(data.averageRate.blockNumber).to.equal(await poolCollection.currentBlockNumber());
-                expect(data.averageRate.rate).to.equal({ n: BNT_VIRTUAL_BALANCE, d: BASE_TOKEN_VIRTUAL_BALANCE });
+                expect(data.averageRates.blockNumber).to.equal(await poolCollection.currentBlockNumber());
+                expect(data.averageRates.rate).to.equal({ n: BNT_VIRTUAL_BALANCE, d: BASE_TOKEN_VIRTUAL_BALANCE });
+                expect(data.averageRates.invRate).to.equal({ n: BASE_TOKEN_VIRTUAL_BALANCE, d: BNT_VIRTUAL_BALANCE });
 
-                expect(data.tradingEnabled).to.be.true;
+                expect(await poolCollection.tradingEnabled(token.address)).to.be.true;
 
                 expect(liquidity.bntTradingLiquidity).to.equal(
                     MIN_LIQUIDITY_FOR_TRADING.mul(BOOTSTRAPPING_LIQUIDITY_BUFFER_FACTOR)
@@ -682,6 +700,11 @@ describe('PoolCollection', () => {
                     .to.emit(poolCollection, 'TradingEnabled')
                     .withArgs(token.address, true, TradingStatusUpdateReason.Admin);
 
+                const contextId = solidityKeccak256(
+                    ['address', 'address', 'uint256', 'uint256'],
+                    [deployer.address, token.address, BNT_VIRTUAL_BALANCE, BASE_TOKEN_VIRTUAL_BALANCE]
+                );
+
                 await testTradingLiquidityEvents(
                     token,
                     poolCollection,
@@ -689,7 +712,7 @@ describe('PoolCollection', () => {
                     bnt,
                     prevLiquidity,
                     liquidity,
-                    ZERO_BYTES32,
+                    contextId,
                     res
                 );
             };
@@ -704,8 +727,6 @@ describe('PoolCollection', () => {
                 await createPool(token, network, networkSettings, poolCollection);
 
                 await networkSettings.setFundingLimit(token.address, MAX_UINT256);
-
-                await poolCollection.setDepositLimit(token.address, MAX_UINT256);
             });
 
             it('should revert when a non-owner attempts to enable trading', async () => {
@@ -713,13 +734,13 @@ describe('PoolCollection', () => {
                     poolCollection
                         .connect(nonOwner)
                         .enableTrading(token.address, BNT_VIRTUAL_BALANCE, BASE_TOKEN_VIRTUAL_BALANCE)
-                ).to.be.revertedWith('AccessDenied');
+                ).to.be.revertedWithError('AccessDenied');
             });
 
             it('should revert when enabling trading an invalid pool', async () => {
                 await expect(
                     poolCollection.enableTrading(ZERO_ADDRESS, BNT_VIRTUAL_BALANCE, BASE_TOKEN_VIRTUAL_BALANCE)
-                ).to.be.revertedWith('DoesNotExist');
+                ).to.be.revertedWithError('DoesNotExist');
             });
 
             it('should revert when enabling trading a non-existing pool', async () => {
@@ -730,18 +751,18 @@ describe('PoolCollection', () => {
                         BNT_VIRTUAL_BALANCE,
                         BASE_TOKEN_VIRTUAL_BALANCE
                     )
-                ).to.be.revertedWith('DoesNotExist');
+                ).to.be.revertedWithError('DoesNotExist');
             });
 
             it('should revert when enabling trading with an invalid funding rate', async () => {
-                await expect(poolCollection.enableTrading(token.address, 0, 1)).to.be.revertedWith('InvalidRate');
+                await expect(poolCollection.enableTrading(token.address, 0, 1)).to.be.revertedWithError('InvalidRate');
             });
 
             context('when no base token liquidity was deposited', () => {
                 it('should revert', async () => {
                     await expect(
                         poolCollection.enableTrading(token.address, BNT_VIRTUAL_BALANCE, BASE_TOKEN_VIRTUAL_BALANCE)
-                    ).to.be.revertedWith('InsufficientLiquidity');
+                    ).to.be.revertedWithError('InsufficientLiquidity');
                 });
             });
 
@@ -755,7 +776,7 @@ describe('PoolCollection', () => {
                 });
 
                 it('should enable trading', async () => {
-                    await testEnableTrading(INITIAL_LIQUIDITY);
+                    await verifyEnableTrading(INITIAL_LIQUIDITY);
                 });
 
                 it('should save the reduced funding rate', async () => {
@@ -764,26 +785,30 @@ describe('PoolCollection', () => {
                     await poolCollection.enableTrading(token.address, bntVirtualBalance, baseTokenVirtualBalance);
 
                     const {
-                        averageRate: { rate }
+                        averageRates: { rate, invRate }
                     } = await poolCollection.poolData(token.address);
 
-                    expect(rate).not.to.equal({ n: bntVirtualBalance, d: baseTokenVirtualBalance });
-                    expect(rate).to.almostEqual(
-                        { n: bntVirtualBalance, d: baseTokenVirtualBalance },
-                        {
-                            maxRelativeError: new Decimal('0.000000000000000000000001')
-                        }
-                    );
+                    const spotRate = { n: bntVirtualBalance, d: baseTokenVirtualBalance };
+                    expect(rate).not.to.equal(spotRate);
+                    expect(rate).to.almostEqual(spotRate, {
+                        maxRelativeError: new Decimal('0.000000000000000000000001')
+                    });
+
+                    const invSpotRate = { n: baseTokenVirtualBalance, d: bntVirtualBalance };
+                    expect(invRate).not.to.equal(invSpotRate);
+                    expect(invRate).to.almostEqual(invSpotRate, {
+                        maxRelativeError: new Decimal('0.000000000000000000000001')
+                    });
                 });
 
                 it('should revert when attempting to enable trading twice', async () => {
                     await poolCollection.enableTrading(token.address, BNT_VIRTUAL_BALANCE, BASE_TOKEN_VIRTUAL_BALANCE);
                     await expect(
                         poolCollection.enableTrading(token.address, BNT_VIRTUAL_BALANCE, BASE_TOKEN_VIRTUAL_BALANCE)
-                    ).to.be.revertedWith('AlreadyEnabled');
+                    ).to.be.revertedWithError('AlreadyEnabled');
                 });
 
-                context('when the pool funding limit is below the minimum liquidity for trading', () => {
+                context('when the pool funding limit is below the minimum trading liquidity', () => {
                     beforeEach(async () => {
                         await networkSettings.setFundingLimit(token.address, MIN_LIQUIDITY_FOR_TRADING.sub(1));
                     });
@@ -791,11 +816,11 @@ describe('PoolCollection', () => {
                     it('should revert', async () => {
                         await expect(
                             poolCollection.enableTrading(token.address, BNT_VIRTUAL_BALANCE, BASE_TOKEN_VIRTUAL_BALANCE)
-                        ).to.be.revertedWith('InsufficientLiquidity');
+                        ).to.be.revertedWithError('InsufficientLiquidity');
                     });
                 });
 
-                context('when the matched target network liquidity is below the minimum liquidity for trading', () => {
+                context('when the matched target network liquidity is below the minimum trading liquidity', () => {
                     it('should revert', async () => {
                         // use a funding rate such that the resulting matched target network liquidity is insufficient
                         await expect(
@@ -804,7 +829,7 @@ describe('PoolCollection', () => {
                                 MIN_LIQUIDITY_FOR_TRADING.sub(1),
                                 INITIAL_LIQUIDITY
                             )
-                        ).to.be.revertedWith('InsufficientLiquidity');
+                        ).to.be.revertedWithError('InsufficientLiquidity');
                     });
                 });
             });
@@ -822,14 +847,14 @@ describe('PoolCollection', () => {
                 });
 
                 it('should enable trading', async () => {
-                    await testEnableTrading(TOTAL_INITIAL_LIQUIDITY);
+                    await verifyEnableTrading(TOTAL_INITIAL_LIQUIDITY);
                 });
             });
         };
 
         for (const symbol of [TokenSymbol.ETH, TokenSymbol.TKN]) {
             context(symbol, () => {
-                testActivation(new TokenData(symbol));
+                testEnableTrading(new TokenData(symbol));
             });
         }
     });
@@ -881,31 +906,30 @@ describe('PoolCollection', () => {
                 await createPool(token, network, networkSettings, poolCollection);
 
                 await networkSettings.setFundingLimit(token.address, MAX_UINT256);
-
-                await poolCollection.setDepositLimit(token.address, MAX_UINT256);
             });
 
             it('should revert when a non-owner attempts to disable trading', async () => {
-                await expect(poolCollection.connect(nonOwner).disableTrading(token.address)).to.be.revertedWith(
+                await expect(poolCollection.connect(nonOwner).disableTrading(token.address)).to.be.revertedWithError(
                     'AccessDenied'
                 );
             });
 
             it('should revert when disabling trading of an invalid pool', async () => {
-                await expect(poolCollection.disableTrading(ZERO_ADDRESS)).to.be.revertedWith('DoesNotExist');
+                await expect(poolCollection.disableTrading(ZERO_ADDRESS)).to.be.revertedWithError('DoesNotExist');
             });
 
             it('should revert when disabling trading of a non-existing pool', async () => {
                 const newReserveToken = await createTestToken();
-                await expect(poolCollection.disableTrading(newReserveToken.address)).to.be.revertedWith('DoesNotExist');
+                await expect(poolCollection.disableTrading(newReserveToken.address)).to.be.revertedWithError(
+                    'DoesNotExist'
+                );
             });
 
             context('when trading is disabled', () => {
                 beforeEach(async () => {
-                    const data = await poolCollection.poolData(token.address);
-                    const { liquidity } = data;
+                    expect(await poolCollection.tradingEnabled(token.address)).to.be.false;
 
-                    expect(data.tradingEnabled).to.be.false;
+                    const liquidity = await poolCollection.poolLiquidity(token.address);
                     expect(liquidity.bntTradingLiquidity).to.equal(0);
                     expect(liquidity.baseTokenTradingLiquidity).to.equal(0);
                     expect(liquidity.stakedBalance).to.equal(0);
@@ -936,20 +960,25 @@ describe('PoolCollection', () => {
 
                 context('with an initialized average rate', () => {
                     beforeEach(async () => {
-                        await poolCollection.setAverageRateT(token.address, {
+                        await poolCollection.setAverageRatesT(token.address, {
                             blockNumber: 1000,
                             rate: {
                                 n: 1234,
                                 d: 100
+                            },
+                            invRate: {
+                                n: 100,
+                                d: 1234
                             }
                         });
 
-                        const data = await poolCollection.poolData(token.address);
-                        const { averageRate } = data;
+                        const { averageRates } = await poolCollection.poolData(token.address);
 
-                        expect(averageRate.blockNumber).to.be.gte(0);
-                        expect(averageRate.rate.n).to.be.gte(0);
-                        expect(averageRate.rate.d).to.be.gte(0);
+                        expect(averageRates.blockNumber).to.be.gte(0);
+                        expect(averageRates.rate.n).to.be.gte(0);
+                        expect(averageRates.rate.d).to.be.gte(0);
+                        expect(averageRates.invRate.n).to.be.gte(0);
+                        expect(averageRates.invRate.d).to.be.gte(0);
                     });
 
                     it('should reset the trading liquidity', async () => {
@@ -995,7 +1024,7 @@ describe('PoolCollection', () => {
 
                 await expect(
                     poolCollection.connect(nonNetwork).depositFor(CONTEXT_ID, provider.address, token.address, 1)
-                ).to.be.revertedWith('AccessDenied');
+                ).to.be.revertedWithError('AccessDenied');
             });
 
             it('should revert when attempting to deposit for an invalid provider', async () => {
@@ -1007,7 +1036,7 @@ describe('PoolCollection', () => {
                         token.address,
                         1
                     )
-                ).to.be.revertedWith('InvalidAddress');
+                ).to.be.revertedWithError('InvalidAddress');
             });
 
             it('should revert when attempting to deposit for an invalid pool', async () => {
@@ -1019,7 +1048,7 @@ describe('PoolCollection', () => {
                         ZERO_ADDRESS,
                         1
                     )
-                ).to.be.revertedWith('DoesNotExist');
+                ).to.be.revertedWithError('DoesNotExist');
             });
 
             it('should revert when attempting to deposit into a non-existing pool', async () => {
@@ -1031,7 +1060,7 @@ describe('PoolCollection', () => {
                         token.address,
                         1
                     )
-                ).to.be.revertedWith('DoesNotExist');
+                ).to.be.revertedWithError('DoesNotExist');
             });
 
             it('should revert when attempting to deposit an invalid amount', async () => {
@@ -1043,13 +1072,12 @@ describe('PoolCollection', () => {
                         token.address,
                         0
                     )
-                ).to.be.revertedWith('ZeroValue');
+                ).to.be.revertedWithError('ZeroValue');
             });
 
             context('with a registered pool', () => {
                 let poolToken: PoolToken;
 
-                const DEPOSIT_LIMIT = toWei(1_000_000_000_000);
                 const COUNT = 3;
                 const AMOUNT = toWei(10_000);
 
@@ -1057,8 +1085,6 @@ describe('PoolCollection', () => {
                     poolToken = await createPool(token, network, networkSettings, poolCollection);
 
                     await networkSettings.setFundingLimit(token.address, MAX_UINT256);
-
-                    await poolCollection.setDepositLimit(token.address, DEPOSIT_LIMIT);
 
                     await transfer(deployer, token, masterVault, AMOUNT.mul(COUNT));
 
@@ -1068,7 +1094,8 @@ describe('PoolCollection', () => {
                 enum TradingLiquidityState {
                     Reset = 0,
                     Ignore = 1,
-                    Update = 2
+                    Update = 2,
+                    InvalidState = 3
                 }
 
                 const testDepositFor = async (
@@ -1077,13 +1104,14 @@ describe('PoolCollection', () => {
                 ) => {
                     const {
                         tradingEnabled: prevTradingEnabled,
-                        averageRate: prevAverageRate,
+                        averageRates: prevAverageRates,
                         liquidity: prevLiquidity
                     } = await poolCollection.poolData(token.address);
 
                     const prevPoolTokenTotalSupply = await poolToken.totalSupply();
                     const prevProviderPoolTokenBalance = await poolToken.balanceOf(provider.address);
                     const prevFunding = await bntPool.currentPoolFunding(token.address);
+                    const prevAvailableFunding = await bntPool.availableFunding(token.address);
 
                     let expectedPoolTokenAmount;
                     if (prevPoolTokenTotalSupply.isZero()) {
@@ -1116,8 +1144,7 @@ describe('PoolCollection', () => {
                         .to.emit(poolCollection, 'TokensDeposited')
                         .withArgs(CONTEXT_ID, provider.address, token.address, tokenAmount, expectedPoolTokenAmount);
 
-                    const poolData = await poolCollection.poolData(token.address);
-                    const { liquidity } = poolData;
+                    const liquidity = await poolCollection.poolLiquidity(token.address);
 
                     await testTradingLiquidityEvents(
                         token,
@@ -1137,8 +1164,6 @@ describe('PoolCollection', () => {
                         prevProviderPoolTokenBalance.add(expectedPoolTokenAmount)
                     );
 
-                    expect(liquidity.stakedBalance).to.equal(prevLiquidity.stakedBalance.add(tokenAmount));
-
                     switch (expectTradingLiquidity) {
                         case TradingLiquidityState.Reset:
                             await testLiquidityReset(
@@ -1152,8 +1177,19 @@ describe('PoolCollection', () => {
                                 TradingStatusUpdateReason.MinLiquidity
                             );
 
-                            expect(liquidity.bntTradingLiquidity).to.equal(0);
-                            expect(liquidity.baseTokenTradingLiquidity).to.equal(0);
+                            break;
+
+                        case TradingLiquidityState.InvalidState:
+                            await testLiquidityReset(
+                                token,
+                                poolCollection,
+                                bntPool,
+                                prevTradingEnabled,
+                                res,
+                                tokenAmount,
+                                prevFunding.sub(prevLiquidity.bntTradingLiquidity),
+                                TradingStatusUpdateReason.InvalidState
+                            );
 
                             break;
 
@@ -1162,41 +1198,49 @@ describe('PoolCollection', () => {
                             expect(liquidity.baseTokenTradingLiquidity).to.equal(
                                 prevLiquidity.baseTokenTradingLiquidity
                             );
+                            expect(liquidity.stakedBalance).to.equal(prevLiquidity.stakedBalance.add(tokenAmount));
 
                             break;
 
                         case TradingLiquidityState.Update:
                             {
-                                expect(prevLiquidity.bntTradingLiquidity).to.be.gte(0);
-
-                                let targetBNTTradingLiquidity = min(
+                                const totalBaseTokenReserveAmount = await getBalance(token, masterVault.address);
+                                const totalTokenDeltaAmount = totalBaseTokenReserveAmount.sub(
                                     prevLiquidity.baseTokenTradingLiquidity
-                                        .mul(prevAverageRate.rate.n)
-                                        .div(prevAverageRate.rate.d),
-                                    prevLiquidity.bntTradingLiquidity.add(await bntPool.availableFunding(token.address))
+                                );
+                                const targetBNTTradingLiquidityDelta = min(
+                                    totalTokenDeltaAmount.mul(prevAverageRates.rate.n).div(prevAverageRates.rate.d),
+                                    prevAvailableFunding
                                 );
 
-                                if (targetBNTTradingLiquidity.gte(prevLiquidity.bntTradingLiquidity)) {
+                                let targetBNTTradingLiquidity =
+                                    prevLiquidity.bntTradingLiquidity.add(targetBNTTradingLiquidityDelta);
+
+                                if (prevLiquidity.bntTradingLiquidity.isZero()) {
+                                    const minLiquidityForTrading = await networkSettings.minLiquidityForTrading();
+
+                                    targetBNTTradingLiquidity = minLiquidityForTrading.mul(
+                                        BOOTSTRAPPING_LIQUIDITY_BUFFER_FACTOR
+                                    );
+                                } else if (targetBNTTradingLiquidity.gte(prevLiquidity.bntTradingLiquidity)) {
                                     targetBNTTradingLiquidity = min(
                                         targetBNTTradingLiquidity,
                                         prevLiquidity.bntTradingLiquidity.mul(LIQUIDITY_GROWTH_FACTOR)
                                     );
                                 }
 
-                                // ensure that the new BNT funding was updated
-                                if (targetBNTTradingLiquidity.gt(prevLiquidity.bntTradingLiquidity)) {
-                                    expect(await bntPool.currentPoolFunding(token.address)).to.equal(
-                                        prevFunding.add(
-                                            targetBNTTradingLiquidity.sub(prevLiquidity.bntTradingLiquidity)
-                                        )
-                                    );
-                                } else if (targetBNTTradingLiquidity.lt(prevLiquidity.bntTradingLiquidity)) {
-                                    expect(await bntPool.currentPoolFunding(token.address)).to.equal(
-                                        prevFunding.sub(
-                                            prevLiquidity.bntTradingLiquidity.sub(targetBNTTradingLiquidity)
-                                        )
-                                    );
-                                }
+                                const bntTradingLiquidityDelta = targetBNTTradingLiquidity.sub(
+                                    prevLiquidity.bntTradingLiquidity
+                                );
+                                const baseTokenTradingLiquidityDelta = bntTradingLiquidityDelta
+                                    .mul(prevAverageRates.rate.d)
+                                    .div(prevAverageRates.rate.n);
+                                const targetBaseTokenLiquidity =
+                                    prevLiquidity.baseTokenTradingLiquidity.add(baseTokenTradingLiquidityDelta);
+
+                                expect(liquidity.bntTradingLiquidity).to.equal(targetBNTTradingLiquidity);
+                                expect(liquidity.baseTokenTradingLiquidity).to.equal(targetBaseTokenLiquidity);
+                                expect(liquidity.stakedBalance).to.equal(prevLiquidity.stakedBalance.add(tokenAmount));
                             }
 
                             break;
@@ -1223,39 +1267,13 @@ describe('PoolCollection', () => {
                                 token.address,
                                 1
                             )
-                        ).to.be.revertedWith('DepositingDisabled');
+                        ).to.be.revertedWithError('DepositingDisabled');
                     });
                 });
 
                 context('when trading is disabled', () => {
-                    context('when at the deposit limit', () => {
-                        beforeEach(async () => {
-                            await network.depositToPoolCollectionForT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                provider.address,
-                                token.address,
-                                DEPOSIT_LIMIT
-                            );
-                        });
-
-                        it('should revert', async () => {
-                            await expect(
-                                network.depositToPoolCollectionForT(
-                                    poolCollection.address,
-                                    CONTEXT_ID,
-                                    provider.address,
-                                    token.address,
-                                    1
-                                )
-                            ).to.be.revertedWith('DepositLimitExceeded');
-                        });
-                    });
-
-                    context('when below the deposit limit', () => {
-                        it('should deposit and reset the trading liquidity', async () => {
-                            await testMultipleDepositsFor(TradingLiquidityState.Reset);
-                        });
+                    it('should deposit and reset the trading liquidity', async () => {
+                        await testMultipleDepositsFor(TradingLiquidityState.Reset);
                     });
                 });
 
@@ -1277,248 +1295,373 @@ describe('PoolCollection', () => {
                         expect(tradingEnabled).to.be.true;
                     });
 
-                    context('when at the deposit limit', () => {
+                    context('when the BNT trading liquidity is zero', () => {
+                        const rate = { n: 1, d: 2 };
+                        const invRate = { n: 2, d: 1 };
+
                         beforeEach(async () => {
-                            await network.depositToPoolCollectionForT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                provider.address,
-                                token.address,
-                                DEPOSIT_LIMIT.sub(INITIAL_LIQUIDITY)
-                            );
-                        });
-
-                        it('should revert', async () => {
-                            await expect(
-                                network.depositToPoolCollectionForT(
-                                    poolCollection.address,
-                                    CONTEXT_ID,
-                                    provider.address,
-                                    token.address,
-                                    1
-                                )
-                            ).to.be.revertedWith('DepositLimitExceeded');
-                        });
-                    });
-
-                    context('when the BNT liquidity for trading is zero', () => {
-                        it('should deposit without updating the trading liquidity', async () => {
-                            const availableFunding = await bntPool.currentPoolFunding(token.address);
-                            await networkSettings.setFundingLimit(token.address, availableFunding.mul(2));
-                            await networkSettings.setMinLiquidityForTrading(availableFunding.sub(1));
-                            await transfer(deployer, token, masterVault, availableFunding.add(1));
-
                             await poolCollection.setTradingLiquidityT(token.address, {
                                 bntTradingLiquidity: 0,
                                 baseTokenTradingLiquidity: 0,
                                 stakedBalance: 1
                             });
 
-                            await poolCollection.setAverageRateT(token.address, {
+                            await poolCollection.setAverageRatesT(token.address, {
                                 blockNumber: await poolCollection.currentBlockNumber(),
-                                rate: {
-                                    n: 1,
-                                    d: 1
-                                }
+                                rate,
+                                invRate
+                            });
+                        });
+
+                        context('when there is available funding to exceed the target liquidity', () => {
+                            it('should deposit and update the trading liquidity', async () => {
+                                await testMultipleDepositsFor(TradingLiquidityState.Update);
+                            });
+                        });
+
+                        context('when there is not enough available funding to exceed the target liquidity', () => {
+                            beforeEach(async () => {
+                                const currentFunding = await bntPool.currentPoolFunding(token.address);
+                                const minLiquidityForTrading = await networkSettings.minLiquidityForTrading();
+
+                                await networkSettings.setFundingLimit(
+                                    token.address,
+                                    currentFunding.add(minLiquidityForTrading).add(1)
+                                );
                             });
 
-                            const tokenAmount = toWei(1);
+                            it('should deposit without updating the trading liquidity', async () => {
+                                const minLiquidityForTrading = await networkSettings.minLiquidityForTrading();
+                                const tokenAmount = minLiquidityForTrading.mul(rate.d).div(rate.n);
 
-                            const expectedPoolTokenAmount = await network.callStatic.depositToPoolCollectionForT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                provider.address,
-                                token.address,
-                                tokenAmount
-                            );
-
-                            const { liquidity: prevLiquidity } = await poolCollection.poolData(token.address);
-
-                            const res = await network.depositToPoolCollectionForT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                provider.address,
-                                token.address,
-                                tokenAmount
-                            );
-
-                            const { liquidity, averageRate } = await poolCollection.poolData(token.address);
-
-                            await expect(res).to.not.emit(poolCollection, 'TradingLiquidityUpdated');
-
-                            await expect(res)
-                                .to.emit(poolCollection, 'TokensDeposited')
-                                .withArgs(
+                                const expectedPoolTokenAmount = await network.callStatic.depositToPoolCollectionForT(
+                                    poolCollection.address,
                                     CONTEXT_ID,
                                     provider.address,
                                     token.address,
-                                    tokenAmount,
-                                    expectedPoolTokenAmount
+                                    tokenAmount
                                 );
 
-                            await testTradingLiquidityEvents(
-                                token,
-                                poolCollection,
-                                masterVault,
-                                bnt,
-                                prevLiquidity,
-                                liquidity,
-                                CONTEXT_ID,
-                                res
-                            );
+                                const { liquidity: prevLiquidity } = await poolCollection.poolData(token.address);
 
-                            expect(averageRate.rate.n).to.equal(1);
-                            expect(averageRate.rate.d).to.equal(1);
+                                const res = await network.depositToPoolCollectionForT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    provider.address,
+                                    token.address,
+                                    tokenAmount
+                                );
+
+                                const { liquidity, averageRates } = await poolCollection.poolData(token.address);
+
+                                await expect(res).to.not.emit(poolCollection, 'TradingLiquidityUpdated');
+
+                                await expect(res)
+                                    .to.emit(poolCollection, 'TokensDeposited')
+                                    .withArgs(
+                                        CONTEXT_ID,
+                                        provider.address,
+                                        token.address,
+                                        tokenAmount,
+                                        expectedPoolTokenAmount
+                                    );
+
+                                await testTradingLiquidityEvents(
+                                    token,
+                                    poolCollection,
+                                    masterVault,
+                                    bnt,
+                                    prevLiquidity,
+                                    liquidity,
+                                    CONTEXT_ID,
+                                    res
+                                );
+
+                                expect(averageRates.rate).to.equal(rate);
+                                expect(averageRates.invRate).to.equal(invRate);
+                            });
                         });
                     });
 
-                    context('when below the deposit limit', () => {
-                        context(
-                            'when the new BNT liquidity for trading is below the minimum liquidity for trading',
-                            () => {
-                                context('pool is uninitialized', () => {
-                                    beforeEach(async () => {
-                                        await poolCollection.setAverageRateT(token.address, {
-                                            blockNumber: await poolCollection.currentBlockNumber(),
-                                            rate: { n: 0, d: 1 }
-                                        });
-                                    });
-
-                                    it('should deposit and reset the trading liquidity', async () => {
-                                        await testMultipleDepositsFor(TradingLiquidityState.Reset);
-                                    });
-                                });
-
-                                context('pool is unstable', () => {
-                                    beforeEach(async () => {
-                                        const liquidity = await poolCollection.poolLiquidity(token.address);
-
-                                        await poolCollection.setAverageRateT(token.address, {
-                                            blockNumber: await poolCollection.currentBlockNumber(),
-                                            rate: {
-                                                n: liquidity.baseTokenTradingLiquidity,
-                                                d: liquidity.bntTradingLiquidity
-                                            }
-                                        });
-                                    });
-
-                                    it('should deposit without resetting the trading liquidity', async () => {
-                                        await testMultipleDepositsFor(TradingLiquidityState.Ignore);
-                                    });
-                                });
-
-                                context('pool is stable', () => {
-                                    beforeEach(async () => {
-                                        const liquidity = await poolCollection.poolLiquidity(token.address);
-
-                                        await poolCollection.setAverageRateT(token.address, {
-                                            blockNumber: await poolCollection.currentBlockNumber(),
-                                            rate: {
-                                                n: liquidity.bntTradingLiquidity,
-                                                d: liquidity.baseTokenTradingLiquidity
-                                            }
-                                        });
-                                    });
-
-                                    it('should deposit and update the trading liquidity', async () => {
-                                        await testMultipleDepositsFor(TradingLiquidityState.Update);
-                                    });
-                                });
-                            }
-                        );
-
-                        context('when the pool is unstable', () => {
-                            const SPOT_RATE = {
-                                n: toWei(1_000_000),
-                                d: toWei(10_000_000)
-                            };
-
+                    context('when the new BNT trading liquidity is below the minimum trading liquidity', () => {
+                        context('when pool rates are uninitialized', () => {
                             beforeEach(async () => {
-                                const { stakedBalance } = await poolCollection.poolLiquidity(token.address);
-
-                                await poolCollection.setTradingLiquidityT(token.address, {
-                                    bntTradingLiquidity: SPOT_RATE.n,
-                                    baseTokenTradingLiquidity: SPOT_RATE.d,
-                                    stakedBalance
-                                });
-
-                                await poolCollection.setAverageRateT(token.address, {
+                                await poolCollection.setAverageRatesT(token.address, {
                                     blockNumber: await poolCollection.currentBlockNumber(),
-                                    rate: {
-                                        n: SPOT_RATE.n.mul(PPM_RESOLUTION),
-                                        d: SPOT_RATE.d.mul(PPM_RESOLUTION + RATE_MAX_DEVIATION_PPM + toPPM(0.5))
-                                    }
+                                    rate: { n: 0, d: 1 },
+                                    invRate: { n: 0, d: 1 }
                                 });
-
-                                expect(await poolCollection.isPoolRateStable(token.address)).to.be.false;
                             });
 
-                            it('should deposit liquidity and preserve the trading liquidity', async () => {
-                                await testMultipleDepositsFor(TradingLiquidityState.Ignore);
+                            it('should deposit and reset the trading liquidity', async () => {
+                                await testMultipleDepositsFor(TradingLiquidityState.Reset);
                             });
                         });
 
-                        context('when the pool is stable', () => {
+                        context('when pool rates are stable', () => {
                             beforeEach(async () => {
-                                const { liquidity } = await poolCollection.poolData(token.address);
+                                const liquidity = await poolCollection.poolLiquidity(token.address);
 
-                                await poolCollection.setAverageRateT(token.address, {
+                                await poolCollection.setAverageRatesT(token.address, {
                                     blockNumber: await poolCollection.currentBlockNumber(),
                                     rate: {
                                         n: liquidity.bntTradingLiquidity,
                                         d: liquidity.baseTokenTradingLiquidity
+                                    },
+                                    invRate: {
+                                        n: liquidity.baseTokenTradingLiquidity,
+                                        d: liquidity.bntTradingLiquidity
                                     }
                                 });
 
-                                expect(await poolCollection.isPoolRateStable(token.address)).to.be.true;
+                                expect(await poolCollection.isPoolStable(token.address)).to.be.true;
                             });
 
                             it('should deposit and update the trading liquidity', async () => {
                                 await testMultipleDepositsFor(TradingLiquidityState.Update);
                             });
+                        });
 
-                            context('when the pool funding limit is below the minimum liquidity for trading', () => {
+                        context('when pool rate is unstable', () => {
+                            beforeEach(async () => {
+                                const liquidity = await poolCollection.poolLiquidity(token.address);
+
+                                await poolCollection.setAverageRatesT(token.address, {
+                                    blockNumber: await poolCollection.currentBlockNumber(),
+                                    rate: {
+                                        n: liquidity.bntTradingLiquidity.mul(1_000_000),
+                                        d: liquidity.baseTokenTradingLiquidity
+                                    },
+                                    invRate: {
+                                        n: liquidity.baseTokenTradingLiquidity,
+                                        d: liquidity.bntTradingLiquidity
+                                    }
+                                });
+
+                                expect(await poolCollection.isPoolStable(token.address)).to.be.false;
+                            });
+
+                            it('should deposit without resetting the trading liquidity', async () => {
+                                await testMultipleDepositsFor(TradingLiquidityState.Ignore);
+                            });
+                        });
+
+                        context('when pool inverse rate is unstable', () => {
+                            beforeEach(async () => {
+                                const liquidity = await poolCollection.poolLiquidity(token.address);
+
+                                await poolCollection.setAverageRatesT(token.address, {
+                                    blockNumber: await poolCollection.currentBlockNumber(),
+                                    rate: {
+                                        n: liquidity.bntTradingLiquidity,
+                                        d: liquidity.baseTokenTradingLiquidity
+                                    },
+                                    invRate: {
+                                        n: liquidity.baseTokenTradingLiquidity.mul(1_000_000),
+                                        d: liquidity.bntTradingLiquidity
+                                    }
+                                });
+
+                                expect(await poolCollection.isPoolStable(token.address)).to.be.false;
+                            });
+
+                            it('should deposit without resetting the trading liquidity', async () => {
+                                await testMultipleDepositsFor(TradingLiquidityState.Ignore);
+                            });
+                        });
+                    });
+
+                    context('when pool rate is unstable', () => {
+                        beforeEach(async () => {
+                            const { stakedBalance } = await poolCollection.poolLiquidity(token.address);
+
+                            const spotRate = {
+                                n: toWei(1_000_000),
+                                d: toWei(10_000_000)
+                            };
+
+                            await poolCollection.setTradingLiquidityT(token.address, {
+                                bntTradingLiquidity: spotRate.n,
+                                baseTokenTradingLiquidity: spotRate.d,
+                                stakedBalance
+                            });
+
+                            await poolCollection.setAverageRatesT(token.address, {
+                                blockNumber: await poolCollection.currentBlockNumber(),
+                                rate: {
+                                    n: spotRate.n.mul(PPM_RESOLUTION),
+                                    d: spotRate.d.mul(PPM_RESOLUTION + RATE_MAX_DEVIATION_PPM + toPPM(0.5))
+                                },
+                                invRate: {
+                                    n: spotRate.d,
+                                    d: spotRate.n
+                                }
+                            });
+
+                            expect(await poolCollection.isPoolStable(token.address)).to.be.false;
+                        });
+
+                        it('should deposit liquidity and preserve the trading liquidity', async () => {
+                            await testMultipleDepositsFor(TradingLiquidityState.Ignore);
+                        });
+                    });
+
+                    context('when pool inverse rate is unstable', () => {
+                        beforeEach(async () => {
+                            const { stakedBalance } = await poolCollection.poolLiquidity(token.address);
+
+                            const spotRate = {
+                                n: toWei(1_000_000),
+                                d: toWei(10_000_000)
+                            };
+
+                            await poolCollection.setTradingLiquidityT(token.address, {
+                                bntTradingLiquidity: spotRate.n,
+                                baseTokenTradingLiquidity: spotRate.d,
+                                stakedBalance
+                            });
+
+                            await poolCollection.setAverageRatesT(token.address, {
+                                blockNumber: await poolCollection.currentBlockNumber(),
+                                rate: {
+                                    n: spotRate.n,
+                                    d: spotRate.d
+                                },
+                                invRate: {
+                                    n: spotRate.d.mul(PPM_RESOLUTION + RATE_MAX_DEVIATION_PPM + toPPM(0.5)),
+                                    d: spotRate.n.mul(PPM_RESOLUTION)
+                                }
+                            });
+
+                            expect(await poolCollection.isPoolStable(token.address)).to.be.false;
+                        });
+
+                        it('should deposit liquidity and preserve the trading liquidity', async () => {
+                            await testMultipleDepositsFor(TradingLiquidityState.Ignore);
+                        });
+                    });
+
+                    context('when pool rates are stable', () => {
+                        beforeEach(async () => {
+                            const liquidity = await poolCollection.poolLiquidity(token.address);
+
+                            await poolCollection.setAverageRatesT(token.address, {
+                                blockNumber: await poolCollection.currentBlockNumber(),
+                                rate: {
+                                    n: liquidity.bntTradingLiquidity,
+                                    d: liquidity.baseTokenTradingLiquidity
+                                },
+                                invRate: {
+                                    n: liquidity.baseTokenTradingLiquidity,
+                                    d: liquidity.bntTradingLiquidity
+                                }
+                            });
+
+                            expect(await poolCollection.isPoolStable(token.address)).to.be.true;
+                        });
+
+                        it('should deposit and update the trading liquidity', async () => {
+                            await testMultipleDepositsFor(TradingLiquidityState.Update);
+                        });
+
+                        it('should update the rates of the pool', async () => {
+                            const currentBlockNumber = await poolCollection.currentBlockNumber();
+
+                            await poolCollection.setAverageRatesT(token.address, {
+                                blockNumber: currentBlockNumber,
+                                rate: {
+                                    n: 1,
+                                    d: 1
+                                },
+                                invRate: {
+                                    n: 1,
+                                    d: 1
+                                }
+                            });
+
+                            const currPoolData = await poolCollection.poolData(token.address);
+                            const { averageRates: currAverageRates } = currPoolData;
+                            const newBlockNumber = currentBlockNumber + 1;
+                            await poolCollection.setBlockNumber(newBlockNumber);
+
+                            await network.depositToPoolCollectionForT(
+                                poolCollection.address,
+                                CONTEXT_ID,
+                                provider.address,
+                                token.address,
+                                toWei(1_000_000)
+                            );
+
+                            const expectedAverageRates = updatedAverageRates(currPoolData, newBlockNumber);
+
+                            const { averageRates: newAverageRates } = await poolCollection.poolData(token.address);
+
+                            expect(newAverageRates.blockNumber).not.to.equal(currAverageRates.blockNumber);
+                            expect(newAverageRates.rate).not.to.equal(currAverageRates.rate);
+                            expect(newAverageRates.invRate).not.to.equal(currAverageRates.invRate);
+
+                            expect(newAverageRates.blockNumber).to.equal(expectedAverageRates.blockNumber);
+                            expect(newAverageRates.rate).to.equal(expectedAverageRates.rate);
+                            expect(newAverageRates.invRate).to.equal(expectedAverageRates.invRate);
+                        });
+
+                        context('when the pool funding limit is below the minimum trading liquidity', () => {
+                            beforeEach(async () => {
+                                await networkSettings.setFundingLimit(token.address, MIN_LIQUIDITY_FOR_TRADING.sub(1));
+                            });
+
+                            it('should deposit and update the trading liquidity', async () => {
+                                await testMultipleDepositsFor(TradingLiquidityState.Update);
+                            });
+                        });
+
+                        context(
+                            'when the matched target network liquidity is below the minimum trading liquidity',
+                            () => {
                                 beforeEach(async () => {
-                                    await networkSettings.setFundingLimit(
-                                        token.address,
-                                        MIN_LIQUIDITY_FOR_TRADING.sub(1)
-                                    );
+                                    await networkSettings.setMinLiquidityForTrading(MAX_UINT256);
+                                });
+
+                                it('should deposit and reset the trading liquidity', async () => {
+                                    await testMultipleDepositsFor(TradingLiquidityState.Reset);
+                                });
+                            }
+                        );
+
+                        context(
+                            'when the matched target network liquidity is below the current network liquidity',
+                            () => {
+                                beforeEach(async () => {
+                                    // ensure that the pool grew a bit and then retroactive reduce the funding
+                                    // limit to 0 to force the shrinking of the pool
+                                    await testMultipleDepositsFor(TradingLiquidityState.Update);
+
+                                    await networkSettings.setFundingLimit(token.address, MIN_LIQUIDITY_FOR_TRADING);
                                 });
 
                                 it('should deposit and update the trading liquidity', async () => {
                                     await testMultipleDepositsFor(TradingLiquidityState.Update);
                                 });
+                            }
+                        );
+
+                        context('when the total supply of pool tokens is zero', () => {
+                            beforeEach(async () => {
+                                const poolToken = await Contracts.PoolToken.attach(
+                                    await poolCollection.poolToken(token.address)
+                                );
+
+                                expect(await poolToken.totalSupply()).not.to.equal(0);
+
+                                const poolTokenAmount = await poolToken.balanceOf(provider.address);
+                                await poolToken.connect(provider).burn(poolTokenAmount);
+
+                                expect(await poolToken.totalSupply()).to.equal(0);
                             });
 
-                            context(
-                                'when the matched target network liquidity is below the minimum liquidity for trading',
-                                () => {
-                                    beforeEach(async () => {
-                                        await networkSettings.setMinLiquidityForTrading(MAX_UINT256);
-                                    });
-
-                                    it('should deposit and reset the trading liquidity', async () => {
-                                        await testMultipleDepositsFor(TradingLiquidityState.Reset);
-                                    });
-                                }
-                            );
-
-                            context(
-                                'when the matched target network liquidity is below the current network liquidity',
-                                () => {
-                                    beforeEach(async () => {
-                                        // ensure that the pool grew a bit and then retroactive reduce the funding
-                                        // limit to 0 to force the shrinking of the pool
-                                        await testMultipleDepositsFor(TradingLiquidityState.Update);
-
-                                        await networkSettings.setFundingLimit(token.address, MIN_LIQUIDITY_FOR_TRADING);
-                                    });
-
-                                    it('should deposit and update the trading liquidity', async () => {
-                                        await testMultipleDepositsFor(TradingLiquidityState.Update);
-                                    });
-                                }
-                            );
+                            it('should deposit and reset the trading liquidity and the staked balance', async () => {
+                                await testDepositFor(AMOUNT, TradingLiquidityState.InvalidState);
+                            });
                         });
                     });
                 });
@@ -1563,8 +1706,7 @@ describe('PoolCollection', () => {
                 token.address
             );
 
-            await poolToken.connect(provider).transfer(network.address, poolTokenAmount);
-            await network.approveT(poolToken.address, poolCollection.address, poolTokenAmount);
+            await poolToken.connect(provider).transfer(poolCollection.address, poolTokenAmount);
 
             const prevPoolTokenTotalSupply = await poolToken.totalSupply();
             const prevNetworkPoolTokenBalance = await poolToken.balanceOf(network.address);
@@ -1578,7 +1720,11 @@ describe('PoolCollection', () => {
             const underlyingAmount = await poolCollection.poolTokenToUnderlying(token.address, poolTokenAmount);
             const expectedWithdrawalFee = underlyingAmount.mul(withdrawalFeePPM).div(PPM_RESOLUTION);
 
-            const poolWithdrawalAmounts = await poolCollection.poolWithdrawalAmountsT(token.address, poolTokenAmount);
+            const poolWithdrawalAmounts = await poolCollection.poolWithdrawalAmountsT(
+                token.address,
+                poolTokenAmount,
+                underlyingAmount
+            );
 
             const bntAmountRenouncedOnResetLiquidity = poolWithdrawalAmounts.newBNTTradingLiquidity.lt(
                 await networkSettings.minLiquidityForTrading()
@@ -1610,7 +1756,8 @@ describe('PoolCollection', () => {
                 CONTEXT_ID,
                 provider.address,
                 token.address,
-                poolTokenAmount
+                poolTokenAmount,
+                underlyingAmount
             );
 
             await expect(res)
@@ -1652,7 +1799,7 @@ describe('PoolCollection', () => {
                 expect(currMasterVaultBNTBalance).eq(prevMasterVaultBNTBalance.sub(bntAmountRenouncedOnResetLiquidity));
             }
 
-            const { liquidity } = await poolCollection.poolData(token.address);
+            const liquidity = await poolCollection.poolLiquidity(token.address);
 
             await testTradingLiquidityEvents(
                 token,
@@ -1666,9 +1813,7 @@ describe('PoolCollection', () => {
             );
 
             expect(await poolToken.totalSupply()).to.equal(prevPoolTokenTotalSupply.sub(poolTokenAmount));
-            expect(await poolToken.balanceOf(network.address)).to.equal(
-                prevNetworkPoolTokenBalance.sub(poolTokenAmount)
-            );
+            expect(await poolToken.balanceOf(network.address)).to.equal(prevNetworkPoolTokenBalance);
             expect(await getBalance(token, provider)).to.equal(prevProviderBalance.add(baseTokenAmount));
 
             expect(liquidity.stakedBalance).to.equal(expectedStakedBalance);
@@ -1713,8 +1858,6 @@ describe('PoolCollection', () => {
                 await networkSettings.setMinLiquidityForTrading(MIN_LIQUIDITY_FOR_TRADING);
                 await networkSettings.setFundingLimit(token.address, MAX_UINT256);
 
-                await poolCollection.setDepositLimit(token.address, MAX_UINT256);
-
                 await poolCollection.setBlockNumber(await latestBlockNumber());
             });
 
@@ -1722,8 +1865,8 @@ describe('PoolCollection', () => {
                 const nonNetwork = deployer;
 
                 await expect(
-                    poolCollection.connect(nonNetwork).withdraw(CONTEXT_ID, provider.address, token.address, 1)
-                ).to.be.revertedWith('AccessDenied');
+                    poolCollection.connect(nonNetwork).withdraw(CONTEXT_ID, provider.address, token.address, 1, 1)
+                ).to.be.revertedWithError('AccessDenied');
             });
 
             it('should revert when attempting to withdraw from an invalid pool', async () => {
@@ -1733,9 +1876,10 @@ describe('PoolCollection', () => {
                         CONTEXT_ID,
                         provider.address,
                         ZERO_ADDRESS,
+                        1,
                         1
                     )
-                ).to.be.revertedWith('DoesNotExist');
+                ).to.be.revertedWithError('DoesNotExist');
             });
 
             it('should revert when attempting to withdraw from a non-existing pool', async () => {
@@ -1746,21 +1890,49 @@ describe('PoolCollection', () => {
                         CONTEXT_ID,
                         provider.address,
                         newReserveToken.address,
+                        1,
                         1
                     )
-                ).to.be.revertedWith('DoesNotExist');
+                ).to.be.revertedWithError('DoesNotExist');
             });
 
-            it('should revert when attempting to withdraw an invalid amount', async () => {
+            it('should revert when attempting to withdraw an invalid pool token amount', async () => {
                 await expect(
                     network.withdrawFromPoolCollectionT(
                         poolCollection.address,
                         CONTEXT_ID,
                         provider.address,
                         token.address,
+                        0,
+                        1
+                    )
+                ).to.be.revertedWithError('ZeroValue');
+            });
+
+            it('should revert when attempting to withdraw an invalid reserve token amount', async () => {
+                await expect(
+                    network.withdrawFromPoolCollectionT(
+                        poolCollection.address,
+                        CONTEXT_ID,
+                        provider.address,
+                        token.address,
+                        1,
                         0
                     )
-                ).to.be.revertedWith('ZeroValue');
+                ).to.be.revertedWithError('ZeroValue');
+            });
+
+            it('should revert when attempting to withdraw inconsistent amounts', async () => {
+                await expect(
+                    network.withdrawFromPoolCollectionT(
+                        poolCollection.address,
+                        CONTEXT_ID,
+                        provider.address,
+                        token.address,
+                        1,
+                        100_000
+                    )
+                ).to.be.revertedWithError('InvalidParam');
             });
 
             context('with deposited funds', () => {
@@ -1804,18 +1976,15 @@ describe('PoolCollection', () => {
                         await testMultipleWithdrawals(TradingLiquidityState.Reset);
                     });
 
-                    context(
-                        'when the matched target network liquidity is below the minimum liquidity for trading',
-                        () => {
-                            beforeEach(async () => {
-                                await networkSettings.setMinLiquidityForTrading(MAX_UINT256);
-                            });
+                    context('when the matched target network liquidity is below the minimum trading liquidity', () => {
+                        beforeEach(async () => {
+                            await networkSettings.setMinLiquidityForTrading(MAX_UINT256);
+                        });
 
-                            it('should withdraw and reset the trading liquidity', async () => {
-                                await testMultipleWithdrawals(TradingLiquidityState.Reset);
-                            });
-                        }
-                    );
+                        it('should withdraw and reset the trading liquidity', async () => {
+                            await testMultipleWithdrawals(TradingLiquidityState.Reset);
+                        });
+                    });
                 });
 
                 context('when trading is enabled', () => {
@@ -1827,88 +1996,170 @@ describe('PoolCollection', () => {
                         );
                     });
 
-                    context(
-                        'when the matched target network liquidity is above the minimum liquidity for trading',
-                        () => {
-                            beforeEach(async () => {
-                                const extraLiquidity = MIN_LIQUIDITY_FOR_TRADING.mul(BASE_TOKEN_VIRTUAL_BALANCE)
-                                    .div(BNT_VIRTUAL_BALANCE)
-                                    .mul(10_000);
-                                await transfer(deployer, token, masterVault, extraLiquidity);
+                    it('should update the rates of the pool', async () => {
+                        expect(await poolCollection.isPoolStable(token.address)).to.be.true;
 
-                                await network.depositToPoolCollectionForT(
-                                    poolCollection.address,
-                                    CONTEXT_ID,
-                                    provider.address,
-                                    token.address,
-                                    extraLiquidity
-                                );
-                            });
+                        const currentBlockNumber = await poolCollection.currentBlockNumber();
+                        const { averageRates: prevAverageRates } = await poolCollection.poolData(token.address);
 
-                            // set each one of the average rate components as follows:
-                            // 1. slightly below the minimum permitted deviation of the spot rate from the average rate
-                            // 2. precisely at the minimum permitted deviation of the spot rate from the average rate
-                            // 3. slightly above the minimum permitted deviation of the spot rate from the average rate
-                            // 4. slightly below the maximum permitted deviation of the spot rate from the average rate
-                            // 5. precisely at the maximum permitted deviation of the spot rate from the average rate
-                            // 6. slightly above the maximum permitted deviation of the spot rate from the average rate
-                            // since the average rate has 2 components, this method simulates 36 different scenarios:
-                            // - in some of them, the spot rate is within the permitted deviation from the average rate
-                            // - in some of them, the spot rate is outside the permitted deviation from the average rate
-                            for (const ns of [-1, +1]) {
-                                for (const nx of [-1, 0, +1]) {
-                                    for (const ds of [-1, +1]) {
-                                        for (const dx of [-1, 0, +1]) {
-                                            const nf = PPM_RESOLUTION + RATE_MAX_DEVIATION_PPM * ns + nx;
-                                            const df = PPM_RESOLUTION + RATE_MAX_DEVIATION_PPM * ds + dx;
-                                            const ok = Math.abs(nf / df - 1) <= RATE_MAX_DEVIATION_PPM / PPM_RESOLUTION;
+                        await poolCollection.setAverageRatesT(token.address, {
+                            blockNumber: await poolCollection.currentBlockNumber(),
+                            rate: {
+                                n: prevAverageRates.rate.n.mul(1000),
+                                d: prevAverageRates.rate.d.mul(1001)
+                            },
+                            invRate: {
+                                n: prevAverageRates.invRate.n.mul(1001),
+                                d: prevAverageRates.invRate.d.mul(1000)
+                            }
+                        });
 
-                                            context(`ns=${ns}, nx=${nx}, dx=${dx}`, () => {
-                                                beforeEach(async () => {
-                                                    const { liquidity } = await poolCollection.poolData(token.address);
+                        const currPoolData = await poolCollection.poolData(token.address);
 
-                                                    await poolCollection.setAverageRateT(token.address, {
-                                                        blockNumber: 1,
-                                                        rate: {
-                                                            n: liquidity.bntTradingLiquidity.mul(nf),
-                                                            d: liquidity.baseTokenTradingLiquidity.mul(df)
+                        expect(await poolCollection.isPoolStable(token.address)).to.be.true;
+
+                        const newBlockNumber = currentBlockNumber + 1;
+                        await poolCollection.setBlockNumber(newBlockNumber);
+
+                        const poolTokenAmount = toWei(10);
+                        const reserveTokenAmount = await poolCollection.underlyingToPoolToken(
+                            token.address,
+                            poolTokenAmount
+                        );
+
+                        await poolToken.connect(provider).transfer(poolCollection.address, poolTokenAmount);
+
+                        await network.withdrawFromPoolCollectionT(
+                            poolCollection.address,
+                            CONTEXT_ID,
+                            provider.address,
+                            token.address,
+                            poolTokenAmount,
+                            reserveTokenAmount
+                        );
+
+                        const expectedAverageRates = updatedAverageRates(currPoolData, newBlockNumber);
+
+                        const { averageRates: newAverageRates } = await poolCollection.poolData(token.address);
+
+                        expect(newAverageRates.blockNumber).not.to.equal(prevAverageRates.blockNumber);
+                        expect(newAverageRates.rate).not.to.equal(prevAverageRates.rate);
+                        expect(newAverageRates.invRate).not.to.equal(prevAverageRates.invRate);
+
+                        expect(newAverageRates.blockNumber).to.equal(expectedAverageRates.blockNumber);
+                        expect(newAverageRates.rate).to.equal(expectedAverageRates.rate);
+                        expect(newAverageRates.invRate).to.equal(expectedAverageRates.invRate);
+                    });
+
+                    context('when the matched target network liquidity is above the minimum trading liquidity', () => {
+                        beforeEach(async () => {
+                            const extraLiquidity = MIN_LIQUIDITY_FOR_TRADING.mul(BASE_TOKEN_VIRTUAL_BALANCE)
+                                .div(BNT_VIRTUAL_BALANCE)
+                                .mul(10_000);
+                            await transfer(deployer, token, masterVault, extraLiquidity);
+
+                            await network.depositToPoolCollectionForT(
+                                poolCollection.address,
+                                CONTEXT_ID,
+                                provider.address,
+                                token.address,
+                                extraLiquidity
+                            );
+                        });
+
+                        // set each one of the average rates components as follows:
+                        // 1. slightly below the minimum permitted deviation of the spot rate from the average rate
+                        // 2. precisely at the minimum permitted deviation of the spot rate from the average rate
+                        // 3. slightly above the minimum permitted deviation of the spot rate from the average rate
+                        // 4. slightly below the maximum permitted deviation of the spot rate from the average rate
+                        // 5. precisely at the maximum permitted deviation of the spot rate from the average rate
+                        // 6. slightly above the maximum permitted deviation of the spot rate from the average rate
+                        // since the average rate has 2 components, this method simulates 36 different scenarios:
+                        // - in some of them, the spot rate is within the permitted deviation from the average rate
+                        // - in some of them, the spot rate is outside the permitted deviation from the average rate
+                        for (const inverseRate of [false, true]) {
+                            context(inverseRate ? 'inverse rate' : 'rate', () => {
+                                for (const ns of [-1, +1]) {
+                                    for (const nx of [-1, 0, +1]) {
+                                        for (const ds of [-1, +1]) {
+                                            for (const dx of [-1, 0, +1]) {
+                                                const nf = PPM_RESOLUTION + RATE_MAX_DEVIATION_PPM * ns + nx;
+                                                const df = PPM_RESOLUTION + RATE_MAX_DEVIATION_PPM * ds + dx;
+                                                const ok =
+                                                    Math.abs(nf / df - 1) <= RATE_MAX_DEVIATION_PPM / PPM_RESOLUTION;
+
+                                                context(`ns=${ns}, nx=${nx}, dx=${dx}`, () => {
+                                                    beforeEach(async () => {
+                                                        const liquidity = await poolCollection.poolLiquidity(
+                                                            token.address
+                                                        );
+
+                                                        let rate: Fraction<BigNumber>;
+                                                        let invRate: Fraction<BigNumber>;
+
+                                                        if (inverseRate) {
+                                                            rate = {
+                                                                n: liquidity.bntTradingLiquidity,
+                                                                d: liquidity.baseTokenTradingLiquidity
+                                                            };
+
+                                                            invRate = {
+                                                                n: liquidity.baseTokenTradingLiquidity.mul(nf),
+                                                                d: liquidity.bntTradingLiquidity.mul(df)
+                                                            };
+                                                        } else {
+                                                            rate = {
+                                                                n: liquidity.bntTradingLiquidity.mul(nf),
+                                                                d: liquidity.baseTokenTradingLiquidity.mul(df)
+                                                            };
+
+                                                            invRate = {
+                                                                n: liquidity.baseTokenTradingLiquidity,
+                                                                d: liquidity.bntTradingLiquidity
+                                                            };
+                                                        }
+
+                                                        await poolCollection.setAverageRatesT(token.address, {
+                                                            blockNumber: 1,
+                                                            rate,
+                                                            invRate
+                                                        });
+                                                    });
+
+                                                    it(`withdrawal should ${ok ? 'complete' : 'revert'}`, async () => {
+                                                        if (ok) {
+                                                            await testMultipleWithdrawals(TradingLiquidityState.Update);
+                                                        } else {
+                                                            expect(await poolCollection.isPoolStable(token.address)).to
+                                                                .be.false;
+
+                                                            await expect(
+                                                                withdrawAndVerifyState(
+                                                                    totalBasePoolTokenAmount,
+                                                                    withdrawalFeePPM,
+                                                                    TradingLiquidityState.Update
+                                                                )
+                                                            ).to.be.revertedWithError('RateUnstable');
                                                         }
                                                     });
                                                 });
-
-                                                it(`withdrawal should ${ok ? 'complete' : 'revert'}`, async () => {
-                                                    if (ok) {
-                                                        await testMultipleWithdrawals(TradingLiquidityState.Update);
-                                                    } else {
-                                                        await expect(
-                                                            withdrawAndVerifyState(
-                                                                totalBasePoolTokenAmount,
-                                                                withdrawalFeePPM,
-                                                                TradingLiquidityState.Update
-                                                            )
-                                                        ).to.be.revertedWith('RateUnstable');
-                                                    }
-                                                });
-                                            });
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        }
-                    );
-
-                    context(
-                        'when the matched target network liquidity is below the minimum liquidity for trading',
-                        () => {
-                            beforeEach(async () => {
-                                await networkSettings.setMinLiquidityForTrading(MAX_UINT256);
-                            });
-
-                            it('should withdraw and reset the trading liquidity', async () => {
-                                await testMultipleWithdrawals(TradingLiquidityState.Reset);
                             });
                         }
-                    );
+                    });
+
+                    context('when the matched target network liquidity is below the minimum trading liquidity', () => {
+                        beforeEach(async () => {
+                            await networkSettings.setMinLiquidityForTrading(MAX_UINT256);
+                        });
+
+                        it('should withdraw and reset the trading liquidity', async () => {
+                            await testMultipleWithdrawals(TradingLiquidityState.Reset);
+                        });
+                    });
 
                     context('after disabling trading', () => {
                         beforeEach(async () => {
@@ -1920,7 +2171,7 @@ describe('PoolCollection', () => {
                         });
 
                         context(
-                            'when the matched target network liquidity is below the minimum liquidity for trading',
+                            'when the matched target network liquidity is below the minimum trading liquidity',
                             () => {
                                 beforeEach(async () => {
                                     await networkSettings.setMinLiquidityForTrading(MAX_UINT256);
@@ -1971,7 +2222,6 @@ describe('PoolCollection', () => {
             const blockNumber = await latestBlockNumber();
 
             await poolCollection.setTradingFeePPM(token.address, tradingFeePPM);
-            await poolCollection.setDepositLimit(token.address, MAX_UINT256);
             await poolCollection.setTradingLiquidityT(token.address, {
                 bntTradingLiquidity,
                 baseTokenTradingLiquidity,
@@ -1980,9 +2230,10 @@ describe('PoolCollection', () => {
             await poolCollection.requestFundingT(CONTEXT_ID, token.address, bntTradingLiquidity);
             await poolCollection.mintPoolTokenT(token.address, provider.address, poolTokenTotalSupply);
             await poolCollection.setBlockNumber(blockNumber);
-            await poolCollection.setAverageRateT(token.address, {
+            await poolCollection.setAverageRatesT(token.address, {
                 blockNumber,
-                rate: { n: bntTradingLiquidity, d: baseTokenTradingLiquidity }
+                rate: { n: bntTradingLiquidity, d: baseTokenTradingLiquidity },
+                invRate: { n: baseTokenTradingLiquidity, d: bntTradingLiquidity }
             });
 
             await transfer(deployer, token, masterVault, balanceOfMasterVault);
@@ -2158,41 +2409,63 @@ describe('PoolCollection', () => {
         let network: TestBancorNetwork;
         let bnt: IERC20;
         let bntPool: BNTPool;
-        let poolCollection: TestPoolCollection;
+        let masterVault: MasterVault;
+        let externalProtectionVault: ExternalProtectionVault;
+        let poolTokenFactory: PoolTokenFactory;
+        let poolMigrator: TestPoolMigrator;
+
         let reserveToken: TestERC20Token;
 
         const MIN_RETURN_AMOUNT = 1;
         const MAX_SOURCE_AMOUNT = MAX_UINT256;
 
+        const expectedTargetAmountAndFee = (
+            sourceAmount: BigNumber,
+            tradingFeePPM: number,
+            sourceTokenBalance: BigNumber,
+            targetTokenBalance: BigNumber
+        ) => {
+            const amount = targetTokenBalance.mul(sourceAmount).div(sourceTokenBalance.add(sourceAmount).toString());
+            const tradingFeeAmount = amount.mul(tradingFeePPM).div(PPM_RESOLUTION);
+
+            return { amount: amount.sub(tradingFeeAmount), tradingFeeAmount };
+        };
+
+        const expectedSourceAmountAndFee = (
+            targetAmount: BigNumberish,
+            tradingFeePPM: number,
+            sourceTokenBalance: BigNumber,
+            targetTokenBalance: BigNumber
+        ) => {
+            const tradingFeeAmount = BigNumber.from(targetAmount)
+                .mul(tradingFeePPM)
+                .div(PPM_RESOLUTION - tradingFeePPM);
+            const fullTargetAmount = BigNumber.from(targetAmount).add(tradingFeeAmount);
+            const sourceAmount = sourceTokenBalance.mul(fullTargetAmount).div(targetTokenBalance.sub(fullTargetAmount));
+
+            return { amount: sourceAmount, tradingFeeAmount };
+        };
+
         beforeEach(async () => {
-            ({ network, bnt, networkSettings, bntPool, poolCollection } = await createSystem());
+            ({
+                network,
+                bnt,
+                networkSettings,
+                masterVault,
+                externalProtectionVault,
+                bntPool,
+                poolTokenFactory,
+                poolMigrator
+            } = await createSystem());
 
             await networkSettings.setMinLiquidityForTrading(MIN_LIQUIDITY_FOR_TRADING);
 
             reserveToken = await createTestToken();
-
-            await createPool(reserveToken, network, networkSettings, poolCollection);
-
-            await networkSettings.setFundingLimit(reserveToken.address, MAX_UINT256);
-
-            await poolCollection.setDepositLimit(reserveToken.address, MAX_UINT256);
-
-            await poolCollection.setBlockNumber(await latestBlockNumber());
         });
 
         const testTrading = (isSourceBNT: boolean) => {
-            const setTradingLiquidity = async (
-                bntTradingLiquidity: BigNumberish,
-                baseTokenTradingLiquidity: BigNumberish
-            ) =>
-                poolCollection.setTradingLiquidityT(reserveToken.address, {
-                    bntTradingLiquidity,
-                    baseTokenTradingLiquidity,
-                    stakedBalance: baseTokenTradingLiquidity
-                });
-
-            const fromTokenName = isSourceBNT ? 'BNT' : 'base token';
-            const toTokenName = isSourceBNT ? 'base token' : 'BNT';
+            const fromTokenName = isSourceBNT ? 'BNT' : 'TKN';
+            const toTokenName = isSourceBNT ? 'TKN' : 'BNT';
 
             context(`from ${fromTokenName} to ${toTokenName}`, () => {
                 let sourceToken: IERC20;
@@ -2204,7 +2477,27 @@ describe('PoolCollection', () => {
                 });
 
                 context('when trading is disabled', () => {
+                    let poolCollection: TestPoolCollection;
+
                     beforeEach(async () => {
+                        poolCollection = await createPoolCollection(
+                            network,
+                            bnt,
+                            networkSettings,
+                            masterVault,
+                            bntPool,
+                            externalProtectionVault,
+                            poolTokenFactory,
+                            poolMigrator
+                        );
+                        await network.registerPoolCollection(poolCollection.address);
+
+                        await createPool(reserveToken, network, networkSettings, poolCollection);
+
+                        await networkSettings.setFundingLimit(reserveToken.address, MAX_UINT256);
+
+                        await depositToPool(deployer, reserveToken, toWei(100_000), network);
+
                         await poolCollection.disableTrading(reserveToken.address);
                     });
 
@@ -2218,7 +2511,7 @@ describe('PoolCollection', () => {
                                 1,
                                 MIN_RETURN_AMOUNT
                             )
-                        ).to.be.revertedWith('TradingDisabled');
+                        ).to.be.revertedWithError('TradingDisabled');
 
                         await expect(
                             network.tradeByTargetPoolCollectionT(
@@ -2229,15 +2522,15 @@ describe('PoolCollection', () => {
                                 1,
                                 MAX_SOURCE_AMOUNT
                             )
-                        ).to.be.revertedWith('TradingDisabled');
+                        ).to.be.revertedWithError('TradingDisabled');
 
                         await expect(
                             poolCollection.tradeOutputAndFeeBySourceAmount(sourceToken.address, targetToken.address, 1)
-                        ).to.be.revertedWith('TradingDisabled');
+                        ).to.be.revertedWithError('TradingDisabled');
 
                         await expect(
                             poolCollection.tradeInputAndFeeByTargetAmount(sourceToken.address, targetToken.address, 1)
-                        ).to.be.revertedWith('TradingDisabled');
+                        ).to.be.revertedWithError('TradingDisabled');
                     });
                 });
 
@@ -2246,7 +2539,43 @@ describe('PoolCollection', () => {
                         .div(BNT_VIRTUAL_BALANCE)
                         .mul(10_000);
 
-                    beforeEach(async () => {
+                    let poolCollection: TestPoolCollection;
+
+                    const setTradingLiquidity = async (
+                        bntTradingLiquidity: BigNumberish,
+                        baseTokenTradingLiquidity: BigNumberish
+                    ) =>
+                        poolCollection.setTradingLiquidityT(reserveToken.address, {
+                            bntTradingLiquidity,
+                            baseTokenTradingLiquidity,
+                            stakedBalance: baseTokenTradingLiquidity
+                        });
+
+                    const setupEnabledPool = async (tradingFeePPM?: number, networkFeePPM?: number) => {
+                        poolCollection = await createPoolCollection(
+                            network,
+                            bnt,
+                            networkSettings,
+                            masterVault,
+                            bntPool,
+                            externalProtectionVault,
+                            poolTokenFactory,
+                            poolMigrator,
+                            networkFeePPM
+                        );
+
+                        await network.registerPoolCollection(poolCollection.address);
+
+                        await poolCollection.setBlockNumber(await latestBlockNumber());
+
+                        await createPool(reserveToken, network, networkSettings, poolCollection);
+
+                        if (tradingFeePPM !== undefined) {
+                            await poolCollection.setTradingFeePPM(reserveToken.address, tradingFeePPM);
+                        }
+
+                        await networkSettings.setFundingLimit(reserveToken.address, MAX_UINT256);
+
                         await depositToPool(deployer, reserveToken, INITIAL_LIQUIDITY, network);
 
                         await poolCollection.enableTrading(
@@ -2254,1165 +2583,1204 @@ describe('PoolCollection', () => {
                             BNT_VIRTUAL_BALANCE,
                             BASE_TOKEN_VIRTUAL_BALANCE
                         );
-                    });
+                    };
 
-                    it('should revert when attempting to trade from a non-network', async () => {
-                        const nonNetwork = deployer;
-
-                        await expect(
-                            poolCollection
-                                .connect(nonNetwork)
-                                .tradeBySourceAmount(
-                                    CONTEXT_ID,
-                                    sourceToken.address,
-                                    targetToken.address,
-                                    1,
-                                    MIN_RETURN_AMOUNT
-                                )
-                        ).to.be.revertedWith('AccessDenied');
-
-                        await expect(
-                            poolCollection
-                                .connect(nonNetwork)
-                                .tradeByTargetAmount(
-                                    CONTEXT_ID,
-                                    sourceToken.address,
-                                    targetToken.address,
-                                    1,
-                                    MAX_SOURCE_AMOUNT
-                                )
-                        ).to.be.revertedWith('AccessDenied');
-                    });
-
-                    it('should revert when attempting to trade or query using an invalid source token', async () => {
-                        await expect(
-                            network.tradeBySourcePoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                ZERO_ADDRESS,
-                                targetToken.address,
-                                1,
-                                MIN_RETURN_AMOUNT
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            network.tradeByTargetPoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                ZERO_ADDRESS,
-                                targetToken.address,
-                                1,
-                                MAX_SOURCE_AMOUNT
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            poolCollection.tradeOutputAndFeeBySourceAmount(ZERO_ADDRESS, targetToken.address, 1)
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            poolCollection.tradeInputAndFeeByTargetAmount(ZERO_ADDRESS, targetToken.address, 1)
-                        ).to.be.revertedWith('DoesNotExist');
-                    });
-
-                    it('should revert when attempting to trade or query using an invalid target token', async () => {
-                        await expect(
-                            network.tradeBySourcePoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                sourceToken.address,
-                                ZERO_ADDRESS,
-                                1,
-                                MIN_RETURN_AMOUNT
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            network.tradeByTargetPoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                sourceToken.address,
-                                ZERO_ADDRESS,
-                                1,
-                                MAX_SOURCE_AMOUNT
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            poolCollection.tradeOutputAndFeeBySourceAmount(sourceToken.address, ZERO_ADDRESS, 1)
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            poolCollection.tradeInputAndFeeByTargetAmount(sourceToken.address, ZERO_ADDRESS, 1)
-                        ).to.be.revertedWith('DoesNotExist');
-                    });
-
-                    it('should revert when attempting to trade or query using a non-existing source token', async () => {
-                        const reserveToken2 = await createTestToken();
-
-                        await expect(
-                            network.tradeBySourcePoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                reserveToken2.address,
-                                bnt.address,
-                                1,
-                                MIN_RETURN_AMOUNT
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            network.tradeByTargetPoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                reserveToken2.address,
-                                bnt.address,
-                                1,
-                                MAX_SOURCE_AMOUNT
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            poolCollection.tradeOutputAndFeeBySourceAmount(reserveToken2.address, bnt.address, 1)
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            poolCollection.tradeInputAndFeeByTargetAmount(reserveToken2.address, bnt.address, 1)
-                        ).to.be.revertedWith('DoesNotExist');
-                    });
-
-                    it('should revert when attempting to trade or query using a non-existing target token', async () => {
-                        const reserveToken2 = await createTestToken();
-
-                        await expect(
-                            network.tradeBySourcePoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                bnt.address,
-                                reserveToken2.address,
-                                1,
-                                MIN_RETURN_AMOUNT
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            network.tradeByTargetPoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                bnt.address,
-                                reserveToken2.address,
-                                1,
-                                MAX_SOURCE_AMOUNT
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            poolCollection.tradeOutputAndFeeBySourceAmount(bnt.address, reserveToken2.address, 1)
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            poolCollection.tradeInputAndFeeByTargetAmount(bnt.address, reserveToken2.address, 1)
-                        ).to.be.revertedWith('DoesNotExist');
-                    });
-
-                    it('should revert when attempting to trade or query without using BNT as one of the tokens', async () => {
-                        const reserveToken2 = await createTestToken();
-
-                        await expect(
-                            network.tradeBySourcePoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                reserveToken.address,
-                                reserveToken2.address,
-                                1,
-                                MIN_RETURN_AMOUNT
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            network.tradeByTargetPoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                reserveToken.address,
-                                reserveToken2.address,
-                                1,
-                                MAX_SOURCE_AMOUNT
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            poolCollection.tradeOutputAndFeeBySourceAmount(
-                                reserveToken.address,
-                                reserveToken2.address,
-                                1
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            poolCollection.tradeInputAndFeeByTargetAmount(
-                                reserveToken.address,
-                                reserveToken2.address,
-                                1
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-                    });
-
-                    it('should revert when attempting to trade or query using BNT as both of the pools', async () => {
-                        await expect(
-                            network.tradeBySourcePoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                bnt.address,
-                                bnt.address,
-                                1,
-                                MIN_RETURN_AMOUNT
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            network.tradeByTargetPoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                bnt.address,
-                                bnt.address,
-                                1,
-                                MAX_SOURCE_AMOUNT
-                            )
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            poolCollection.tradeOutputAndFeeBySourceAmount(bnt.address, bnt.address, 1)
-                        ).to.be.revertedWith('DoesNotExist');
-
-                        await expect(
-                            poolCollection.tradeInputAndFeeByTargetAmount(bnt.address, bnt.address, 1)
-                        ).to.be.revertedWith('DoesNotExist');
-                    });
-
-                    it('should revert when attempting to trade or query with an invalid amount', async () => {
-                        await expect(
-                            network.tradeBySourcePoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                sourceToken.address,
-                                targetToken.address,
-                                0,
-                                MIN_RETURN_AMOUNT
-                            )
-                        ).to.be.revertedWith('ZeroValue');
-
-                        await expect(
-                            network.tradeByTargetPoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                sourceToken.address,
-                                targetToken.address,
-                                0,
-                                MAX_SOURCE_AMOUNT
-                            )
-                        ).to.be.revertedWith('ZeroValue');
-
-                        await expect(
-                            poolCollection.tradeOutputAndFeeBySourceAmount(sourceToken.address, targetToken.address, 0)
-                        ).to.be.revertedWith('ZeroValue');
-
-                        await expect(
-                            poolCollection.tradeInputAndFeeByTargetAmount(sourceToken.address, targetToken.address, 0)
-                        ).to.be.revertedWith('ZeroValue');
-                    });
-
-                    it('should revert when attempting to trade with an invalid minimum/maximum return/source amount', async () => {
-                        await expect(
-                            network.tradeBySourcePoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                sourceToken.address,
-                                targetToken.address,
-                                1,
-                                0
-                            )
-                        ).to.be.revertedWith('ZeroValue');
-
-                        await expect(
-                            network.tradeByTargetPoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                sourceToken.address,
-                                targetToken.address,
-                                1,
-                                0
-                            )
-                        ).to.be.revertedWith('ZeroValue');
-                    });
-
-                    context('with sufficient BNT liquidity', () => {
+                    context('with default network fee', () => {
                         beforeEach(async () => {
-                            await setTradingLiquidity(MIN_LIQUIDITY_FOR_TRADING, 0);
+                            await setupEnabledPool();
                         });
 
-                        context('with sufficient target and source token balances', () => {
-                            beforeEach(async () => {
-                                const bntTradingLiquidity = MIN_LIQUIDITY_FOR_TRADING.mul(1000);
+                        it('should revert when attempting to trade from a non-network', async () => {
+                            const nonNetwork = deployer;
 
-                                // for the tests below, ensure that the source to target ratio above 1, such that a zero
-                                // trading result is possible
-                                const baseTokenTradingLiquidity = isSourceBNT
-                                    ? bntTradingLiquidity.div(2)
-                                    : bntTradingLiquidity.mul(2);
-
-                                await setTradingLiquidity(bntTradingLiquidity, baseTokenTradingLiquidity);
-                            });
-
-                            it('should revert when the result of a trade by providing the source amount is below the minimum return', async () => {
-                                await expect(
-                                    network.tradeBySourcePoolCollectionT(
-                                        poolCollection.address,
+                            await expect(
+                                poolCollection
+                                    .connect(nonNetwork)
+                                    .tradeBySourceAmount(
                                         CONTEXT_ID,
                                         sourceToken.address,
                                         targetToken.address,
                                         1,
-                                        MAX_UINT256
+                                        MIN_RETURN_AMOUNT
                                     )
-                                ).to.be.revertedWith('InsufficientTargetAmount');
-                            });
+                            ).to.be.revertedWithError('AccessDenied');
 
-                            it('should revert when a trade by providing the target amount requires more tokens than provided', async () => {
-                                await expect(
-                                    network.tradeByTargetPoolCollectionT(
-                                        poolCollection.address,
+                            await expect(
+                                poolCollection
+                                    .connect(nonNetwork)
+                                    .tradeByTargetAmount(
                                         CONTEXT_ID,
                                         sourceToken.address,
                                         targetToken.address,
-                                        toWei(100_000),
-                                        1
+                                        1,
+                                        MAX_SOURCE_AMOUNT
                                     )
-                                ).to.be.revertedWith('InsufficientSourceAmount');
+                            ).to.be.revertedWithError('AccessDenied');
+                        });
+
+                        it('should revert when attempting to trade or query using an invalid source token', async () => {
+                            await expect(
+                                network.tradeBySourcePoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    ZERO_ADDRESS,
+                                    targetToken.address,
+                                    1,
+                                    MIN_RETURN_AMOUNT
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                network.tradeByTargetPoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    ZERO_ADDRESS,
+                                    targetToken.address,
+                                    1,
+                                    MAX_SOURCE_AMOUNT
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                poolCollection.tradeOutputAndFeeBySourceAmount(ZERO_ADDRESS, targetToken.address, 1)
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                poolCollection.tradeInputAndFeeByTargetAmount(ZERO_ADDRESS, targetToken.address, 1)
+                            ).to.be.revertedWithError('DoesNotExist');
+                        });
+
+                        it('should revert when attempting to trade or query using an invalid target token', async () => {
+                            await expect(
+                                network.tradeBySourcePoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    sourceToken.address,
+                                    ZERO_ADDRESS,
+                                    1,
+                                    MIN_RETURN_AMOUNT
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                network.tradeByTargetPoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    sourceToken.address,
+                                    ZERO_ADDRESS,
+                                    1,
+                                    MAX_SOURCE_AMOUNT
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                poolCollection.tradeOutputAndFeeBySourceAmount(sourceToken.address, ZERO_ADDRESS, 1)
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                poolCollection.tradeInputAndFeeByTargetAmount(sourceToken.address, ZERO_ADDRESS, 1)
+                            ).to.be.revertedWithError('DoesNotExist');
+                        });
+
+                        it('should revert when attempting to trade or query using a non-existing source token', async () => {
+                            const reserveToken2 = await createTestToken();
+
+                            await expect(
+                                network.tradeBySourcePoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    reserveToken2.address,
+                                    bnt.address,
+                                    1,
+                                    MIN_RETURN_AMOUNT
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                network.tradeByTargetPoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    reserveToken2.address,
+                                    bnt.address,
+                                    1,
+                                    MAX_SOURCE_AMOUNT
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                poolCollection.tradeOutputAndFeeBySourceAmount(reserveToken2.address, bnt.address, 1)
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                poolCollection.tradeInputAndFeeByTargetAmount(reserveToken2.address, bnt.address, 1)
+                            ).to.be.revertedWithError('DoesNotExist');
+                        });
+
+                        it('should revert when attempting to trade or query using a non-existing target token', async () => {
+                            const reserveToken2 = await createTestToken();
+
+                            await expect(
+                                network.tradeBySourcePoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    bnt.address,
+                                    reserveToken2.address,
+                                    1,
+                                    MIN_RETURN_AMOUNT
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                network.tradeByTargetPoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    bnt.address,
+                                    reserveToken2.address,
+                                    1,
+                                    MAX_SOURCE_AMOUNT
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                poolCollection.tradeOutputAndFeeBySourceAmount(bnt.address, reserveToken2.address, 1)
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                poolCollection.tradeInputAndFeeByTargetAmount(bnt.address, reserveToken2.address, 1)
+                            ).to.be.revertedWithError('DoesNotExist');
+                        });
+
+                        it('should revert when attempting to trade or query without using BNT as one of the tokens', async () => {
+                            const reserveToken2 = await createTestToken();
+
+                            await expect(
+                                network.tradeBySourcePoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    reserveToken.address,
+                                    reserveToken2.address,
+                                    1,
+                                    MIN_RETURN_AMOUNT
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                network.tradeByTargetPoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    reserveToken.address,
+                                    reserveToken2.address,
+                                    1,
+                                    MAX_SOURCE_AMOUNT
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                poolCollection.tradeOutputAndFeeBySourceAmount(
+                                    reserveToken.address,
+                                    reserveToken2.address,
+                                    1
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                poolCollection.tradeInputAndFeeByTargetAmount(
+                                    reserveToken.address,
+                                    reserveToken2.address,
+                                    1
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+                        });
+
+                        it('should revert when attempting to trade or query using BNT as both of the pools', async () => {
+                            await expect(
+                                network.tradeBySourcePoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    bnt.address,
+                                    bnt.address,
+                                    1,
+                                    MIN_RETURN_AMOUNT
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                network.tradeByTargetPoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    bnt.address,
+                                    bnt.address,
+                                    1,
+                                    MAX_SOURCE_AMOUNT
+                                )
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                poolCollection.tradeOutputAndFeeBySourceAmount(bnt.address, bnt.address, 1)
+                            ).to.be.revertedWithError('DoesNotExist');
+
+                            await expect(
+                                poolCollection.tradeInputAndFeeByTargetAmount(bnt.address, bnt.address, 1)
+                            ).to.be.revertedWithError('DoesNotExist');
+                        });
+
+                        it('should revert when attempting to trade or query with an invalid amount', async () => {
+                            await expect(
+                                network.tradeBySourcePoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    sourceToken.address,
+                                    targetToken.address,
+                                    0,
+                                    MIN_RETURN_AMOUNT
+                                )
+                            ).to.be.revertedWithError('ZeroValue');
+
+                            await expect(
+                                network.tradeByTargetPoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    sourceToken.address,
+                                    targetToken.address,
+                                    0,
+                                    MAX_SOURCE_AMOUNT
+                                )
+                            ).to.be.revertedWithError('ZeroValue');
+
+                            await expect(
+                                poolCollection.tradeOutputAndFeeBySourceAmount(
+                                    sourceToken.address,
+                                    targetToken.address,
+                                    0
+                                )
+                            ).to.be.revertedWithError('ZeroValue');
+
+                            await expect(
+                                poolCollection.tradeInputAndFeeByTargetAmount(
+                                    sourceToken.address,
+                                    targetToken.address,
+                                    0
+                                )
+                            ).to.be.revertedWithError('ZeroValue');
+                        });
+
+                        it('should revert when attempting to trade with an invalid minimum/maximum return/source amount', async () => {
+                            await expect(
+                                network.tradeBySourcePoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    sourceToken.address,
+                                    targetToken.address,
+                                    1,
+                                    0
+                                )
+                            ).to.be.revertedWithError('ZeroValue');
+
+                            await expect(
+                                network.tradeByTargetPoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    sourceToken.address,
+                                    targetToken.address,
+                                    1,
+                                    0
+                                )
+                            ).to.be.revertedWithError('ZeroValue');
+                        });
+
+                        context('with sufficient BNT liquidity', () => {
+                            beforeEach(async () => {
+                                await setTradingLiquidity(MIN_LIQUIDITY_FOR_TRADING, 0);
+                            });
+
+                            context('with sufficient target and source token balances', () => {
+                                beforeEach(async () => {
+                                    const bntTradingLiquidity = MIN_LIQUIDITY_FOR_TRADING.mul(1000);
+
+                                    // for the tests below, ensure that the source to target ratio above 1, such that a zero
+                                    // trading result is possible
+                                    const baseTokenTradingLiquidity = isSourceBNT
+                                        ? bntTradingLiquidity.div(2)
+                                        : bntTradingLiquidity.mul(2);
+
+                                    await setTradingLiquidity(bntTradingLiquidity, baseTokenTradingLiquidity);
+                                });
+
+                                // eslint-disable-next-line max-len
+                                it('should revert when the result of a trade by providing the source amount is below the minimum return', async () => {
+                                    await expect(
+                                        network.tradeBySourcePoolCollectionT(
+                                            poolCollection.address,
+                                            CONTEXT_ID,
+                                            sourceToken.address,
+                                            targetToken.address,
+                                            1,
+                                            MAX_UINT256
+                                        )
+                                    ).to.be.revertedWithError('InsufficientTargetAmount');
+                                });
+
+                                it('should revert when the target amount requires more tokens than provided', async () => {
+                                    await expect(
+                                        network.tradeByTargetPoolCollectionT(
+                                            poolCollection.address,
+                                            CONTEXT_ID,
+                                            sourceToken.address,
+                                            targetToken.address,
+                                            toWei(100_000),
+                                            1
+                                        )
+                                    ).to.be.revertedWithError('InsufficientSourceAmount');
+                                });
+
+                                it('should revert when the target amount requires no tokens to be provided', async () => {
+                                    const targetAmount = 1;
+                                    let sourceTokenBalance: BigNumber;
+                                    let targetTokenBalance: BigNumber;
+
+                                    if (isSourceBNT) {
+                                        const liquidity = await poolCollection.poolLiquidity(targetToken.address);
+
+                                        sourceTokenBalance = liquidity.bntTradingLiquidity;
+                                        targetTokenBalance = liquidity.bntTradingLiquidity.add(targetAmount).add(1);
+
+                                        await poolCollection.setTradingLiquidityT(targetToken.address, {
+                                            bntTradingLiquidity: sourceTokenBalance,
+                                            baseTokenTradingLiquidity: targetTokenBalance,
+                                            stakedBalance: liquidity.stakedBalance
+                                        });
+                                    } else {
+                                        const liquidity = await poolCollection.poolLiquidity(sourceToken.address);
+
+                                        sourceTokenBalance = liquidity.baseTokenTradingLiquidity;
+                                        targetTokenBalance = liquidity.baseTokenTradingLiquidity
+                                            .add(targetAmount)
+                                            .add(1);
+
+                                        await poolCollection.setTradingLiquidityT(sourceToken.address, {
+                                            baseTokenTradingLiquidity: sourceTokenBalance,
+                                            bntTradingLiquidity: targetTokenBalance,
+                                            stakedBalance: liquidity.stakedBalance
+                                        });
+                                    }
+
+                                    // ensure that the specified target amount results in a zero required source amount
+                                    const { amount } = expectedSourceAmountAndFee(
+                                        targetAmount,
+                                        0,
+                                        sourceTokenBalance,
+                                        targetTokenBalance
+                                    );
+                                    expect(amount).to.equal(0);
+
+                                    await expect(
+                                        network.tradeByTargetPoolCollectionT(
+                                            poolCollection.address,
+                                            CONTEXT_ID,
+                                            sourceToken.address,
+                                            targetToken.address,
+                                            targetAmount,
+                                            1
+                                        )
+                                    ).to.be.revertedWithError('InsufficientSourceAmount');
+                                });
                             });
                         });
-                    });
 
-                    context('when BNT liquidity falls below the minimum liquidity for trading', () => {
-                        beforeEach(async () => {
-                            // increase BNT liquidity by the growth factor a few times
-                            for (let i = 0; i < 5; i++) {
-                                await depositToPool(deployer, reserveToken, 1, network);
-                            }
-
-                            const { liquidity: prevLiquidity } = await poolCollection.poolData(reserveToken.address);
-
-                            const targetBNTLiquidity = MIN_LIQUIDITY_FOR_TRADING.div(4);
-                            const bntTradeAmountToTrade = prevLiquidity.bntTradingLiquidity.sub(targetBNTLiquidity);
-
-                            // trade enough BNT out such that the total BNT liquidity for trading falls bellow the
-                            // minimum liquidity for trading
-                            const { amount } = await poolCollection.tradeInputAndFeeByTargetAmount(
-                                reserveToken.address,
-                                bnt.address,
-                                bntTradeAmountToTrade
-                            );
-
-                            // we will use the "full trade" function since we must to ensure that the tokens will also
-                            // leave the master vault
-                            await reserveToken.connect(deployer).approve(network.address, amount);
-                            await network.tradeBySourceAmount(
-                                reserveToken.address,
-                                bnt.address,
-                                amount,
-                                MIN_RETURN_AMOUNT,
-                                MAX_UINT256,
-                                deployer.address
-                            );
-
-                            const { liquidity } = await poolCollection.poolData(reserveToken.address);
-
-                            await poolCollection.setAverageRateT(reserveToken.address, {
-                                blockNumber: await poolCollection.currentBlockNumber(),
-                                rate: {
-                                    n: liquidity.bntTradingLiquidity,
-                                    d: liquidity.baseTokenTradingLiquidity
+                        context('when BNT liquidity falls below the minimum trading liquidity', () => {
+                            beforeEach(async () => {
+                                // increase BNT liquidity by the growth factor a few times
+                                for (let i = 0; i < 5; i++) {
+                                    await depositToPool(deployer, reserveToken, 1, network);
                                 }
+
+                                const { liquidity: prevLiquidity } = await poolCollection.poolData(
+                                    reserveToken.address
+                                );
+
+                                const targetBNTLiquidity = MIN_LIQUIDITY_FOR_TRADING.div(4);
+                                const bntTradeAmountToTrade = prevLiquidity.bntTradingLiquidity.sub(targetBNTLiquidity);
+
+                                // trade enough BNT out such that the total BNT trading liquidity falls bellow the
+                                // minimum trading liquidity
+                                const { amount } = await poolCollection.tradeInputAndFeeByTargetAmount(
+                                    reserveToken.address,
+                                    bnt.address,
+                                    bntTradeAmountToTrade
+                                );
+
+                                // we will use the "full trade" function since we must to ensure that the tokens will also
+                                // leave the master vault
+                                await reserveToken.connect(deployer).approve(network.address, amount);
+                                await network.tradeBySourceAmount(
+                                    reserveToken.address,
+                                    bnt.address,
+                                    amount,
+                                    MIN_RETURN_AMOUNT,
+                                    MAX_UINT256,
+                                    deployer.address
+                                );
+
+                                const liquidity = await poolCollection.poolLiquidity(reserveToken.address);
+
+                                await poolCollection.setAverageRatesT(reserveToken.address, {
+                                    blockNumber: await poolCollection.currentBlockNumber(),
+                                    rate: {
+                                        n: liquidity.bntTradingLiquidity,
+                                        d: liquidity.baseTokenTradingLiquidity
+                                    },
+                                    invRate: {
+                                        n: liquidity.baseTokenTradingLiquidity,
+                                        d: liquidity.bntTradingLiquidity
+                                    }
+                                });
+
+                                expect(liquidity.bntTradingLiquidity).lt(MIN_LIQUIDITY_FOR_TRADING);
                             });
 
-                            expect(liquidity.bntTradingLiquidity).lt(MIN_LIQUIDITY_FOR_TRADING);
-                        });
+                            it('should allow trading by providing the source amount', async () => {
+                                const res = await network.tradeBySourcePoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    sourceToken.address,
+                                    targetToken.address,
+                                    toWei(1),
+                                    MIN_RETURN_AMOUNT
+                                );
 
-                        it('should allow trading by providing the source amount', async () => {
-                            const res = await network.tradeBySourcePoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                sourceToken.address,
-                                targetToken.address,
-                                toWei(1),
-                                MIN_RETURN_AMOUNT
-                            );
+                                await expect(res).to.emit(poolCollection, 'TradingLiquidityUpdated');
+                            });
 
-                            await expect(res).to.emit(poolCollection, 'TradingLiquidityUpdated');
-                        });
+                            it('should allow trading by providing the target amount', async () => {
+                                const res = await network.tradeByTargetPoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    sourceToken.address,
+                                    targetToken.address,
+                                    toWei(1),
+                                    MAX_SOURCE_AMOUNT
+                                );
 
-                        it('should allow trading by providing the target amount', async () => {
-                            const res = await network.tradeByTargetPoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                sourceToken.address,
-                                targetToken.address,
-                                toWei(1),
-                                MAX_SOURCE_AMOUNT
-                            );
+                                await expect(res).to.emit(poolCollection, 'TradingLiquidityUpdated');
+                            });
 
-                            await expect(res).to.emit(poolCollection, 'TradingLiquidityUpdated');
-                        });
+                            it('should disable trading when withdrawing', async () => {
+                                const { liquidity: prevLiquidity } = await poolCollection.poolData(
+                                    reserveToken.address
+                                );
+                                const prevFunding = await bntPool.currentPoolFunding(reserveToken.address);
+                                const poolToken = await Contracts.PoolToken.attach(
+                                    await poolCollection.poolToken(reserveToken.address)
+                                );
+                                const poolTokenTotalSupply = await poolToken.totalSupply();
 
-                        it('should disable trading when withdrawing', async () => {
-                            const { liquidity: prevLiquidity } = await poolCollection.poolData(reserveToken.address);
-                            const prevFunding = await bntPool.currentPoolFunding(reserveToken.address);
-                            const poolToken = await Contracts.PoolToken.attach(
-                                await poolCollection.poolToken(reserveToken.address)
-                            );
-                            const poolTokenTotalSupply = await poolToken.totalSupply();
+                                const poolTokenAmount = toWei(10);
+                                const reserveTokenAmount = await poolCollection.underlyingToPoolToken(
+                                    reserveToken.address,
+                                    poolTokenAmount
+                                );
+                                const newStakedBalance = prevLiquidity.stakedBalance
+                                    .mul(poolTokenTotalSupply.sub(poolTokenAmount))
+                                    .div(poolTokenTotalSupply);
 
-                            const poolTokenAmount = toWei(10);
-                            const newStakedBalance = prevLiquidity.stakedBalance
-                                .mul(poolTokenTotalSupply.sub(poolTokenAmount))
-                                .div(poolTokenTotalSupply);
+                                await poolToken.connect(deployer).transfer(poolCollection.address, poolTokenAmount);
 
-                            await poolToken.connect(deployer).transfer(network.address, poolTokenAmount);
-                            await network.approveT(poolToken.address, poolCollection.address, poolTokenAmount);
+                                const withdrawalAmounts = await poolCollection.poolWithdrawalAmountsT(
+                                    reserveToken.address,
+                                    poolTokenAmount,
+                                    reserveTokenAmount
+                                );
 
-                            const withdrawalAmounts = await poolCollection.poolWithdrawalAmountsT(
-                                reserveToken.address,
-                                poolTokenAmount
-                            );
+                                const res = await network.withdrawFromPoolCollectionT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    deployer.address,
+                                    reserveToken.address,
+                                    poolTokenAmount,
+                                    reserveTokenAmount
+                                );
 
-                            const res = await network.withdrawFromPoolCollectionT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                deployer.address,
-                                reserveToken.address,
-                                poolTokenAmount
-                            );
-
-                            await testLiquidityReset(
-                                reserveToken,
-                                poolCollection,
-                                bntPool,
-                                true,
-                                res,
-                                newStakedBalance,
-                                prevFunding.sub(
-                                    withdrawalAmounts.newBNTTradingLiquidity.add(
-                                        withdrawalAmounts.bntProtocolHoldingsDelta.value
-                                    )
-                                ),
-                                TradingStatusUpdateReason.MinLiquidity
-                            );
-                        });
-
-                        it('should disable trading when depositing', async () => {
-                            const { liquidity: prevLiquidity } = await poolCollection.poolData(reserveToken.address);
-                            const prevFunding = await bntPool.currentPoolFunding(reserveToken.address);
-
-                            const amount = 1;
-                            const res = await network.depositToPoolCollectionForT(
-                                poolCollection.address,
-                                CONTEXT_ID,
-                                deployer.address,
-                                reserveToken.address,
-                                amount
-                            );
-
-                            await testLiquidityReset(
-                                reserveToken,
-                                poolCollection,
-                                bntPool,
-                                true,
-                                res,
-                                prevLiquidity.stakedBalance.add(amount),
-                                prevFunding.sub(prevLiquidity.bntTradingLiquidity),
-                                TradingStatusUpdateReason.MinLiquidity
-                            );
-                        });
-                    });
-
-                    context('with insufficient pool balances', () => {
-                        beforeEach(async () => {
-                            await networkSettings.setMinLiquidityForTrading(0);
-                        });
-
-                        context('source token', () => {
-                            const amount = BigNumber.from(12_345);
-
-                            context('empty', () => {
-                                beforeEach(async () => {
-                                    const targetBalance = amount.mul(999_999_999_999);
-                                    const bntTradingLiquidity = isSourceBNT ? BigNumber.from(0) : targetBalance;
-                                    const baseTokenTradingLiquidity = isSourceBNT ? targetBalance : BigNumber.from(0);
-                                    await setTradingLiquidity(bntTradingLiquidity, baseTokenTradingLiquidity);
-                                });
-
-                                it('should revert when attempting to trade or query', async () => {
-                                    await expect(
-                                        network.tradeBySourcePoolCollectionT(
-                                            poolCollection.address,
-                                            CONTEXT_ID,
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount,
-                                            MIN_RETURN_AMOUNT
+                                await testLiquidityReset(
+                                    reserveToken,
+                                    poolCollection,
+                                    bntPool,
+                                    true,
+                                    res,
+                                    newStakedBalance,
+                                    prevFunding.sub(
+                                        withdrawalAmounts.newBNTTradingLiquidity.add(
+                                            withdrawalAmounts.bntProtocolHoldingsDelta.value
                                         )
-                                    ).to.be.revertedWith('InsufficientLiquidity');
+                                    ),
+                                    TradingStatusUpdateReason.MinLiquidity
+                                );
+                            });
 
-                                    await expect(
-                                        network.tradeByTargetPoolCollectionT(
-                                            poolCollection.address,
-                                            CONTEXT_ID,
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount,
-                                            MAX_SOURCE_AMOUNT
-                                        )
-                                    ).to.be.revertedWith('InsufficientLiquidity');
+                            it('should disable trading when depositing', async () => {
+                                const { liquidity: prevLiquidity } = await poolCollection.poolData(
+                                    reserveToken.address
+                                );
+                                const prevFunding = await bntPool.currentPoolFunding(reserveToken.address);
 
-                                    await expect(
-                                        poolCollection.tradeOutputAndFeeBySourceAmount(
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount
-                                        )
-                                    ).to.be.revertedWith('InsufficientLiquidity');
+                                const amount = 1;
+                                const res = await network.depositToPoolCollectionForT(
+                                    poolCollection.address,
+                                    CONTEXT_ID,
+                                    deployer.address,
+                                    reserveToken.address,
+                                    amount
+                                );
 
-                                    await expect(
-                                        poolCollection.tradeInputAndFeeByTargetAmount(
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount
-                                        )
-                                    ).to.be.revertedWith('InsufficientLiquidity');
-                                });
+                                await testLiquidityReset(
+                                    reserveToken,
+                                    poolCollection,
+                                    bntPool,
+                                    true,
+                                    res,
+                                    prevLiquidity.stakedBalance.add(amount),
+                                    prevFunding.sub(prevLiquidity.bntTradingLiquidity),
+                                    TradingStatusUpdateReason.MinLiquidity
+                                );
                             });
                         });
 
-                        context('target token', () => {
-                            context('empty', () => {
-                                const amount = 12_345;
-
-                                beforeEach(async () => {
-                                    const sourceBalance = BigNumber.from(12_345);
-                                    const bntTradingLiquidity = isSourceBNT ? sourceBalance : BigNumber.from(0);
-
-                                    const baseTokenTradingLiquidity = isSourceBNT ? BigNumber.from(0) : sourceBalance;
-
-                                    await setTradingLiquidity(bntTradingLiquidity, baseTokenTradingLiquidity);
-                                });
-
-                                it('should revert when attempting to trade or query', async () => {
-                                    await expect(
-                                        network.tradeBySourcePoolCollectionT(
-                                            poolCollection.address,
-                                            CONTEXT_ID,
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount,
-                                            MIN_RETURN_AMOUNT
-                                        )
-                                    ).to.be.revertedWith('InsufficientLiquidity');
-
-                                    // TODO: test for the exact revert reason once the issue with ethers is fixed
-                                    // error: revertedWith('reverted with panic code 0x11')
-                                    await expect(
-                                        network.tradeByTargetPoolCollectionT(
-                                            poolCollection.address,
-                                            CONTEXT_ID,
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount,
-                                            MAX_SOURCE_AMOUNT
-                                        )
-                                    ).to.be.reverted;
-
-                                    await expect(
-                                        poolCollection.tradeOutputAndFeeBySourceAmount(
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount
-                                        )
-                                    ).to.be.revertedWith('InsufficientLiquidity');
-
-                                    // TODO: test for the exact revert reason once the issue with ethers is fixed
-                                    // error: revertedWith('reverted with panic code 0x11')
-                                    await expect(
-                                        poolCollection.tradeInputAndFeeByTargetAmount(
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount
-                                        )
-                                    ).to.be.reverted;
-                                });
+                        context('with insufficient pool balances', () => {
+                            beforeEach(async () => {
+                                await networkSettings.setMinLiquidityForTrading(0);
                             });
 
-                            context('insufficient', () => {
-                                const bntTradingLiquidity = BigNumber.from(12_345);
-                                const baseTokenTradingLiquidity = BigNumber.from(9_999_999);
+                            context('source token', () => {
+                                const amount = BigNumber.from(12_345);
 
-                                const targetBalance = isSourceBNT ? baseTokenTradingLiquidity : bntTradingLiquidity;
-
-                                let targetAmount: BigNumber;
-
-                                beforeEach(async () => {
-                                    await setTradingLiquidity(bntTradingLiquidity, baseTokenTradingLiquidity);
-
-                                    targetAmount = targetBalance;
-                                });
-
-                                it('should revert when attempting to query the source amount', async () => {
-                                    // TODO: test for the exact revert reason once the issue with ethers is fixed
-                                    // error: revertedWith('reverted with panic code 0x11')
-                                    await expect(
-                                        poolCollection.tradeInputAndFeeByTargetAmount(
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            targetAmount
-                                        )
-                                    ).to.be.reverted;
-                                });
-
-                                context('with a trading fee', () => {
+                                context('empty', () => {
                                     beforeEach(async () => {
-                                        const tradingFeePPM = toPPM(10);
-                                        await poolCollection.setTradingFeePPM(reserveToken.address, tradingFeePPM);
-
-                                        // derive a target amount such that adding a fee to it will result in an amount
-                                        // equal to the target balance, by solving the following two equations:
-                                        // 1. `feeAmount = targetAmount * tradingFee / (1 - tradingFee)`
-                                        // 2. `targetAmount + feeAmount = targetBalance`
-                                        targetAmount = targetBalance
-                                            .mul(PPM_RESOLUTION - tradingFeePPM)
-                                            .div(PPM_RESOLUTION);
-
-                                        // note that due to the integer-division, we expect:
-                                        // - `targetAmount + feeAmount` to be slightly smaller than `targetBalance`
-                                        // - `targetAmount + feeAmount + 1` to be equal to or larger than `targetBalance`
+                                        const targetBalance = amount.mul(999_999_999_999);
+                                        const bntTradingLiquidity = isSourceBNT ? BigNumber.from(0) : targetBalance;
+                                        const baseTokenTradingLiquidity = isSourceBNT
+                                            ? targetBalance
+                                            : BigNumber.from(0);
+                                        await setTradingLiquidity(bntTradingLiquidity, baseTokenTradingLiquidity);
                                     });
 
-                                    it('should not revert when attempting to query the source amount', async () => {
-                                        await poolCollection.tradeInputAndFeeByTargetAmount(
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            targetAmount
-                                        );
-                                    });
+                                    it('should revert when attempting to trade or query', async () => {
+                                        await expect(
+                                            network.tradeBySourcePoolCollectionT(
+                                                poolCollection.address,
+                                                CONTEXT_ID,
+                                                sourceToken.address,
+                                                targetToken.address,
+                                                amount,
+                                                MIN_RETURN_AMOUNT
+                                            )
+                                        ).to.be.revertedWithError('InsufficientLiquidity');
 
-                                    it('should revert when attempting to query the source amount', async () => {
-                                        // TODO: test for the exact revert reason once the issue with ethers is fixed
-                                        // error: either division by zero or subtraction underflow
+                                        await expect(
+                                            network.tradeByTargetPoolCollectionT(
+                                                poolCollection.address,
+                                                CONTEXT_ID,
+                                                sourceToken.address,
+                                                targetToken.address,
+                                                amount,
+                                                MAX_SOURCE_AMOUNT
+                                            )
+                                        ).to.be.revertedWithError('InsufficientLiquidity');
+
+                                        await expect(
+                                            poolCollection.tradeOutputAndFeeBySourceAmount(
+                                                sourceToken.address,
+                                                targetToken.address,
+                                                amount
+                                            )
+                                        ).to.be.revertedWithError('InsufficientLiquidity');
+
                                         await expect(
                                             poolCollection.tradeInputAndFeeByTargetAmount(
                                                 sourceToken.address,
                                                 targetToken.address,
-                                                targetAmount.add(1)
+                                                amount
                                             )
-                                        ).to.be.reverted;
+                                        ).to.be.revertedWithError('InsufficientLiquidity');
+                                    });
+                                });
+                            });
+
+                            context('target token', () => {
+                                context('empty', () => {
+                                    const amount = 12_345;
+
+                                    beforeEach(async () => {
+                                        const sourceBalance = BigNumber.from(12_345);
+                                        const bntTradingLiquidity = isSourceBNT ? sourceBalance : BigNumber.from(0);
+
+                                        const baseTokenTradingLiquidity = isSourceBNT
+                                            ? BigNumber.from(0)
+                                            : sourceBalance;
+
+                                        await setTradingLiquidity(bntTradingLiquidity, baseTokenTradingLiquidity);
+                                    });
+
+                                    it('should revert when attempting to trade or query', async () => {
+                                        await expect(
+                                            network.tradeBySourcePoolCollectionT(
+                                                poolCollection.address,
+                                                CONTEXT_ID,
+                                                sourceToken.address,
+                                                targetToken.address,
+                                                amount,
+                                                MIN_RETURN_AMOUNT
+                                            )
+                                        ).to.be.revertedWithError('InsufficientLiquidity');
+
+                                        await expect(
+                                            network.tradeByTargetPoolCollectionT(
+                                                poolCollection.address,
+                                                CONTEXT_ID,
+                                                sourceToken.address,
+                                                targetToken.address,
+                                                amount,
+                                                MAX_SOURCE_AMOUNT
+                                            )
+                                        ).to.be.revertedWithError('panic code 0x11');
+
+                                        await expect(
+                                            poolCollection.tradeOutputAndFeeBySourceAmount(
+                                                sourceToken.address,
+                                                targetToken.address,
+                                                amount
+                                            )
+                                        ).to.be.revertedWithError('InsufficientLiquidity');
+
+                                        await expect(
+                                            poolCollection.tradeInputAndFeeByTargetAmount(
+                                                sourceToken.address,
+                                                targetToken.address,
+                                                amount
+                                            )
+                                        ).to.be.revertedWithError('panic code 0x11');
+                                    });
+                                });
+
+                                context('insufficient', () => {
+                                    const bntTradingLiquidity = BigNumber.from(12_345);
+                                    const baseTokenTradingLiquidity = BigNumber.from(9_999_999);
+
+                                    const targetBalance = isSourceBNT ? baseTokenTradingLiquidity : bntTradingLiquidity;
+
+                                    let targetAmount: BigNumber;
+
+                                    beforeEach(async () => {
+                                        await setTradingLiquidity(bntTradingLiquidity, baseTokenTradingLiquidity);
+
+                                        targetAmount = targetBalance;
+                                    });
+
+                                    it('should revert when attempting to query the source amount', async () => {
+                                        await expect(
+                                            poolCollection.tradeInputAndFeeByTargetAmount(
+                                                sourceToken.address,
+                                                targetToken.address,
+                                                targetAmount
+                                            )
+                                        ).to.be.revertedWithError('panic code 0x11');
+                                    });
+
+                                    context('with a trading fee', () => {
+                                        beforeEach(async () => {
+                                            const tradingFeePPM = toPPM(10);
+                                            await poolCollection.setTradingFeePPM(reserveToken.address, tradingFeePPM);
+
+                                            // derive a target amount such that adding a fee to it will result in an amount
+                                            // equal to the target balance, by solving the following two equations:
+                                            // 1. `feeAmount = targetAmount * tradingFee / (1 - tradingFee)`
+                                            // 2. `targetAmount + feeAmount = targetBalance`
+                                            targetAmount = targetBalance
+                                                .mul(PPM_RESOLUTION - tradingFeePPM)
+                                                .div(PPM_RESOLUTION);
+
+                                            // note that due to the integer-division, we expect:
+                                            // - `targetAmount + feeAmount` to be slightly smaller than `targetBalance`
+                                            // - `targetAmount + feeAmount + 1` to be equal to or larger than `targetBalance`
+                                        });
+
+                                        it('should not revert when attempting to query the source amount', async () => {
+                                            await poolCollection.tradeInputAndFeeByTargetAmount(
+                                                sourceToken.address,
+                                                targetToken.address,
+                                                targetAmount
+                                            );
+                                        });
+
+                                        it('should revert when attempting to query the source amount', async () => {
+                                            await expect(
+                                                poolCollection.tradeInputAndFeeByTargetAmount(
+                                                    sourceToken.address,
+                                                    targetToken.address,
+                                                    targetAmount.add(1)
+                                                )
+                                            ).to.be.revertedWithError(
+                                                isSourceBNT ? 'panic code 0x11' : 'panic code 0x12'
+                                            );
+                                        });
                                     });
                                 });
                             });
                         });
                     });
 
-                    interface Spec {
-                        sourceBalance: BigNumber;
-                        targetBalance: BigNumber;
-                        tradingFeePPM: number;
-                        networkFeePPM: number;
-                        amount: BigNumber;
-                        blockNumbers: number[];
-                    }
+                    context('with custom network fee', () => {
+                        interface Spec {
+                            sourceBalance: BigNumber;
+                            targetBalance: BigNumber;
+                            tradingFeePPM: number;
+                            networkFeePPM: number;
+                            amount: BigNumber;
+                            blockNumbers: number[];
+                        }
 
-                    const testTrading = (spec: Spec) => {
-                        const { sourceBalance, targetBalance, tradingFeePPM, networkFeePPM, amount, blockNumbers } =
-                            spec;
+                        const testTrading = (spec: Spec) => {
+                            const { sourceBalance, targetBalance, tradingFeePPM, networkFeePPM, amount, blockNumbers } =
+                                spec;
 
-                        context(
-                            `with (${[
-                                sourceBalance,
-                                targetBalance,
-                                tradingFeePPM,
-                                networkFeePPM,
-                                amount
-                            ]}) [${blockNumbers}]`,
-                            () => {
-                                type PoolData = AsyncReturnType<TestPoolCollection['poolData']>;
-                                const expectedAverageRate = (poolData: PoolData, blockNumber: number) => {
-                                    if (blockNumber !== poolData.averageRate.blockNumber) {
-                                        const averageRate = poolData.averageRate.rate;
-                                        const spotRate = {
-                                            n: poolData.liquidity.bntTradingLiquidity,
-                                            d: poolData.liquidity.baseTokenTradingLiquidity
-                                        };
-                                        const newAverageRate = {
-                                            n: averageRate.n
-                                                .mul(spotRate.d)
-                                                .mul(EMA_AVERAGE_RATE_WEIGHT)
-                                                .add(averageRate.d.mul(spotRate.n).mul(EMA_SPOT_RATE_WEIGHT)),
-                                            d: averageRate.d
-                                                .mul(spotRate.d)
-                                                .mul(EMA_AVERAGE_RATE_WEIGHT + EMA_SPOT_RATE_WEIGHT)
-                                        };
-                                        const scale = max(newAverageRate.n, newAverageRate.d)
-                                            .sub(1)
-                                            .div(BigNumber.from(2).pow(112).sub(1))
-                                            .add(1);
-                                        return {
-                                            blockNumber,
-                                            rate: { n: newAverageRate.n.div(scale), d: newAverageRate.d.div(scale) }
-                                        };
-                                    }
-                                    return poolData.averageRate;
-                                };
+                            context(
+                                `with (${[
+                                    sourceBalance,
+                                    targetBalance,
+                                    tradingFeePPM,
+                                    networkFeePPM,
+                                    amount
+                                ]}) [${blockNumbers}]`,
+                                () => {
+                                    const expectedNetworkFeeAmount = (
+                                        targetNetworkFeeAmount: BigNumber,
+                                        bntTradingLiquidity: BigNumber,
+                                        baseTokenTradingLiquidity: BigNumber
+                                    ) => {
+                                        if (isSourceBNT) {
+                                            return {
+                                                bntFeeAmount: expectedTargetAmountAndFee(
+                                                    targetNetworkFeeAmount,
+                                                    0,
+                                                    baseTokenTradingLiquidity,
+                                                    bntTradingLiquidity
+                                                ).amount,
+                                                targetNetworkFeeAmount
+                                            };
+                                        }
 
-                                const expectedNetworkFeeAmount = (
-                                    targetNetworkFeeAmount: BigNumber,
-                                    bntTradingLiquidity: BigNumber,
-                                    baseTokenTradingLiquidity: BigNumber
-                                ) => {
-                                    if (isSourceBNT) {
-                                        return {
-                                            bntFeeAmount: expectedTargetAmountAndFee(
-                                                targetNetworkFeeAmount,
-                                                0,
-                                                baseTokenTradingLiquidity,
-                                                bntTradingLiquidity
-                                            ).amount,
-                                            targetNetworkFeeAmount
-                                        };
-                                    }
+                                        return { bntFeeAmount: targetNetworkFeeAmount, targetNetworkFeeAmount: 0 };
+                                    };
 
-                                    return { bntFeeAmount: targetNetworkFeeAmount, targetNetworkFeeAmount: 0 };
-                                };
+                                    beforeEach(async () => {
+                                        await setupEnabledPool(tradingFeePPM, networkFeePPM);
 
-                                const expectedTargetAmountAndFee = (
-                                    sourceAmount: BigNumber,
-                                    tradingFeePPM: number,
-                                    sourceTokenBalance: BigNumber,
-                                    targetTokenBalance: BigNumber
-                                ) => {
-                                    const amount = targetTokenBalance
-                                        .mul(sourceAmount)
-                                        .div(sourceTokenBalance.add(sourceAmount).toString());
-                                    const tradingFeeAmount = amount.mul(tradingFeePPM).div(PPM_RESOLUTION);
+                                        const bntTradingLiquidity = isSourceBNT ? sourceBalance : targetBalance;
+                                        const baseTokenTradingLiquidity = isSourceBNT ? targetBalance : sourceBalance;
+                                        await setTradingLiquidity(bntTradingLiquidity, baseTokenTradingLiquidity);
 
-                                    return { amount: amount.sub(tradingFeeAmount), tradingFeeAmount };
-                                };
-
-                                const expectedSourceAmountAndFee = (
-                                    targetAmount: BigNumber,
-                                    tradingFeePPM: number,
-                                    sourceTokenBalance: BigNumber,
-                                    targetTokenBalance: BigNumber
-                                ) => {
-                                    const tradingFeeAmount = targetAmount
-                                        .mul(tradingFeePPM)
-                                        .div(PPM_RESOLUTION - tradingFeePPM);
-                                    const fullTargetAmount = targetAmount.add(tradingFeeAmount);
-                                    const sourceAmount = sourceTokenBalance
-                                        .mul(fullTargetAmount)
-                                        .div(targetTokenBalance.sub(fullTargetAmount));
-
-                                    return { amount: sourceAmount, tradingFeeAmount };
-                                };
-
-                                beforeEach(async () => {
-                                    await networkSettings.setNetworkFeePPM(networkFeePPM);
-
-                                    const bntTradingLiquidity = isSourceBNT ? sourceBalance : targetBalance;
-                                    const baseTokenTradingLiquidity = isSourceBNT ? targetBalance : sourceBalance;
-                                    await setTradingLiquidity(bntTradingLiquidity, baseTokenTradingLiquidity);
-
-                                    await poolCollection.setAverageRateT(reserveToken.address, {
-                                        blockNumber: 0,
-                                        rate: { n: bntTradingLiquidity, d: baseTokenTradingLiquidity }
+                                        await poolCollection.setAverageRatesT(reserveToken.address, {
+                                            blockNumber: 0,
+                                            rate: { n: bntTradingLiquidity, d: baseTokenTradingLiquidity },
+                                            invRate: { n: baseTokenTradingLiquidity, d: bntTradingLiquidity }
+                                        });
                                     });
 
-                                    await poolCollection.setTradingFeePPM(reserveToken.address, tradingFeePPM);
-                                });
+                                    it('should perform a trade by providing the source amount', async () => {
+                                        for (const blockNumber of blockNumbers) {
+                                            await poolCollection.setBlockNumber(blockNumber);
 
-                                it('should perform a trade by providing the source amount', async () => {
-                                    for (const blockNumber of blockNumbers) {
-                                        await poolCollection.setBlockNumber(blockNumber);
+                                            const prevPoolData = await poolCollection.poolData(reserveToken.address);
+                                            const { liquidity: prevLiquidity } = prevPoolData;
 
-                                        const prevPoolData = await poolCollection.poolData(reserveToken.address);
-                                        const { liquidity: prevLiquidity } = prevPoolData;
+                                            const targetAmountAndFee =
+                                                await poolCollection.tradeOutputAndFeeBySourceAmount(
+                                                    sourceToken.address,
+                                                    targetToken.address,
+                                                    amount
+                                                );
 
-                                        const targetAmountAndFee = await poolCollection.tradeOutputAndFeeBySourceAmount(
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount
-                                        );
+                                            const sourceAmountAndFee =
+                                                await poolCollection.tradeInputAndFeeByTargetAmount(
+                                                    sourceToken.address,
+                                                    targetToken.address,
+                                                    targetAmountAndFee.amount
+                                                );
 
-                                        const sourceAmountAndFee = await poolCollection.tradeInputAndFeeByTargetAmount(
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            targetAmountAndFee.amount
-                                        );
-
-                                        const tradeAmounts = await network.callStatic.tradeBySourcePoolCollectionT(
-                                            poolCollection.address,
-                                            CONTEXT_ID,
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount,
-                                            MIN_RETURN_AMOUNT
-                                        );
-
-                                        const res = await network.tradeBySourcePoolCollectionT(
-                                            poolCollection.address,
-                                            CONTEXT_ID,
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount,
-                                            MIN_RETURN_AMOUNT
-                                        );
-
-                                        const expectedTargetAmounts = expectedTargetAmountAndFee(
-                                            amount,
-                                            tradingFeePPM,
-                                            isSourceBNT
-                                                ? prevLiquidity.bntTradingLiquidity
-                                                : prevLiquidity.baseTokenTradingLiquidity,
-                                            isSourceBNT
-                                                ? prevLiquidity.baseTokenTradingLiquidity
-                                                : prevLiquidity.bntTradingLiquidity
-                                        );
-
-                                        let newBNTTradingLiquidity = prevLiquidity.bntTradingLiquidity;
-                                        let newBaseTokenTradingLiquidity = prevLiquidity.baseTokenTradingLiquidity;
-                                        if (isSourceBNT) {
-                                            newBNTTradingLiquidity = newBNTTradingLiquidity.add(amount);
-                                            newBaseTokenTradingLiquidity = newBaseTokenTradingLiquidity.sub(
-                                                expectedTargetAmounts.amount
-                                            );
-                                        } else {
-                                            newBNTTradingLiquidity = newBNTTradingLiquidity.sub(
-                                                expectedTargetAmounts.amount
-                                            );
-                                            newBaseTokenTradingLiquidity = newBaseTokenTradingLiquidity.add(amount);
-                                        }
-
-                                        const targetNetworkFeeAmount = expectedTargetAmounts.tradingFeeAmount
-                                            .mul(networkFeePPM)
-                                            .div(PPM_RESOLUTION);
-
-                                        if (isSourceBNT) {
-                                            newBaseTokenTradingLiquidity =
-                                                newBaseTokenTradingLiquidity.sub(targetNetworkFeeAmount);
-                                        } else {
-                                            newBNTTradingLiquidity = newBNTTradingLiquidity.sub(targetNetworkFeeAmount);
-                                        }
-
-                                        const expectedNetworkFees = expectedNetworkFeeAmount(
-                                            targetNetworkFeeAmount,
-                                            newBNTTradingLiquidity,
-                                            newBaseTokenTradingLiquidity
-                                        );
-
-                                        expect(targetAmountAndFee.amount).to.almostEqual(expectedTargetAmounts.amount, {
-                                            maxRelativeError: new Decimal('0.0000000000000000001')
-                                        });
-                                        expect(targetAmountAndFee.tradingFeeAmount).to.almostEqual(
-                                            expectedTargetAmounts.tradingFeeAmount,
-                                            {
-                                                maxRelativeError: new Decimal('0.000000000000000006'),
-                                                relation: Relation.LesserOrEqual
-                                            }
-                                        );
-
-                                        expect(sourceAmountAndFee.amount).to.almostEqual(amount, {
-                                            maxRelativeError: new Decimal('0.0000000000000000001')
-                                        });
-                                        expect(sourceAmountAndFee.tradingFeeAmount).to.almostEqual(
-                                            targetAmountAndFee.tradingFeeAmount,
-                                            {
-                                                maxRelativeError: new Decimal('0.000000000000000002'),
-                                                relation: Relation.GreaterOrEqual
-                                            }
-                                        );
-
-                                        expect(tradeAmounts.amount).to.equal(targetAmountAndFee.amount);
-                                        expect(tradeAmounts.tradingFeeAmount).to.equal(
-                                            targetAmountAndFee.tradingFeeAmount
-                                        );
-                                        expect(tradeAmounts.networkFeeAmount).to.equal(
-                                            expectedNetworkFees.bntFeeAmount
-                                        );
-
-                                        const poolData = await poolCollection.poolData(reserveToken.address);
-                                        const { liquidity } = poolData;
-
-                                        await expect(res)
-                                            .to.emit(poolCollection, 'TradingLiquidityUpdated')
-                                            .withArgs(
+                                            const tradeAmounts = await network.callStatic.tradeBySourcePoolCollectionT(
+                                                poolCollection.address,
                                                 CONTEXT_ID,
-                                                reserveToken.address,
-                                                bnt.address,
-                                                prevLiquidity.bntTradingLiquidity,
-                                                liquidity.bntTradingLiquidity
+                                                sourceToken.address,
+                                                targetToken.address,
+                                                amount,
+                                                MIN_RETURN_AMOUNT
                                             );
 
-                                        await expect(res)
-                                            .to.emit(poolCollection, 'TradingLiquidityUpdated')
-                                            .withArgs(
+                                            const res = await network.tradeBySourcePoolCollectionT(
+                                                poolCollection.address,
                                                 CONTEXT_ID,
-                                                reserveToken.address,
-                                                reserveToken.address,
-                                                prevLiquidity.baseTokenTradingLiquidity,
-                                                liquidity.baseTokenTradingLiquidity
+                                                sourceToken.address,
+                                                targetToken.address,
+                                                amount,
+                                                MIN_RETURN_AMOUNT
                                             );
 
-                                        await expect(res).not.to.emit(poolCollection, 'TotalLiquidityUpdated');
+                                            const expectedTargetAmounts = expectedTargetAmountAndFee(
+                                                amount,
+                                                tradingFeePPM,
+                                                isSourceBNT
+                                                    ? prevLiquidity.bntTradingLiquidity
+                                                    : prevLiquidity.baseTokenTradingLiquidity,
+                                                isSourceBNT
+                                                    ? prevLiquidity.baseTokenTradingLiquidity
+                                                    : prevLiquidity.bntTradingLiquidity
+                                            );
 
-                                        if (isSourceBNT) {
-                                            expect(liquidity.bntTradingLiquidity).to.equal(
-                                                newBNTTradingLiquidity.sub(expectedNetworkFees.bntFeeAmount)
-                                            );
-                                            expect(liquidity.baseTokenTradingLiquidity).to.equal(
-                                                newBaseTokenTradingLiquidity.add(
-                                                    expectedNetworkFees.targetNetworkFeeAmount
-                                                )
-                                            );
-                                            expect(liquidity.stakedBalance).to.equal(
-                                                prevLiquidity.stakedBalance
-                                                    .add(expectedTargetAmounts.tradingFeeAmount)
-                                                    .sub(expectedNetworkFees.targetNetworkFeeAmount)
-                                            );
-                                        } else {
-                                            expect(liquidity.baseTokenTradingLiquidity).to.equal(
+                                            let newBNTTradingLiquidity = prevLiquidity.bntTradingLiquidity;
+                                            let newBaseTokenTradingLiquidity = prevLiquidity.baseTokenTradingLiquidity;
+                                            if (isSourceBNT) {
+                                                newBNTTradingLiquidity = newBNTTradingLiquidity.add(amount);
+                                                newBaseTokenTradingLiquidity = newBaseTokenTradingLiquidity.sub(
+                                                    expectedTargetAmounts.amount
+                                                );
+                                            } else {
+                                                newBNTTradingLiquidity = newBNTTradingLiquidity.sub(
+                                                    expectedTargetAmounts.amount
+                                                );
+                                                newBaseTokenTradingLiquidity = newBaseTokenTradingLiquidity.add(amount);
+                                            }
+
+                                            const targetNetworkFeeAmount = expectedTargetAmounts.tradingFeeAmount
+                                                .mul(networkFeePPM)
+                                                .div(PPM_RESOLUTION);
+
+                                            if (isSourceBNT) {
+                                                newBaseTokenTradingLiquidity =
+                                                    newBaseTokenTradingLiquidity.sub(targetNetworkFeeAmount);
+                                            } else {
+                                                newBNTTradingLiquidity =
+                                                    newBNTTradingLiquidity.sub(targetNetworkFeeAmount);
+                                            }
+
+                                            const expectedNetworkFees = expectedNetworkFeeAmount(
+                                                targetNetworkFeeAmount,
+                                                newBNTTradingLiquidity,
                                                 newBaseTokenTradingLiquidity
                                             );
-                                            expect(liquidity.bntTradingLiquidity).to.equal(newBNTTradingLiquidity);
-                                        }
 
-                                        // verify that the average rate has been updated
-                                        const expectedNewAverageRate = await expectedAverageRate(
-                                            prevPoolData,
-                                            blockNumber
-                                        );
-                                        expect(poolData.averageRate.blockNumber).to.equal(
-                                            expectedNewAverageRate.blockNumber
-                                        );
-                                        expect(poolData.averageRate.rate).to.equal(expectedNewAverageRate.rate);
-                                    }
-                                });
-
-                                it('should perform a trade by providing the target amount', async () => {
-                                    for (const blockNumber of blockNumbers) {
-                                        await poolCollection.setBlockNumber(blockNumber);
-
-                                        const prevPoolData = await poolCollection.poolData(reserveToken.address);
-                                        const { liquidity: prevLiquidity } = prevPoolData;
-
-                                        const sourceAmountAndFee = await poolCollection.tradeInputAndFeeByTargetAmount(
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount
-                                        );
-
-                                        const targetAmountAndFee = await poolCollection.tradeOutputAndFeeBySourceAmount(
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            sourceAmountAndFee.amount
-                                        );
-
-                                        const tradeAmounts = await network.callStatic.tradeByTargetPoolCollectionT(
-                                            poolCollection.address,
-                                            CONTEXT_ID,
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount,
-                                            MAX_SOURCE_AMOUNT
-                                        );
-
-                                        const res = await network.tradeByTargetPoolCollectionT(
-                                            poolCollection.address,
-                                            CONTEXT_ID,
-                                            sourceToken.address,
-                                            targetToken.address,
-                                            amount,
-                                            MAX_SOURCE_AMOUNT
-                                        );
-
-                                        const expectedSourceAmounts = expectedSourceAmountAndFee(
-                                            amount,
-                                            tradingFeePPM,
-                                            isSourceBNT
-                                                ? prevLiquidity.bntTradingLiquidity
-                                                : prevLiquidity.baseTokenTradingLiquidity,
-                                            isSourceBNT
-                                                ? prevLiquidity.baseTokenTradingLiquidity
-                                                : prevLiquidity.bntTradingLiquidity
-                                        );
-
-                                        let newBNTTradingLiquidity = prevLiquidity.bntTradingLiquidity;
-                                        let newBaseTokenTradingLiquidity = prevLiquidity.baseTokenTradingLiquidity;
-                                        if (isSourceBNT) {
-                                            newBNTTradingLiquidity = newBNTTradingLiquidity.add(
-                                                expectedSourceAmounts.amount
+                                            expect(targetAmountAndFee.amount).to.almostEqual(
+                                                expectedTargetAmounts.amount,
+                                                {
+                                                    maxRelativeError: new Decimal('0.0000000000000000001')
+                                                }
                                             );
-                                            newBaseTokenTradingLiquidity = newBaseTokenTradingLiquidity.sub(amount);
-                                        } else {
-                                            newBNTTradingLiquidity = newBNTTradingLiquidity.sub(amount);
-                                            newBaseTokenTradingLiquidity = newBaseTokenTradingLiquidity.add(
-                                                expectedSourceAmounts.amount
-                                            );
-                                        }
-
-                                        const targetNetworkFeeAmount = expectedSourceAmounts.tradingFeeAmount
-                                            .mul(networkFeePPM)
-                                            .div(PPM_RESOLUTION);
-
-                                        if (isSourceBNT) {
-                                            newBaseTokenTradingLiquidity =
-                                                newBaseTokenTradingLiquidity.sub(targetNetworkFeeAmount);
-                                        } else {
-                                            newBNTTradingLiquidity = newBNTTradingLiquidity.sub(targetNetworkFeeAmount);
-                                        }
-
-                                        const expectedNetworkFees = expectedNetworkFeeAmount(
-                                            targetNetworkFeeAmount,
-                                            newBNTTradingLiquidity,
-                                            newBaseTokenTradingLiquidity
-                                        );
-
-                                        expect(sourceAmountAndFee.amount).to.almostEqual(expectedSourceAmounts.amount, {
-                                            maxRelativeError: new Decimal('0.0000000000000000001')
-                                        });
-                                        expect(sourceAmountAndFee.tradingFeeAmount).to.almostEqual(
-                                            expectedSourceAmounts.tradingFeeAmount,
-                                            {
-                                                maxRelativeError: new Decimal('0.000000000000000006'),
-                                                relation: Relation.LesserOrEqual
-                                            }
-                                        );
-
-                                        expect(targetAmountAndFee.amount).to.almostEqual(amount, {
-                                            maxRelativeError: new Decimal('0.0000000000000000001')
-                                        });
-                                        expect(targetAmountAndFee.tradingFeeAmount).to.almostEqual(
-                                            sourceAmountAndFee.tradingFeeAmount,
-                                            {
-                                                maxAbsoluteError: new Decimal(1),
-                                                maxRelativeError: new Decimal('0.000000000000000002'),
-                                                relation: Relation.LesserOrEqual
-                                            }
-                                        );
-
-                                        expect(tradeAmounts.amount).to.equal(sourceAmountAndFee.amount);
-                                        expect(tradeAmounts.tradingFeeAmount).to.equal(
-                                            sourceAmountAndFee.tradingFeeAmount
-                                        );
-                                        expect(tradeAmounts.networkFeeAmount).to.equal(
-                                            expectedNetworkFees.bntFeeAmount
-                                        );
-
-                                        const poolData = await poolCollection.poolData(reserveToken.address);
-                                        const { liquidity } = poolData;
-
-                                        await expect(res)
-                                            .to.emit(poolCollection, 'TradingLiquidityUpdated')
-                                            .withArgs(
-                                                CONTEXT_ID,
-                                                reserveToken.address,
-                                                bnt.address,
-                                                prevLiquidity.bntTradingLiquidity,
-                                                liquidity.bntTradingLiquidity
+                                            expect(targetAmountAndFee.tradingFeeAmount).to.almostEqual(
+                                                expectedTargetAmounts.tradingFeeAmount,
+                                                {
+                                                    maxRelativeError: new Decimal('0.000000000000000006'),
+                                                    relation: Relation.LesserOrEqual
+                                                }
                                             );
 
-                                        await expect(res)
-                                            .to.emit(poolCollection, 'TradingLiquidityUpdated')
-                                            .withArgs(
-                                                CONTEXT_ID,
-                                                reserveToken.address,
-                                                reserveToken.address,
-                                                prevLiquidity.baseTokenTradingLiquidity,
-                                                liquidity.baseTokenTradingLiquidity
-                                            );
-
-                                        await expect(res).not.to.emit(poolCollection, 'TotalLiquidityUpdated');
-
-                                        if (isSourceBNT) {
-                                            expect(liquidity.bntTradingLiquidity).to.equal(
-                                                newBNTTradingLiquidity.sub(expectedNetworkFees.bntFeeAmount)
-                                            );
-                                            expect(liquidity.baseTokenTradingLiquidity).to.equal(
-                                                newBaseTokenTradingLiquidity.add(
-                                                    expectedNetworkFees.targetNetworkFeeAmount
-                                                )
-                                            );
-                                            expect(liquidity.stakedBalance).to.equal(
-                                                prevLiquidity.stakedBalance
-                                                    .add(expectedSourceAmounts.tradingFeeAmount)
-                                                    .sub(expectedNetworkFees.targetNetworkFeeAmount)
-                                            );
-                                        } else {
-                                            expect(liquidity.baseTokenTradingLiquidity).to.equal(
-                                                newBaseTokenTradingLiquidity
-                                            );
-                                            expect(liquidity.bntTradingLiquidity).to.equal(newBNTTradingLiquidity);
-                                        }
-
-                                        // verify that the average rate has been updated
-                                        const expectedNewAverageRate = await expectedAverageRate(
-                                            prevPoolData,
-                                            blockNumber
-                                        );
-                                        expect(poolData.averageRate.blockNumber).to.equal(
-                                            expectedNewAverageRate.blockNumber
-                                        );
-                                        expect(poolData.averageRate.rate).to.equal(expectedNewAverageRate.rate);
-                                    }
-                                });
-                            }
-                        );
-                    };
-
-                    describe('regular tests', () => {
-                        for (const sourceBalance of [1_000_000]) {
-                            for (const targetBalance of [5_000_000]) {
-                                for (const tradingFeePercent of [10]) {
-                                    for (const networkFeePercent of [20]) {
-                                        for (const amount of [1_000]) {
-                                            testTrading({
-                                                sourceBalance: toWei(sourceBalance),
-                                                targetBalance: toWei(targetBalance),
-                                                tradingFeePPM: toPPM(tradingFeePercent),
-                                                networkFeePPM: toPPM(networkFeePercent),
-                                                amount: toWei(amount),
-                                                blockNumbers: [0, 200, 500, 500, 600]
+                                            expect(sourceAmountAndFee.amount).to.almostEqual(amount, {
+                                                maxRelativeError: new Decimal('0.0000000000000000001')
                                             });
+                                            expect(sourceAmountAndFee.tradingFeeAmount).to.almostEqual(
+                                                targetAmountAndFee.tradingFeeAmount,
+                                                {
+                                                    maxRelativeError: new Decimal('0.000000000000000002'),
+                                                    relation: Relation.GreaterOrEqual
+                                                }
+                                            );
+
+                                            expect(tradeAmounts.amount).to.equal(targetAmountAndFee.amount);
+                                            expect(tradeAmounts.tradingFeeAmount).to.equal(
+                                                targetAmountAndFee.tradingFeeAmount
+                                            );
+                                            expect(tradeAmounts.networkFeeAmount).to.equal(
+                                                expectedNetworkFees.bntFeeAmount
+                                            );
+
+                                            const poolData = await poolCollection.poolData(reserveToken.address);
+                                            const { liquidity } = poolData;
+
+                                            await expect(res)
+                                                .to.emit(poolCollection, 'TradingLiquidityUpdated')
+                                                .withArgs(
+                                                    CONTEXT_ID,
+                                                    reserveToken.address,
+                                                    bnt.address,
+                                                    prevLiquidity.bntTradingLiquidity,
+                                                    liquidity.bntTradingLiquidity
+                                                );
+
+                                            await expect(res)
+                                                .to.emit(poolCollection, 'TradingLiquidityUpdated')
+                                                .withArgs(
+                                                    CONTEXT_ID,
+                                                    reserveToken.address,
+                                                    reserveToken.address,
+                                                    prevLiquidity.baseTokenTradingLiquidity,
+                                                    liquidity.baseTokenTradingLiquidity
+                                                );
+
+                                            await expect(res).not.to.emit(poolCollection, 'TotalLiquidityUpdated');
+
+                                            if (isSourceBNT) {
+                                                expect(liquidity.bntTradingLiquidity).to.equal(
+                                                    newBNTTradingLiquidity.sub(expectedNetworkFees.bntFeeAmount)
+                                                );
+                                                expect(liquidity.baseTokenTradingLiquidity).to.equal(
+                                                    newBaseTokenTradingLiquidity.add(
+                                                        expectedNetworkFees.targetNetworkFeeAmount
+                                                    )
+                                                );
+                                                expect(liquidity.stakedBalance).to.equal(
+                                                    prevLiquidity.stakedBalance
+                                                        .add(expectedTargetAmounts.tradingFeeAmount)
+                                                        .sub(expectedNetworkFees.targetNetworkFeeAmount)
+                                                );
+                                            } else {
+                                                expect(liquidity.baseTokenTradingLiquidity).to.equal(
+                                                    newBaseTokenTradingLiquidity
+                                                );
+                                                expect(liquidity.bntTradingLiquidity).to.equal(newBNTTradingLiquidity);
+                                            }
+
+                                            // verify that the average rates have been updated
+                                            const expectedNewAverageRates = updatedAverageRates(
+                                                prevPoolData,
+                                                blockNumber
+                                            );
+                                            expect(poolData.averageRates.blockNumber).to.equal(
+                                                expectedNewAverageRates.blockNumber
+                                            );
+                                            expect(poolData.averageRates.rate).to.equal(expectedNewAverageRates.rate);
+                                            expect(poolData.averageRates.invRate).to.equal(
+                                                expectedNewAverageRates.invRate
+                                            );
+                                        }
+                                    });
+
+                                    it('should perform a trade by providing the target amount', async () => {
+                                        for (const blockNumber of blockNumbers) {
+                                            await poolCollection.setBlockNumber(blockNumber);
+
+                                            const prevPoolData = await poolCollection.poolData(reserveToken.address);
+                                            const { liquidity: prevLiquidity } = prevPoolData;
+
+                                            const sourceAmountAndFee =
+                                                await poolCollection.tradeInputAndFeeByTargetAmount(
+                                                    sourceToken.address,
+                                                    targetToken.address,
+                                                    amount
+                                                );
+
+                                            const targetAmountAndFee =
+                                                await poolCollection.tradeOutputAndFeeBySourceAmount(
+                                                    sourceToken.address,
+                                                    targetToken.address,
+                                                    sourceAmountAndFee.amount
+                                                );
+
+                                            const tradeAmounts = await network.callStatic.tradeByTargetPoolCollectionT(
+                                                poolCollection.address,
+                                                CONTEXT_ID,
+                                                sourceToken.address,
+                                                targetToken.address,
+                                                amount,
+                                                MAX_SOURCE_AMOUNT
+                                            );
+
+                                            const res = await network.tradeByTargetPoolCollectionT(
+                                                poolCollection.address,
+                                                CONTEXT_ID,
+                                                sourceToken.address,
+                                                targetToken.address,
+                                                amount,
+                                                MAX_SOURCE_AMOUNT
+                                            );
+
+                                            const expectedSourceAmounts = expectedSourceAmountAndFee(
+                                                amount,
+                                                tradingFeePPM,
+                                                isSourceBNT
+                                                    ? prevLiquidity.bntTradingLiquidity
+                                                    : prevLiquidity.baseTokenTradingLiquidity,
+                                                isSourceBNT
+                                                    ? prevLiquidity.baseTokenTradingLiquidity
+                                                    : prevLiquidity.bntTradingLiquidity
+                                            );
+
+                                            let newBNTTradingLiquidity = prevLiquidity.bntTradingLiquidity;
+                                            let newBaseTokenTradingLiquidity = prevLiquidity.baseTokenTradingLiquidity;
+                                            if (isSourceBNT) {
+                                                newBNTTradingLiquidity = newBNTTradingLiquidity.add(
+                                                    expectedSourceAmounts.amount
+                                                );
+                                                newBaseTokenTradingLiquidity = newBaseTokenTradingLiquidity.sub(amount);
+                                            } else {
+                                                newBNTTradingLiquidity = newBNTTradingLiquidity.sub(amount);
+                                                newBaseTokenTradingLiquidity = newBaseTokenTradingLiquidity.add(
+                                                    expectedSourceAmounts.amount
+                                                );
+                                            }
+
+                                            const targetNetworkFeeAmount = expectedSourceAmounts.tradingFeeAmount
+                                                .mul(networkFeePPM)
+                                                .div(PPM_RESOLUTION);
+
+                                            if (isSourceBNT) {
+                                                newBaseTokenTradingLiquidity =
+                                                    newBaseTokenTradingLiquidity.sub(targetNetworkFeeAmount);
+                                            } else {
+                                                newBNTTradingLiquidity =
+                                                    newBNTTradingLiquidity.sub(targetNetworkFeeAmount);
+                                            }
+
+                                            const expectedNetworkFees = expectedNetworkFeeAmount(
+                                                targetNetworkFeeAmount,
+                                                newBNTTradingLiquidity,
+                                                newBaseTokenTradingLiquidity
+                                            );
+
+                                            expect(sourceAmountAndFee.amount).to.almostEqual(
+                                                expectedSourceAmounts.amount,
+                                                {
+                                                    maxRelativeError: new Decimal('0.0000000000000000001')
+                                                }
+                                            );
+                                            expect(sourceAmountAndFee.tradingFeeAmount).to.almostEqual(
+                                                expectedSourceAmounts.tradingFeeAmount,
+                                                {
+                                                    maxRelativeError: new Decimal('0.000000000000000006'),
+                                                    relation: Relation.LesserOrEqual
+                                                }
+                                            );
+
+                                            expect(targetAmountAndFee.amount).to.almostEqual(amount, {
+                                                maxRelativeError: new Decimal('0.0000000000000000001')
+                                            });
+                                            expect(targetAmountAndFee.tradingFeeAmount).to.almostEqual(
+                                                sourceAmountAndFee.tradingFeeAmount,
+                                                {
+                                                    maxAbsoluteError: new Decimal(1),
+                                                    maxRelativeError: new Decimal('0.000000000000000002'),
+                                                    relation: Relation.LesserOrEqual
+                                                }
+                                            );
+
+                                            expect(tradeAmounts.amount).to.equal(sourceAmountAndFee.amount);
+                                            expect(tradeAmounts.tradingFeeAmount).to.equal(
+                                                sourceAmountAndFee.tradingFeeAmount
+                                            );
+                                            expect(tradeAmounts.networkFeeAmount).to.equal(
+                                                expectedNetworkFees.bntFeeAmount
+                                            );
+
+                                            const poolData = await poolCollection.poolData(reserveToken.address);
+                                            const { liquidity } = poolData;
+
+                                            await expect(res)
+                                                .to.emit(poolCollection, 'TradingLiquidityUpdated')
+                                                .withArgs(
+                                                    CONTEXT_ID,
+                                                    reserveToken.address,
+                                                    bnt.address,
+                                                    prevLiquidity.bntTradingLiquidity,
+                                                    liquidity.bntTradingLiquidity
+                                                );
+
+                                            await expect(res)
+                                                .to.emit(poolCollection, 'TradingLiquidityUpdated')
+                                                .withArgs(
+                                                    CONTEXT_ID,
+                                                    reserveToken.address,
+                                                    reserveToken.address,
+                                                    prevLiquidity.baseTokenTradingLiquidity,
+                                                    liquidity.baseTokenTradingLiquidity
+                                                );
+
+                                            await expect(res).not.to.emit(poolCollection, 'TotalLiquidityUpdated');
+
+                                            if (isSourceBNT) {
+                                                expect(liquidity.bntTradingLiquidity).to.equal(
+                                                    newBNTTradingLiquidity.sub(expectedNetworkFees.bntFeeAmount)
+                                                );
+                                                expect(liquidity.baseTokenTradingLiquidity).to.equal(
+                                                    newBaseTokenTradingLiquidity.add(
+                                                        expectedNetworkFees.targetNetworkFeeAmount
+                                                    )
+                                                );
+                                                expect(liquidity.stakedBalance).to.equal(
+                                                    prevLiquidity.stakedBalance
+                                                        .add(expectedSourceAmounts.tradingFeeAmount)
+                                                        .sub(expectedNetworkFees.targetNetworkFeeAmount)
+                                                );
+                                            } else {
+                                                expect(liquidity.baseTokenTradingLiquidity).to.equal(
+                                                    newBaseTokenTradingLiquidity
+                                                );
+                                                expect(liquidity.bntTradingLiquidity).to.equal(newBNTTradingLiquidity);
+                                            }
+
+                                            // verify that the average rates have been updated
+                                            const expectedNewAverageRates = updatedAverageRates(
+                                                prevPoolData,
+                                                blockNumber
+                                            );
+                                            expect(poolData.averageRates.blockNumber).to.equal(
+                                                expectedNewAverageRates.blockNumber
+                                            );
+                                            expect(poolData.averageRates.rate).to.equal(expectedNewAverageRates.rate);
+                                            expect(poolData.averageRates.invRate).to.equal(
+                                                expectedNewAverageRates.invRate
+                                            );
+                                        }
+                                    });
+                                }
+                            );
+                        };
+
+                        describe('regular tests', () => {
+                            for (const sourceBalance of [1_000_000]) {
+                                for (const targetBalance of [5_000_000]) {
+                                    for (const tradingFeePercent of [10]) {
+                                        for (const networkFeePercent of [20]) {
+                                            for (const amount of [1_000]) {
+                                                testTrading({
+                                                    sourceBalance: toWei(sourceBalance),
+                                                    targetBalance: toWei(targetBalance),
+                                                    tradingFeePPM: toPPM(tradingFeePercent),
+                                                    networkFeePPM: toPPM(networkFeePercent),
+                                                    amount: toWei(amount),
+                                                    blockNumbers: [0, 200, 500, 500, 600]
+                                                });
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                    });
+                        });
 
-                    describe('@stress tests', () => {
-                        for (const sourceBalance of [1_000_000, 100_000_000]) {
-                            for (const targetBalance of [1_000_000, 100_000_000]) {
-                                for (const tradingFeePercent of [0, 10]) {
-                                    for (const networkFeePercent of [0, 20]) {
-                                        for (const amount of [1_000, 100_000]) {
-                                            testTrading({
-                                                sourceBalance: toWei(sourceBalance),
-                                                targetBalance: toWei(targetBalance),
-                                                tradingFeePPM: toPPM(tradingFeePercent),
-                                                networkFeePPM: toPPM(networkFeePercent),
-                                                amount: toWei(amount),
-                                                blockNumbers: [0, 1, 2, 10, 10, 100, 400]
-                                            });
+                        describe('@stress tests', () => {
+                            for (const sourceBalance of [1_000_000, 100_000_000]) {
+                                for (const targetBalance of [1_000_000, 100_000_000]) {
+                                    for (const tradingFeePercent of [0, 10]) {
+                                        for (const networkFeePercent of [0, 20]) {
+                                            for (const amount of [1_000, 100_000]) {
+                                                testTrading({
+                                                    sourceBalance: toWei(sourceBalance),
+                                                    targetBalance: toWei(targetBalance),
+                                                    tradingFeePPM: toPPM(tradingFeePercent),
+                                                    networkFeePPM: toPPM(networkFeePercent),
+                                                    amount: toWei(amount),
+                                                    blockNumbers: [0, 1, 2, 10, 10, 100, 400]
+                                                });
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
+                        });
                     });
                 });
             });
@@ -3442,13 +3810,13 @@ describe('PoolCollection', () => {
 
             await expect(
                 poolCollection.connect(nonNetwork).onFeesCollected(reserveToken.address, 1)
-            ).to.be.revertedWith('AccessDenied');
+            ).to.be.revertedWithError('AccessDenied');
         });
 
         it('should revert when attempting to notify about collected fee from an invalid pool', async () => {
             await expect(
                 network.onPoolCollectionFeesCollectedT(poolCollection.address, ZERO_ADDRESS, 1)
-            ).to.be.revertedWith('DoesNotExist');
+            ).to.be.revertedWithError('DoesNotExist');
         });
 
         it('should revert when attempting to notify about collected fee from a non-existing pool', async () => {
@@ -3456,7 +3824,7 @@ describe('PoolCollection', () => {
 
             await expect(
                 network.onPoolCollectionFeesCollectedT(poolCollection.address, reserveToken2.address, 1)
-            ).to.be.revertedWith('DoesNotExist');
+            ).to.be.revertedWithError('DoesNotExist');
         });
 
         for (const feeAmount of [0, 12_345]) {
@@ -3480,8 +3848,6 @@ describe('PoolCollection', () => {
         let poolToken: PoolToken;
         let externalRewardsVault: ExternalRewardsVault;
 
-        const BASE_TOKEN_LIQUIDITY = toWei(1_000_000_000);
-
         beforeEach(async () => {
             ({ networkSettings, network, poolCollection, externalRewardsVault } = await createSystem());
 
@@ -3492,8 +3858,6 @@ describe('PoolCollection', () => {
             poolToken = await createPool(reserveToken, network, networkSettings, poolCollection);
 
             await networkSettings.setMinLiquidityForTrading(MIN_LIQUIDITY_FOR_TRADING);
-
-            await poolCollection.setDepositLimit(reserveToken.address, MAX_UINT256);
         });
 
         context('initial', () => {
@@ -3504,14 +3868,12 @@ describe('PoolCollection', () => {
         });
 
         context('with liquidity', () => {
+            const INITIAL_LIQUIDITY = MIN_LIQUIDITY_FOR_TRADING.mul(BASE_TOKEN_VIRTUAL_BALANCE)
+                .div(BNT_VIRTUAL_BALANCE)
+                .mul(1000);
+
             beforeEach(async () => {
-                await network.depositToPoolCollectionForT(
-                    poolCollection.address,
-                    CONTEXT_ID,
-                    deployer.address,
-                    reserveToken.address,
-                    BASE_TOKEN_LIQUIDITY
-                );
+                await depositToPool(deployer, reserveToken, INITIAL_LIQUIDITY, network);
             });
 
             for (const tokenAmount of [0, 1000, toWei(20_000)]) {
@@ -3581,7 +3943,7 @@ describe('PoolCollection', () => {
         });
     });
 
-    describe('pool migrations', () => {
+    describe('migrations', () => {
         let network: TestBancorNetwork;
         let bnt: IERC20;
         let networkSettings: NetworkSettings;
@@ -3621,10 +3983,11 @@ describe('PoolCollection', () => {
                 externalProtectionVault,
                 poolTokenFactory,
                 poolMigrator,
+                NETWORK_FEE_PPM,
+                await poolCollection.poolType(),
                 (await poolCollection.version()) + 1
             );
-            await network.addPoolCollection(targetPoolCollection.address);
-            await network.setLatestPoolCollection(targetPoolCollection.address);
+            await network.registerPoolCollection(targetPoolCollection.address);
         });
 
         describe('in', () => {
@@ -3634,21 +3997,21 @@ describe('PoolCollection', () => {
                 const poolData = await poolCollection.poolData(reserveToken.address);
                 await expect(
                     targetPoolCollection.connect(nonMigrator).migratePoolIn(reserveToken.address, poolData)
-                ).to.be.revertedWith('AccessDenied');
+                ).to.be.revertedWithError('AccessDenied');
             });
 
             it('should revert when attempting to migrate an invalid pool into a pool collection', async () => {
                 const poolData = await poolCollection.poolData(reserveToken.address);
                 await expect(
                     poolMigrator.migratePoolInT(targetPoolCollection.address, ZERO_ADDRESS, poolData)
-                ).to.be.revertedWith('InvalidAddress');
+                ).to.be.revertedWithError('InvalidAddress');
             });
 
             it('should revert when attempting to migrate an already existing pool into a pool collection', async () => {
                 const poolData = await poolCollection.poolData(reserveToken.address);
                 await expect(
                     poolMigrator.migratePoolInT(poolCollection.address, reserveToken.address, poolData)
-                ).to.be.revertedWith('AlreadyExists');
+                ).to.be.revertedWithError('AlreadyExists');
             });
 
             it('should revert when attempting to migrate a pool that was not migrated out', async () => {
@@ -3656,7 +4019,7 @@ describe('PoolCollection', () => {
 
                 await expect(
                     poolMigrator.migratePoolInT(targetPoolCollection.address, reserveToken.address, poolData)
-                ).to.be.revertedWith('AccessDenied');
+                ).to.be.revertedWithError('AccessDenied');
             });
 
             it('should allow to migrate a pool into a pool collection', async () => {
@@ -3690,37 +4053,19 @@ describe('PoolCollection', () => {
                     poolCollection
                         .connect(nonMigrator)
                         .migratePoolOut(reserveToken.address, targetPoolCollection.address)
-                ).to.be.revertedWith('AccessDenied');
+                ).to.be.revertedWithError('AccessDenied');
             });
 
             it('should revert when attempting to migrate an invalid pool out of a pool collection', async () => {
                 await expect(
                     poolMigrator.migratePoolOutT(poolCollection.address, ZERO_ADDRESS, targetPoolCollection.address)
-                ).to.be.revertedWith('DoesNotExist');
+                ).to.be.revertedWithError('DoesNotExist');
             });
 
             it('should revert when attempting to migrate a pool out of a pool collection to an invalid pool collection', async () => {
                 await expect(
                     poolMigrator.migratePoolOutT(poolCollection.address, reserveToken.address, ZERO_ADDRESS)
-                ).to.be.revertedWith('InvalidAddress');
-
-                const newPoolCollection = await createPoolCollection(
-                    network,
-                    bnt,
-                    networkSettings,
-                    masterVault,
-                    bntPool,
-                    externalProtectionVault,
-                    poolTokenFactory,
-                    poolMigrator
-                );
-                await expect(
-                    poolMigrator.migratePoolOutT(
-                        poolCollection.address,
-                        reserveToken.address,
-                        newPoolCollection.address
-                    )
-                ).to.be.revertedWith('InvalidPoolCollection');
+                ).to.be.revertedWithError('InvalidAddress');
             });
 
             it('should revert when attempting to migrate a non-existing pool out of a pool collection', async () => {
@@ -3731,7 +4076,7 @@ describe('PoolCollection', () => {
                         reserveToken2.address,
                         targetPoolCollection.address
                     )
-                ).to.be.revertedWith('DoesNotExist');
+                ).to.be.revertedWithError('DoesNotExist');
             });
 
             it('should allow to migrate a pool out of a pool collection', async () => {

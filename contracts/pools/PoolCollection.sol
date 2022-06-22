@@ -25,6 +25,7 @@ import {
     Utils,
     AlreadyExists,
     DoesNotExist,
+    InvalidParam,
     InvalidPoolCollection,
     InvalidStakedBalance
 } from "../utility/Utils.sol";
@@ -38,13 +39,14 @@ import { IPoolMigrator } from "./interfaces/IPoolMigrator.sol";
 
 // prettier-ignore
 import {
-    AverageRate,
+    AverageRates,
     IPoolCollection,
     PoolLiquidity,
     Pool,
     TRADING_STATUS_UPDATE_DEFAULT,
     TRADING_STATUS_UPDATE_ADMIN,
     TRADING_STATUS_UPDATE_MIN_LIQUIDITY,
+    TRADING_STATUS_UPDATE_INVALID_STATE,
     TradeAmountAndFee,
     WithdrawalAmounts
 } from "./interfaces/IPoolCollection.sol";
@@ -63,6 +65,7 @@ struct InternalWithdrawalAmounts {
     Sint256 bntProtocolHoldingsDelta; // BNT amount add to the protocol equity
     uint256 baseTokensWithdrawalFee; // base token amount to keep in the pool as a withdrawal fee
     uint256 baseTokensWithdrawalAmount; // base token amount equivalent to the base pool token's withdrawal amount
+    uint256 poolTokenAmount; // base pool token
     uint256 poolTokenTotalSupply; // base pool token's total supply
     uint256 newBaseTokenTradingLiquidity; // new base token trading liquidity
     uint256 newBNTTradingLiquidity; // new BNT trading liquidity
@@ -70,7 +73,8 @@ struct InternalWithdrawalAmounts {
 
 struct TradingLiquidityAction {
     bool update;
-    uint256 newAmount;
+    uint256 newBNTTradingLiquidity;
+    uint256 newBaseTokenTradingLiquidity;
 }
 
 enum PoolRateState {
@@ -91,9 +95,9 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     using FractionLibrary for Fraction;
     using FractionLibrary for Fraction112;
     using EnumerableSet for EnumerableSet.AddressSet;
+    using SafeCast for uint256;
 
     error AlreadyEnabled();
-    error DepositLimitExceeded();
     error DepositingDisabled();
     error InsufficientLiquidity();
     error InsufficientSourceAmount();
@@ -101,12 +105,13 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     error InvalidRate();
     error RateUnstable();
     error TradingDisabled();
+    error FundingLimitTooHigh();
 
     uint16 private constant POOL_TYPE = 1;
     uint256 private constant LIQUIDITY_GROWTH_FACTOR = 2;
     uint256 private constant BOOTSTRAPPING_LIQUIDITY_BUFFER_FACTOR = 2;
-    uint32 private constant DEFAULT_TRADING_FEE_PPM = 2000; // 0.2%
-    uint32 private constant RATE_MAX_DEVIATION_PPM = 10000; // %1
+    uint32 private constant DEFAULT_TRADING_FEE_PPM = 2_000; // 0.2%
+    uint32 private constant RATE_MAX_DEVIATION_PPM = 10_000; // %1
 
     // the average rate is recalculated based on the ratio between the weights of the rates the smaller the weights are,
     // the larger the supported range of each one of the rates is
@@ -158,6 +163,9 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     // the pool migrator contract
     IPoolMigrator private immutable _poolMigrator;
 
+    // the global network fee (in units of PPM)
+    uint32 private immutable _networkFeePPM;
+
     // a mapping between tokens and their pools
     mapping(Token => Pool) internal _poolData;
 
@@ -166,11 +174,6 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
 
     // the default trading fee (in units of PPM)
     uint32 private _defaultTradingFeePPM;
-
-    /**
-     * @dev triggered when a pool is created
-     */
-    event PoolCreated(IPoolToken indexed poolToken, Token indexed token);
 
     /**
      * @dev triggered when the default trading fee is updated
@@ -193,18 +196,13 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     event DepositingEnabled(Token indexed pool, bool indexed newStatus);
 
     /**
-     * @dev triggered when a pool's deposit limit is updated
-     */
-    event DepositLimitUpdated(Token indexed pool, uint256 prevDepositLimit, uint256 newDepositLimit);
-
-    /**
      * @dev triggered when new liquidity is deposited into a pool
      */
     event TokensDeposited(
         bytes32 indexed contextId,
         address indexed provider,
         Token indexed token,
-        uint256 tokenAmount,
+        uint256 baseTokenAmount,
         uint256 poolTokenAmount
     );
 
@@ -215,7 +213,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         bytes32 indexed contextId,
         address indexed provider,
         Token indexed token,
-        uint256 tokenAmount,
+        uint256 baseTokenAmount,
         uint256 poolTokenAmount,
         uint256 externalProtectionBaseTokenAmount,
         uint256 bntAmount,
@@ -255,17 +253,19 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         IBNTPool initBNTPool,
         IExternalProtectionVault initExternalProtectionVault,
         IPoolTokenFactory initPoolTokenFactory,
-        IPoolMigrator initPoolMigrator
-    )
-        validAddress(address(initNetwork))
-        validAddress(address(initBNT))
-        validAddress(address(initNetworkSettings))
-        validAddress(address(initMasterVault))
-        validAddress(address(initBNTPool))
-        validAddress(address(initExternalProtectionVault))
-        validAddress(address(initPoolTokenFactory))
-        validAddress(address(initPoolMigrator))
-    {
+        IPoolMigrator initPoolMigrator,
+        uint32 initNetworkFeePPM
+    ) {
+        _validAddress(address(initNetwork));
+        _validAddress(address(initBNT));
+        _validAddress(address(initNetworkSettings));
+        _validAddress(address(initMasterVault));
+        _validAddress(address(initBNTPool));
+        _validAddress(address(initExternalProtectionVault));
+        _validAddress(address(initPoolTokenFactory));
+        _validAddress(address(initPoolMigrator));
+        _validFee(initNetworkFeePPM);
+
         _network = initNetwork;
         _bnt = initBNT;
         _networkSettings = initNetworkSettings;
@@ -274,6 +274,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         _externalProtectionVault = initExternalProtectionVault;
         _poolTokenFactory = initPoolTokenFactory;
         _poolMigrator = initPoolMigrator;
+        _networkFeePPM = initNetworkFeePPM;
 
         _setDefaultTradingFeePPM(DEFAULT_TRADING_FEE_PPM);
     }
@@ -282,13 +283,13 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
      * @inheritdoc IVersioned
      */
     function version() external view virtual returns (uint16) {
-        return 2;
+        return 6;
     }
 
     /**
      * @inheritdoc IPoolCollection
      */
-    function poolType() external pure returns (uint16) {
+    function poolType() external view virtual returns (uint16) {
         return POOL_TYPE;
     }
 
@@ -297,6 +298,13 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
      */
     function defaultTradingFeePPM() external view returns (uint32) {
         return _defaultTradingFeePPM;
+    }
+
+    /**
+     * @inheritdoc IPoolCollection
+     */
+    function networkFeePPM() external view returns (uint32) {
+        return _networkFeePPM;
     }
 
     /**
@@ -353,19 +361,15 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
             tradingFeePPM: _defaultTradingFeePPM,
             tradingEnabled: false,
             depositingEnabled: true,
-            averageRate: AverageRate({ blockNumber: 0, rate: zeroFraction112() }),
-            depositLimit: 0,
+            averageRates: AverageRates({ blockNumber: 0, rate: zeroFraction112(), invRate: zeroFraction112() }),
             liquidity: PoolLiquidity({ bntTradingLiquidity: 0, baseTokenTradingLiquidity: 0, stakedBalance: 0 })
         });
 
         _addPool(token, newPool);
 
-        emit PoolCreated({ poolToken: newPoolToken, token: token });
-
-        emit TradingEnabled({ pool: token, newStatus: false, reason: TRADING_STATUS_UPDATE_DEFAULT });
+        emit TradingEnabled({ pool: token, newStatus: newPool.tradingEnabled, reason: TRADING_STATUS_UPDATE_DEFAULT });
         emit TradingFeePPMUpdated({ pool: token, prevFeePPM: 0, newFeePPM: newPool.tradingFeePPM });
         emit DepositingEnabled({ pool: token, newStatus: newPool.depositingEnabled });
-        emit DepositLimitUpdated({ pool: token, prevDepositLimit: 0, newDepositLimit: newPool.depositLimit });
     }
 
     /**
@@ -376,7 +380,12 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     }
 
     /**
-     * @inheritdoc IPoolCollection
+     * @dev returns specific pool's data
+     *
+     * notes:
+     *
+     * - there is no guarantee that this function will remains forward compatible, so please avoid relying on it and
+     *   rely on specific getters from the IPoolCollection interface instead
      */
     function poolData(Token pool) external view returns (Pool memory) {
         return _poolData[pool];
@@ -399,6 +408,27 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     /**
      * @inheritdoc IPoolCollection
      */
+    function tradingFeePPM(Token pool) external view returns (uint32) {
+        return _poolData[pool].tradingFeePPM;
+    }
+
+    /**
+     * @inheritdoc IPoolCollection
+     */
+    function tradingEnabled(Token pool) external view returns (bool) {
+        return _poolData[pool].tradingEnabled;
+    }
+
+    /**
+     * @inheritdoc IPoolCollection
+     */
+    function depositingEnabled(Token pool) external view returns (bool) {
+        return _poolData[pool].depositingEnabled;
+    }
+
+    /**
+     * @inheritdoc IPoolCollection
+     */
     function poolTokenToUnderlying(Token pool, uint256 poolTokenAmount) external view returns (uint256) {
         Pool storage data = _poolData[pool];
 
@@ -408,10 +438,10 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     /**
      * @inheritdoc IPoolCollection
      */
-    function underlyingToPoolToken(Token pool, uint256 tokenAmount) external view returns (uint256) {
+    function underlyingToPoolToken(Token pool, uint256 baseTokenAmount) external view returns (uint256) {
         Pool storage data = _poolData[pool];
 
-        return _underlyingToPoolToken(tokenAmount, data.poolToken.totalSupply(), data.liquidity.stakedBalance);
+        return _underlyingToPoolToken(baseTokenAmount, data.poolToken.totalSupply(), data.liquidity.stakedBalance);
     }
 
     /**
@@ -419,17 +449,17 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
      */
     function poolTokenAmountToBurn(
         Token pool,
-        uint256 tokenAmountToDistribute,
+        uint256 baseTokenAmountToDistribute,
         uint256 protocolPoolTokenAmount
     ) external view returns (uint256) {
-        if (tokenAmountToDistribute == 0) {
+        if (baseTokenAmountToDistribute == 0) {
             return 0;
         }
 
         Pool storage data = _poolData[pool];
 
         uint256 poolTokenSupply = data.poolToken.totalSupply();
-        uint256 val = tokenAmountToDistribute * poolTokenSupply;
+        uint256 val = baseTokenAmountToDistribute * poolTokenSupply;
 
         return
             MathEx.mulDivF(
@@ -437,6 +467,15 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
                 poolTokenSupply,
                 val + data.liquidity.stakedBalance * (poolTokenSupply - protocolPoolTokenAmount)
             );
+    }
+
+    /**
+     * @inheritdoc IPoolCollection
+     */
+    function isPoolStable(Token pool) external view returns (bool) {
+        Pool storage data = _poolData[pool];
+
+        return _poolRateState(data.liquidity, data.averageRates) == PoolRateState.Stable;
     }
 
     /**
@@ -464,7 +503,8 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
      * trading liquidity
      *
      * please note that the virtual balances should be derived from token prices, normalized to the smallest unit of
-     * tokens. For example:
+     * tokens. In other words, the ratio between BNT and TKN virtual balances should be the ratio between the $ value
+     * of 1 wei of TKN and 1 wei of BNT, taking both of their decimals into account. For example:
      *
      * - if the price of one (10**18 wei) BNT is $X and the price of one (10**18 wei) TKN is $Y, then the virtual balances
      *   should represent a ratio of X to Y
@@ -490,15 +530,21 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         }
 
         // adjust the trading liquidity based on the base token vault balance and funding limits
+        bytes32 contextId = keccak256(abi.encodePacked(msg.sender, pool, bntVirtualBalance, baseTokenVirtualBalance));
         uint256 minLiquidityForTrading = _networkSettings.minLiquidityForTrading();
-        _updateTradingLiquidity(bytes32(0), pool, data, data.liquidity, fundingRate, minLiquidityForTrading);
+        _updateTradingLiquidity(contextId, pool, data, fundingRate, minLiquidityForTrading);
 
         // verify that the BNT trading liquidity is equal or greater than the minimum liquidity for trading
         if (data.liquidity.bntTradingLiquidity < minLiquidityForTrading) {
             revert InsufficientLiquidity();
         }
 
-        data.averageRate = AverageRate({ blockNumber: _blockNumber(), rate: fundingRate.toFraction112() });
+        Fraction112 memory fundingRate112 = fundingRate.toFraction112();
+        data.averageRates = AverageRates({
+            blockNumber: _blockNumber(),
+            rate: fundingRate112,
+            invRate: fundingRate112.inverse()
+        });
 
         data.tradingEnabled = true;
 
@@ -538,55 +584,41 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     }
 
     /**
-     * @dev sets the deposit limit of a given pool
-     *
-     * requirements:
-     *
-     * - the caller must be the owner of the contract
-     */
-    function setDepositLimit(Token pool, uint256 newDepositLimit) external onlyOwner {
-        Pool storage data = _poolStorage(pool);
-
-        uint256 prevDepositLimit = data.depositLimit;
-        if (prevDepositLimit == newDepositLimit) {
-            return;
-        }
-
-        data.depositLimit = newDepositLimit;
-
-        emit DepositLimitUpdated({ pool: pool, prevDepositLimit: prevDepositLimit, newDepositLimit: newDepositLimit });
-    }
-
-    /**
      * @inheritdoc IPoolCollection
      */
     function depositFor(
         bytes32 contextId,
         address provider,
         Token pool,
-        uint256 tokenAmount
-    ) external only(address(_network)) validAddress(provider) greaterThanZero(tokenAmount) returns (uint256) {
+        uint256 baseTokenAmount
+    ) external only(address(_network)) validAddress(provider) greaterThanZero(baseTokenAmount) returns (uint256) {
         Pool storage data = _poolStorage(pool);
 
         if (!data.depositingEnabled) {
             revert DepositingDisabled();
         }
 
-        // calculate the pool token amount to mint
-        uint256 currentStakedBalance = data.liquidity.stakedBalance;
-        uint256 prevPoolTokenTotalSupply = data.poolToken.totalSupply();
-        uint256 poolTokenAmount = _underlyingToPoolToken(tokenAmount, prevPoolTokenTotalSupply, currentStakedBalance);
+        PoolLiquidity memory prevLiquidity = data.liquidity;
+        uint256 currentStakedBalance = prevLiquidity.stakedBalance;
 
-        // verify that the staked balance and the newly deposited amount isn't higher than the deposit limit
-        uint256 newStakedBalance = currentStakedBalance + tokenAmount;
-        if (newStakedBalance > data.depositLimit) {
-            revert DepositLimitExceeded();
+        // if there are no pool tokens available to support the staked balance - reset the trading liquidity and the
+        // staked balance
+        uint256 prevPoolTokenTotalSupply = data.poolToken.totalSupply();
+        if (prevPoolTokenTotalSupply == 0 && currentStakedBalance != 0) {
+            currentStakedBalance = 0;
+
+            _resetTradingLiquidity(contextId, pool, data, TRADING_STATUS_UPDATE_INVALID_STATE);
         }
 
-        PoolLiquidity memory prevLiquidity = data.liquidity;
+        // calculate the pool token amount to mint
+        uint256 poolTokenAmount = _underlyingToPoolToken(
+            baseTokenAmount,
+            prevPoolTokenTotalSupply,
+            currentStakedBalance
+        );
 
         // update the staked balance with the full base token amount
-        data.liquidity.stakedBalance = newStakedBalance;
+        data.liquidity.stakedBalance = currentStakedBalance + baseTokenAmount;
 
         // mint pool tokens to the provider
         data.poolToken.mint(provider, poolTokenAmount);
@@ -596,16 +628,23 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
             contextId,
             pool,
             data,
-            data.liquidity,
-            data.averageRate.rate.fromFraction112(),
+            data.averageRates.rate.fromFraction112(),
             _networkSettings.minLiquidityForTrading()
         );
+
+        // if trading is enabled, then update the recent average rates
+        if (data.tradingEnabled) {
+            _updateAverageRates(
+                data,
+                Fraction({ n: data.liquidity.bntTradingLiquidity, d: data.liquidity.baseTokenTradingLiquidity })
+            );
+        }
 
         emit TokensDeposited({
             contextId: contextId,
             provider: provider,
             token: pool,
-            tokenAmount: tokenAmount,
+            baseTokenAmount: baseTokenAmount,
             poolTokenAmount: poolTokenAmount
         });
 
@@ -627,15 +666,50 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         bytes32 contextId,
         address provider,
         Token pool,
-        uint256 poolTokenAmount
-    ) external only(address(_network)) validAddress(provider) greaterThanZero(poolTokenAmount) returns (uint256) {
+        uint256 poolTokenAmount,
+        uint256 baseTokenAmount
+    )
+        external
+        only(address(_network))
+        validAddress(provider)
+        greaterThanZero(poolTokenAmount)
+        greaterThanZero(baseTokenAmount)
+        returns (uint256)
+    {
         Pool storage data = _poolStorage(pool);
+        PoolLiquidity memory liquidity = data.liquidity;
+
+        uint256 poolTokenTotalSupply = data.poolToken.totalSupply();
+        uint256 underlyingAmount = _poolTokenToUnderlying(
+            poolTokenAmount,
+            poolTokenTotalSupply,
+            liquidity.stakedBalance
+        );
+
+        if (baseTokenAmount > underlyingAmount) {
+            revert InvalidParam();
+        }
 
         // obtain the withdrawal amounts
-        InternalWithdrawalAmounts memory amounts = _poolWithdrawalAmounts(pool, data, poolTokenAmount);
+        InternalWithdrawalAmounts memory amounts = _poolWithdrawalAmounts(
+            pool,
+            poolTokenAmount,
+            baseTokenAmount,
+            liquidity,
+            data.tradingFeePPM,
+            poolTokenTotalSupply
+        );
 
         // execute the actual withdrawal
-        _executeWithdrawal(contextId, provider, pool, data, poolTokenAmount, amounts);
+        _executeWithdrawal(contextId, provider, pool, data, amounts);
+
+        // if trading is enabled, then update the recent average rates
+        if (data.tradingEnabled) {
+            _updateAverageRates(
+                data,
+                Fraction({ n: data.liquidity.bntTradingLiquidity, d: data.liquidity.baseTokenTradingLiquidity })
+            );
+        }
 
         return amounts.baseTokensToTransferFromMasterVault;
     }
@@ -650,7 +724,24 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         greaterThanZero(poolTokenAmount)
         returns (WithdrawalAmounts memory)
     {
-        InternalWithdrawalAmounts memory amounts = _poolWithdrawalAmounts(pool, _poolStorage(pool), poolTokenAmount);
+        Pool storage data = _poolData[pool];
+        PoolLiquidity memory liquidity = data.liquidity;
+
+        uint256 poolTokenTotalSupply = data.poolToken.totalSupply();
+        uint256 underlyingAmount = _poolTokenToUnderlying(
+            poolTokenAmount,
+            poolTokenTotalSupply,
+            liquidity.stakedBalance
+        );
+
+        InternalWithdrawalAmounts memory amounts = _poolWithdrawalAmounts(
+            pool,
+            poolTokenAmount,
+            underlyingAmount,
+            liquidity,
+            data.tradingFeePPM,
+            poolTokenTotalSupply
+        );
 
         return
             WithdrawalAmounts({
@@ -812,10 +903,6 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         validAddress(address(targetPoolCollection))
         only(address(_poolMigrator))
     {
-        if (_network.latestPoolCollection(POOL_TYPE) != targetPoolCollection) {
-            revert InvalidPoolCollection();
-        }
-
         IPoolToken cachedPoolToken = _poolData[pool].poolToken;
 
         _removePool(pool);
@@ -850,29 +937,23 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
      */
     function _poolWithdrawalAmounts(
         Token pool,
-        Pool memory data,
-        uint256 poolTokenAmount
+        uint256 poolTokenAmount,
+        uint256 baseTokensWithdrawalAmount,
+        PoolLiquidity memory liquidity,
+        uint32 poolTradingFeePPM,
+        uint256 poolTokenTotalSupply
     ) internal view returns (InternalWithdrawalAmounts memory) {
         // the base token trading liquidity of a given pool can never be higher than the base token balance of the vault
         // whenever the base token trading liquidity is updated, it is set to at most the base token balance of the vault
-        uint256 baseTokenExcessAmount = pool.balanceOf(address(_masterVault)) -
-            data.liquidity.baseTokenTradingLiquidity;
-
-        uint256 poolTokenTotalSupply = data.poolToken.totalSupply();
-
-        uint256 baseTokensWithdrawalAmount = _poolTokenToUnderlying(
-            poolTokenAmount,
-            poolTokenTotalSupply,
-            data.liquidity.stakedBalance
-        );
+        uint256 baseTokenExcessAmount = pool.balanceOf(address(_masterVault)) - liquidity.baseTokenTradingLiquidity;
 
         PoolCollectionWithdrawal.Output memory output = PoolCollectionWithdrawal.calculateWithdrawalAmounts(
-            data.liquidity.bntTradingLiquidity,
-            data.liquidity.baseTokenTradingLiquidity,
+            liquidity.bntTradingLiquidity,
+            liquidity.baseTokenTradingLiquidity,
             baseTokenExcessAmount,
-            data.liquidity.stakedBalance,
+            liquidity.stakedBalance,
             pool.balanceOf(address(_externalProtectionVault)),
-            data.tradingFeePPM,
+            poolTradingFeePPM,
             _networkSettings.withdrawalFeePPM(),
             baseTokensWithdrawalAmount
         );
@@ -887,13 +968,14 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
                 bntProtocolHoldingsDelta: output.q,
                 baseTokensWithdrawalFee: output.v,
                 baseTokensWithdrawalAmount: baseTokensWithdrawalAmount,
+                poolTokenAmount: poolTokenAmount,
                 poolTokenTotalSupply: poolTokenTotalSupply,
                 newBaseTokenTradingLiquidity: output.r.isNeg
-                    ? data.liquidity.baseTokenTradingLiquidity - output.r.value
-                    : data.liquidity.baseTokenTradingLiquidity + output.r.value,
+                    ? liquidity.baseTokenTradingLiquidity - output.r.value
+                    : liquidity.baseTokenTradingLiquidity + output.r.value,
                 newBNTTradingLiquidity: output.p.isNeg
-                    ? data.liquidity.bntTradingLiquidity - output.p.value
-                    : data.liquidity.bntTradingLiquidity + output.p.value
+                    ? liquidity.bntTradingLiquidity - output.p.value
+                    : liquidity.bntTradingLiquidity + output.p.value
             });
     }
 
@@ -913,19 +995,19 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         address provider,
         Token pool,
         Pool storage data,
-        uint256 poolTokenAmount,
         InternalWithdrawalAmounts memory amounts
     ) private {
         PoolLiquidity storage liquidity = data.liquidity;
         PoolLiquidity memory prevLiquidity = liquidity;
-        AverageRate memory averageRate = data.averageRate;
+        AverageRates memory averageRates = data.averageRates;
 
-        if (_poolRateState(prevLiquidity, averageRate) == PoolRateState.Unstable) {
+        if (_poolRateState(prevLiquidity, averageRates) == PoolRateState.Unstable) {
             revert RateUnstable();
         }
 
-        data.poolToken.burnFrom(address(_network), poolTokenAmount);
-        uint256 newPoolTokenTotalSupply = amounts.poolTokenTotalSupply - poolTokenAmount;
+        data.poolToken.burn(amounts.poolTokenAmount);
+
+        uint256 newPoolTokenTotalSupply = amounts.poolTokenTotalSupply - amounts.poolTokenAmount;
 
         liquidity.stakedBalance = MathEx.mulDivF(
             liquidity.stakedBalance,
@@ -934,8 +1016,8 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         );
 
         // trading liquidity is assumed to never exceed 128 bits (the cast below will revert otherwise)
-        liquidity.baseTokenTradingLiquidity = SafeCast.toUint128(amounts.newBaseTokenTradingLiquidity);
-        liquidity.bntTradingLiquidity = SafeCast.toUint128(amounts.newBNTTradingLiquidity);
+        liquidity.baseTokenTradingLiquidity = amounts.newBaseTokenTradingLiquidity.toUint128();
+        liquidity.bntTradingLiquidity = amounts.newBNTTradingLiquidity.toUint128();
 
         if (amounts.bntProtocolHoldingsDelta.value > 0) {
             assert(amounts.bntProtocolHoldingsDelta.isNeg); // currently no support for requesting funding here
@@ -973,7 +1055,8 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
 
         // ensure that the average rate is reset when the pool is being emptied
         if (amounts.newBaseTokenTradingLiquidity == 0) {
-            data.averageRate.rate = zeroFraction112();
+            data.averageRates.rate = zeroFraction112();
+            data.averageRates.invRate = zeroFraction112();
         }
 
         // if the new BNT trading liquidity is below the minimum liquidity for trading - reset the liquidity
@@ -991,8 +1074,8 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
             contextId: contextId,
             provider: provider,
             token: pool,
-            tokenAmount: amounts.baseTokensToTransferFromMasterVault,
-            poolTokenAmount: poolTokenAmount,
+            baseTokenAmount: amounts.baseTokensToTransferFromMasterVault,
+            poolTokenAmount: amounts.poolTokenAmount,
             externalProtectionBaseTokenAmount: amounts.baseTokensToTransferFromEPV,
             bntAmount: amounts.bntToMintForProvider,
             withdrawalFeeAmount: amounts.baseTokensWithdrawalFee
@@ -1051,7 +1134,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
      * @dev calculates pool tokens amount
      */
     function _underlyingToPoolToken(
-        uint256 tokenAmount,
+        uint256 baseTokenAmount,
         uint256 poolTokenSupply,
         uint256 stakedBalance
     ) private pure returns (uint256) {
@@ -1061,33 +1144,36 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
                 revert InvalidStakedBalance();
             }
 
-            return tokenAmount;
+            return baseTokenAmount;
         }
 
-        return MathEx.mulDivC(tokenAmount, poolTokenSupply, stakedBalance);
+        return MathEx.mulDivC(baseTokenAmount, poolTokenSupply, stakedBalance);
     }
 
     /**
-     * @dev returns the target BNT trading liquidity, and whether or not it needs to be updated
+     * @dev calculates the target trading liquidities, taking into account the total out-of-curve base token liquidity,
+     * and the deltas between the new and the previous states
      */
-    function _calcTargetBNTTradingLiquidity(
-        uint256 tokenReserveAmount,
+    function _calcTargetTradingLiquidity(
+        uint256 totalBaseTokenReserveAmount,
         uint256 availableFunding,
         PoolLiquidity memory liquidity,
         Fraction memory fundingRate,
         uint256 minLiquidityForTrading
     ) private pure returns (TradingLiquidityAction memory) {
-        // calculate the target BNT trading liquidity based on the smaller between the following:
-        // - BNT liquidity required to match previously deposited based token liquidity
-        // - maximum available BNT trading liquidity (current amount + available funding)
-        uint256 targetBNTTradingLiquidity = Math.min(
-            MathEx.mulDivF(tokenReserveAmount, fundingRate.n, fundingRate.d),
-            liquidity.bntTradingLiquidity + availableFunding
+        // calculate the target BNT trading liquidity delta based on the smaller between the following:
+        // - BNT liquidity required to match the total out-of-curve based token liquidity
+        // - available BNT funding
+        uint256 totalTokenDeltaAmount = totalBaseTokenReserveAmount - liquidity.baseTokenTradingLiquidity;
+        uint256 targetBNTTradingLiquidityDelta = Math.min(
+            MathEx.mulDivF(totalTokenDeltaAmount, fundingRate.n, fundingRate.d),
+            availableFunding
         );
+        uint256 targetBNTTradingLiquidity = liquidity.bntTradingLiquidity + targetBNTTradingLiquidityDelta;
 
         // ensure that the target is above the minimum liquidity for trading
         if (targetBNTTradingLiquidity < minLiquidityForTrading) {
-            return TradingLiquidityAction({ update: true, newAmount: 0 });
+            return TradingLiquidityAction({ update: true, newBNTTradingLiquidity: 0, newBaseTokenTradingLiquidity: 0 });
         }
 
         // calculate the new BNT trading liquidity and cap it by the growth factor
@@ -1098,7 +1184,12 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
 
             // ensure that we're not allocating more than the previously established limits
             if (newTargetBNTTradingLiquidity > targetBNTTradingLiquidity) {
-                return TradingLiquidityAction({ update: false, newAmount: 0 });
+                return
+                    TradingLiquidityAction({
+                        update: false,
+                        newBNTTradingLiquidity: 0,
+                        newBaseTokenTradingLiquidity: 0
+                    });
             }
 
             targetBNTTradingLiquidity = newTargetBNTTradingLiquidity;
@@ -1111,29 +1202,41 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
             );
         }
 
-        return TradingLiquidityAction({ update: true, newAmount: targetBNTTradingLiquidity });
+        // calculate the base token trading liquidity based on the delta between the new and the previous BNT trading
+        // liquidity and the effective funding rate (please note that the effective funding rate is always the rate
+        // between BNT and the base token)
+        uint256 bntTradingLiquidityDelta = targetBNTTradingLiquidity - liquidity.bntTradingLiquidity;
+        uint256 baseTokenTradingLiquidityDelta = bntTradingLiquidityDelta == 0
+            ? 0
+            : MathEx.mulDivF(bntTradingLiquidityDelta, fundingRate.d, fundingRate.n);
+
+        return
+            TradingLiquidityAction({
+                update: true,
+                newBNTTradingLiquidity: targetBNTTradingLiquidity,
+                newBaseTokenTradingLiquidity: liquidity.baseTokenTradingLiquidity + baseTokenTradingLiquidityDelta
+            });
     }
 
     /**
-     * @dev adjusts the trading liquidity based on the base token vault balance and funding limits
+     * @dev adjusts the trading liquidity based on the newly added tokens delta amount, and funding limits
      */
     function _updateTradingLiquidity(
         bytes32 contextId,
         Token pool,
         Pool storage data,
-        PoolLiquidity memory liquidity,
         Fraction memory fundingRate,
         uint256 minLiquidityForTrading
     ) private {
         // ensure that the base token reserve isn't empty
-        uint256 tokenReserveAmount = pool.balanceOf(address(_masterVault));
-        if (tokenReserveAmount == 0) {
-            _resetTradingLiquidity(contextId, pool, data, TRADING_STATUS_UPDATE_MIN_LIQUIDITY);
-
-            return;
+        uint256 totalBaseTokenReserveAmount = pool.balanceOf(address(_masterVault));
+        if (totalBaseTokenReserveAmount == 0) {
+            revert InsufficientLiquidity();
         }
 
-        if (_poolRateState(liquidity, data.averageRate) == PoolRateState.Unstable) {
+        PoolLiquidity memory liquidity = data.liquidity;
+
+        if (_poolRateState(liquidity, data.averageRates) == PoolRateState.Unstable) {
             return;
         }
 
@@ -1143,8 +1246,8 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
             return;
         }
 
-        TradingLiquidityAction memory action = _calcTargetBNTTradingLiquidity(
-            tokenReserveAmount,
+        TradingLiquidityAction memory action = _calcTargetTradingLiquidity(
+            totalBaseTokenReserveAmount,
             _bntPool.availableFunding(pool),
             liquidity,
             fundingRate,
@@ -1155,27 +1258,23 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
             return;
         }
 
-        if (action.newAmount == 0) {
+        if (action.newBNTTradingLiquidity == 0 || action.newBaseTokenTradingLiquidity == 0) {
             _resetTradingLiquidity(contextId, pool, data, TRADING_STATUS_UPDATE_MIN_LIQUIDITY);
 
             return;
         }
 
         // update funding from the BNT pool
-        if (action.newAmount > liquidity.bntTradingLiquidity) {
-            _bntPool.requestFunding(contextId, pool, action.newAmount - liquidity.bntTradingLiquidity);
-        } else if (action.newAmount < liquidity.bntTradingLiquidity) {
-            _bntPool.renounceFunding(contextId, pool, liquidity.bntTradingLiquidity - action.newAmount);
+        if (action.newBNTTradingLiquidity > liquidity.bntTradingLiquidity) {
+            _bntPool.requestFunding(contextId, pool, action.newBNTTradingLiquidity - liquidity.bntTradingLiquidity);
+        } else if (action.newBNTTradingLiquidity < liquidity.bntTradingLiquidity) {
+            _bntPool.renounceFunding(contextId, pool, liquidity.bntTradingLiquidity - action.newBNTTradingLiquidity);
         }
-
-        // calculate the base token trading liquidity based on the new BNT trading liquidity and the effective
-        // funding rate (please note that the effective funding rate is always the rate between BNT and the base token)
-        uint256 baseTokenTradingLiquidity = MathEx.mulDivF(action.newAmount, fundingRate.d, fundingRate.n);
 
         // trading liquidity is assumed to never exceed 128 bits (the cast below will revert otherwise)
         PoolLiquidity memory newLiquidity = PoolLiquidity({
-            bntTradingLiquidity: SafeCast.toUint128(action.newAmount),
-            baseTokenTradingLiquidity: SafeCast.toUint128(baseTokenTradingLiquidity),
+            bntTradingLiquidity: action.newBNTTradingLiquidity.toUint128(),
+            baseTokenTradingLiquidity: action.newBaseTokenTradingLiquidity.toUint128(),
             stakedBalance: liquidity.stakedBalance
         });
 
@@ -1259,7 +1358,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         data.liquidity.baseTokenTradingLiquidity = 0;
 
         // reset the recent average rage
-        data.averageRate = AverageRate({ blockNumber: 0, rate: zeroFraction112() });
+        data.averageRates = AverageRates({ blockNumber: 0, rate: zeroFraction112(), invRate: zeroFraction112() });
 
         // ensure that trading is disabled
         if (data.tradingEnabled) {
@@ -1337,7 +1436,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     function _tradeAmountAndFeeBySourceAmount(
         uint256 sourceBalance,
         uint256 targetBalance,
-        uint32 tradingFeePPM,
+        uint32 feePPM,
         uint256 sourceAmount
     ) private pure returns (TradeAmountAndTradingFee memory) {
         if (sourceBalance == 0 || targetBalance == 0) {
@@ -1345,7 +1444,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         }
 
         uint256 targetAmount = MathEx.mulDivF(targetBalance, sourceAmount, sourceBalance + sourceAmount);
-        uint256 tradingFeeAmount = MathEx.mulDivF(targetAmount, tradingFeePPM, PPM_RESOLUTION);
+        uint256 tradingFeeAmount = MathEx.mulDivF(targetAmount, feePPM, PPM_RESOLUTION);
 
         return
             TradeAmountAndTradingFee({ amount: targetAmount - tradingFeeAmount, tradingFeeAmount: tradingFeeAmount });
@@ -1357,14 +1456,14 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     function _tradeAmountAndFeeByTargetAmount(
         uint256 sourceBalance,
         uint256 targetBalance,
-        uint32 tradingFeePPM,
+        uint32 feePPM,
         uint256 targetAmount
     ) private pure returns (TradeAmountAndTradingFee memory) {
         if (sourceBalance == 0) {
             revert InsufficientLiquidity();
         }
 
-        uint256 tradingFeeAmount = MathEx.mulDivF(targetAmount, tradingFeePPM, PPM_RESOLUTION - tradingFeePPM);
+        uint256 tradingFeeAmount = MathEx.mulDivF(targetAmount, feePPM, PPM_RESOLUTION - feePPM);
         uint256 fullTargetAmount = targetAmount + tradingFeeAmount;
         uint256 sourceAmount = MathEx.mulDivF(sourceBalance, fullTargetAmount, targetBalance - fullTargetAmount);
 
@@ -1403,7 +1502,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
             result.sourceAmount = tradeAmountAndFee.amount;
 
             // ensure that the user has provided enough tokens to make the trade
-            if (result.sourceAmount > result.limit) {
+            if (result.sourceAmount == 0 || result.sourceAmount > result.limit) {
                 revert InsufficientSourceAmount();
             }
         }
@@ -1425,13 +1524,12 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
      * @dev processes the network fee and updates the in-memory intermediate result
      */
     function _processNetworkFee(TradeIntermediateResult memory result) private view {
-        uint32 networkFeePPM = _networkSettings.networkFeePPM();
-        if (networkFeePPM == 0) {
+        if (_networkFeePPM == 0) {
             return;
         }
 
         // calculate the target network fee amount
-        uint256 targetNetworkFeeAmount = MathEx.mulDivF(result.tradingFeeAmount, networkFeePPM, PPM_RESOLUTION);
+        uint256 targetNetworkFeeAmount = MathEx.mulDivF(result.tradingFeeAmount, _networkFeePPM, PPM_RESOLUTION);
 
         // update the target balance (but don't deduct it from the full trading fee amount)
         result.targetBalance -= targetNetworkFeeAmount;
@@ -1465,7 +1563,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
         PoolLiquidity memory prevLiquidity = data.liquidity;
 
         // update the recent average rate
-        _updateAverageRate(
+        _updateAverageRates(
             data,
             Fraction({ n: prevLiquidity.bntTradingLiquidity, d: prevLiquidity.baseTokenTradingLiquidity })
         );
@@ -1474,10 +1572,8 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
 
         // trading liquidity is assumed to never exceed 128 bits (the cast below will revert otherwise)
         PoolLiquidity memory newLiquidity = PoolLiquidity({
-            bntTradingLiquidity: SafeCast.toUint128(result.isSourceBNT ? result.sourceBalance : result.targetBalance),
-            baseTokenTradingLiquidity: SafeCast.toUint128(
-                result.isSourceBNT ? result.targetBalance : result.sourceBalance
-            ),
+            bntTradingLiquidity: (result.isSourceBNT ? result.sourceBalance : result.targetBalance).toUint128(),
+            baseTokenTradingLiquidity: (result.isSourceBNT ? result.targetBalance : result.sourceBalance).toUint128(),
             stakedBalance: result.stakedBalance
         });
 
@@ -1490,7 +1586,7 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     /**
      * @dev returns the state of a pool's rate
      */
-    function _poolRateState(PoolLiquidity memory liquidity, AverageRate memory averageRateInfo)
+    function _poolRateState(PoolLiquidity memory liquidity, AverageRates memory averageRates)
         internal
         view
         returns (PoolRateState)
@@ -1500,17 +1596,28 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
             d: liquidity.baseTokenTradingLiquidity
         });
 
-        Fraction112 memory averageRate = averageRateInfo.rate;
+        Fraction112 memory rate = averageRates.rate;
 
-        if (!spotRate.isPositive() || !averageRate.isPositive()) {
+        if (!spotRate.isPositive() || !rate.isPositive()) {
             return PoolRateState.Uninitialized;
         }
 
-        if (averageRateInfo.blockNumber != _blockNumber()) {
-            averageRate = _calcAverageRate(averageRate, spotRate);
+        Fraction memory invSpotRate = spotRate.inverse();
+        Fraction112 memory invRate = averageRates.invRate;
+
+        if (!invSpotRate.isPositive() || !invRate.isPositive()) {
+            return PoolRateState.Uninitialized;
         }
 
-        if (MathEx.isInRange(averageRate.fromFraction112(), spotRate, RATE_MAX_DEVIATION_PPM)) {
+        if (averageRates.blockNumber != _blockNumber()) {
+            rate = _calcAverageRate(rate, spotRate);
+            invRate = _calcAverageRate(invRate, invSpotRate);
+        }
+
+        if (
+            MathEx.isInRange(rate.fromFraction112(), spotRate, RATE_MAX_DEVIATION_PPM) &&
+            MathEx.isInRange(invRate.fromFraction112(), invSpotRate, RATE_MAX_DEVIATION_PPM)
+        ) {
             return PoolRateState.Stable;
         }
 
@@ -1518,15 +1625,16 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     }
 
     /**
-     * @dev updates the average rate
+     * @dev updates the average rates
      */
-    function _updateAverageRate(Pool storage data, Fraction memory spotRate) private {
+    function _updateAverageRates(Pool storage data, Fraction memory spotRate) private {
         uint32 blockNumber = _blockNumber();
 
-        if (data.averageRate.blockNumber != blockNumber) {
-            data.averageRate = AverageRate({
+        if (data.averageRates.blockNumber != blockNumber) {
+            data.averageRates = AverageRates({
                 blockNumber: blockNumber,
-                rate: _calcAverageRate(data.averageRate.rate, spotRate)
+                rate: _calcAverageRate(data.averageRates.rate, spotRate),
+                invRate: _calcAverageRate(data.averageRates.invRate, spotRate.inverse())
             });
         }
     }
@@ -1534,14 +1642,18 @@ contract PoolCollection is IPoolCollection, Owned, BlockNumber, Utils {
     /**
      * @dev calculates the average rate
      */
-    function _calcAverageRate(Fraction112 memory averageRate, Fraction memory spotRate)
+    function _calcAverageRate(Fraction112 memory averageRate, Fraction memory rate)
         private
         pure
         returns (Fraction112 memory)
     {
+        if (rate.n * averageRate.d == rate.d * averageRate.n) {
+            return averageRate;
+        }
+
         return
             MathEx
-                .weightedAverage(averageRate.fromFraction112(), spotRate, EMA_AVERAGE_RATE_WEIGHT, EMA_SPOT_RATE_WEIGHT)
+                .weightedAverage(averageRate.fromFraction112(), rate, EMA_AVERAGE_RATE_WEIGHT, EMA_SPOT_RATE_WEIGHT)
                 .toFraction112();
     }
 

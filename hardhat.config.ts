@@ -1,7 +1,8 @@
-import { ExternalContracts, NamedAccounts } from './deployments/data';
+import { NamedAccounts } from './data/named-accounts';
 import './test/Setup';
 import { DeploymentNetwork } from './utils/Constants';
 import '@nomiclabs/hardhat-ethers';
+import '@nomiclabs/hardhat-etherscan';
 import '@nomiclabs/hardhat-solhint';
 import '@nomiclabs/hardhat-waffle';
 import '@tenderly/hardhat-tenderly';
@@ -10,6 +11,7 @@ import 'dotenv/config';
 import 'hardhat-contract-sizer';
 import 'hardhat-dependency-compiler';
 import 'hardhat-deploy';
+import 'hardhat-storage-layout';
 import 'hardhat-watcher';
 import { HardhatUserConfig } from 'hardhat/config';
 import { MochaOptions } from 'mocha';
@@ -142,7 +144,28 @@ const config: HardhatUserConfig = {
     },
 
     namedAccounts: NamedAccounts,
-    external: ExternalContracts,
+
+    external: {
+        contracts: [
+            {
+                artifacts: 'node_modules/@bancor/contracts-solidity/artifacts'
+            },
+            {
+                artifacts: 'node_modules/@bancor/token-governance/artifacts'
+            }
+        ],
+
+        deployments: {
+            [DeploymentNetwork.Mainnet]: [
+                `deployments/${DeploymentNetwork.Mainnet}`,
+                `deployments/${DeploymentNetwork.Mainnet}/v2`
+            ],
+            [DeploymentNetwork.Tenderly]: [
+                `deployments/${DeploymentNetwork.Tenderly}`,
+                `deployments/${DeploymentNetwork.Tenderly}/v2`
+            ]
+        }
+    },
 
     contractSizer: {
         alphaSort: true,
@@ -154,6 +177,10 @@ const config: HardhatUserConfig = {
         etherscan: {
             apiKey: ETHERSCAN_API_KEY
         }
+    },
+
+    etherscan: {
+        apiKey: ETHERSCAN_API_KEY
     },
 
     watcher: {
