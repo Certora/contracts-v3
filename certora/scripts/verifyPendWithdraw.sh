@@ -1,27 +1,24 @@
-python3 ../../EVMVerifier/scripts/certoraRun.py  certora/harness/PendingWithdrawalsHarness.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
-    certora/munged/network/BancorNetwork.sol certora/munged/pools/PoolToken.sol \
-    certora/munged/pools/BNTPool.sol certora/munged/pools/PoolCollection.sol \
-    --verify PendingWithdrawalsHarness:certora/spec/PendWithdraw.spec \
-    --link PendingWithdrawalsHarness:_network=BancorNetwork \
-    BNTPool:_poolToken=PoolToken \
+certoraRun.py \
+    certora/harness/PendingWithdrawalsHarness.sol \
+    certora/helpers/DummyERC20A.sol \
+    certora/helpers/DummyERC20bnt.sol \
+    certora/munged/pools/BNTPool.sol \
+    certora/harness/PoolCollectionHarness.sol \
+    certora/munged/pools/PoolToken.sol \
+    certora/helpers/DummyPoolTokenA.sol \
+    certora/helpers/DummyPoolTokenB.sol \
+    certora/munged/network/BancorNetwork.sol \
+    --verify PendingWithdrawalsHarness:./certora/spec/PendWithdraw.spec \
+    --link  PendingWithdrawalsHarness:_bntPool=BNTPool \
+            PendingWithdrawalsHarness:_bnt=DummyERC20bnt \
+            PendingWithdrawalsHarness:_network=BancorNetwork \
+            BNTPool:_poolToken=PoolToken \
     --solc solc8.13 \
-    --staging \
+    --cloud \
+    --rule_sanity advanced \
+    --send_only \
     --optimistic_loop \
     --packages_path node_modules \
-    --packages @openzeppelin=node_modules/@openzeppelin @bancor=node_modules/@bancor \
-    --msg "PendingWithdrawals sum check"
-
-
-
-# python3 ../../EVMVerifier/scripts/certoraRun.py  certora/harness/PendingWithdrawalsHarness.sol certora/helpers/DummyERC20A.sol certora/helpers/DummyERC20B.sol \
-#     certora/munged/pools/BNTPool.sol certora/munged/pools/PoolCollection.sol certora/munged/pools/PoolToken.sol certora/munged/network/BancorNetwork.sol \
-#     --verify PendingWithdrawalsHarness:certora/spec/PendWithdraw.spec \
-#     --link PendingWithdrawalsHarness:_bntPool=BNTPool \
-#     PendingWithdrawalsHarness:_network=BancorNetwork \
-#     PendingWithdrawalsHarness:_poolToken=PoolToken \
-#     --solc solc8.13 \
-#     --staging \
-#     --optimistic_loop \
-#     --packages_path node_modules \
-#     --packages @openzeppelin=node_modules/@openzeppelin @bancor=node_modules/@bancor \
-#     --msg "PendingWithdrawals sum check"
+    --packages @openzeppelin=node_modules/@openzeppelin \
+            @bancor=node_modules/@bancor \
+    --msg "PendingWithdrawals rules"

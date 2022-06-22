@@ -1,11 +1,14 @@
-py ../../EVMVerifier/scripts/certoraRun.py \
-    certora/munged/network/BancorNetwork.sol \
+certoraRun.py \
+    certora/harness/BancorNetworkHarness.sol \
     certora/harness/PoolCollectionHarness.sol \
     certora/harness/PendingWithdrawalsHarness.sol \
     certora/munged/pools/BNTPool.sol \
     certora/munged/vaults/MasterVault.sol \
     certora/munged/vaults/ExternalProtectionVault.sol \
     certora/munged/network/NetworkSettings.sol \
+    certora/munged/pools/PoolTokenFactory.sol \
+    certora/munged/helpers/TestFlashLoanRecipient.sol \
+    certora/munged/pools/PoolMigrator.sol \
     \
     \
     certora/helpers/DummyERC20A.sol \
@@ -20,16 +23,17 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     certora/helpers/Receiver1.sol \
     \
     \
-    --verify BancorNetwork:certora/spec/BancorNetwork.spec \
-    --link  BancorNetwork:_bnt=DummyERC20bnt \
-            BancorNetwork:_vbnt=DummyERC20vbnt \
-            BancorNetwork:_bntGovernance=DummyTokenGovernanceA \
-            BancorNetwork:_vbntGovernance=DummyTokenGovernanceB \
-            BancorNetwork:_bntPool=BNTPool \
-            BancorNetwork:_bntPoolToken=DummyPoolTokenBNT \
-            BancorNetwork:_masterVault=MasterVault \
-            BancorNetwork:_externalProtectionVault=ExternalProtectionVault \
-            BancorNetwork:_pendingWithdrawals=PendingWithdrawalsHarness \
+    --verify BancorNetworkHarness:certora/spec/BancorNetwork.spec \
+    --link  BancorNetworkHarness:_bnt=DummyERC20bnt \
+            BancorNetworkHarness:_vbnt=DummyERC20vbnt \
+            BancorNetworkHarness:_bntGovernance=DummyTokenGovernanceA \
+            BancorNetworkHarness:_vbntGovernance=DummyTokenGovernanceB \
+            BancorNetworkHarness:_bntPool=BNTPool \
+            BancorNetworkHarness:_bntPoolToken=DummyPoolTokenBNT \
+            BancorNetworkHarness:_masterVault=MasterVault \
+            BancorNetworkHarness:_externalProtectionVault=ExternalProtectionVault \
+            BancorNetworkHarness:_pendingWithdrawals=PendingWithdrawalsHarness \
+            BancorNetworkHarness:_poolMigrator=PoolMigrator \
             \
             \
             PoolCollectionHarness:_bnt=DummyERC20bnt \
@@ -40,7 +44,7 @@ py ../../EVMVerifier/scripts/certoraRun.py \
             \
             PendingWithdrawalsHarness:_bnt=DummyERC20bnt \
             PendingWithdrawalsHarness:_bntPool=BNTPool \
-            PendingWithdrawalsHarness:_network=BancorNetwork \
+            PendingWithdrawalsHarness:_network=BancorNetworkHarness \
             \
             \
             BNTPool:_poolToken=DummyPoolTokenBNT \
@@ -63,20 +67,13 @@ py ../../EVMVerifier/scripts/certoraRun.py \
             ExternalProtectionVault:_vbntGovernance=DummyTokenGovernanceB \
             \
     --solc solc8.13 \
-    --staging jtoman/bancor-opt \
+    --cloud \
     --send_only \
-    --rule noDoubleWithdrawalTKN \
     --disable_auto_cache_key_gen \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
-    @bancor=node_modules/@bancor \
-    --msg "noDoubleWithdrawalTKN SAN."
+            @bancor=node_modules/@bancor \
+    --settings -enableEqualitySaturation=false,-divideNoRemainder=true, -optimistic_fallback \
+    --msg "BancorNetwork rules"
 
-#DummyPoolColA:_bnt=DummyERC20bnt \
-#DummyPoolColA:_masterVault=MasterVault \
-#DummyPoolColA:_bntPool=BNTPool \
-#DummyPoolColA:_externalProtectionVault=ExternalProtectionVault \
-#certora/helpers/DummyPoolColA.sol \
-#certora/helpers/DummyPoolColB.sol \
-#--settings -divideNoRemainder=true \
