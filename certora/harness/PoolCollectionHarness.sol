@@ -19,8 +19,9 @@ contract PoolCollectionHarness is PoolCollection{
         IBNTPool initBNTPool,
         IExternalProtectionVault initExternalProtectionVault,
         IPoolTokenFactory initPoolTokenFactory,
-        IPoolMigrator initPoolMigrator
-    ) PoolCollection(initNetwork, initBNT, initNetworkSettings, initMasterVault, initBNTPool, initExternalProtectionVault, initPoolTokenFactory, initPoolMigrator) {}
+        IPoolMigrator initPoolMigrator,
+        uint32 initNetworkFeePPM
+    ) PoolCollection(initNetwork, initBNT, initNetworkSettings, initMasterVault, initBNTPool, initExternalProtectionVault, initPoolTokenFactory, initPoolMigrator, initNetworkFeePPM) {}
 
        function depositFor(
         bytes32 contextId,
@@ -47,10 +48,10 @@ contract PoolCollectionHarness is PoolCollection{
          return _poolData[pool].poolToken.totalSupply();
      }
      function getPoolDataAverageRateN(Token pool) public view returns (uint256) {
-         return _poolData[pool].averageRate.rate.n;
+         return _poolData[pool].averageRates.rate.n;
      }
      function getPoolDataAverageRateD(Token pool) public view returns (uint256) {
-         return _poolData[pool].averageRate.rate.d;
+         return _poolData[pool].averageRates.rate.d;
      }
     
     function getPoolDataTradingFee(Token pool) public view returns (uint32) {
@@ -65,29 +66,34 @@ contract PoolCollectionHarness is PoolCollection{
     function tokenUserBalance(Token pool, address user)  external view returns (uint256){
             return pool.balanceOf(user);
     }
-    function poolWithdrawalAmounts(Token pool,uint256 poolTokenAmount) 
-        external view returns (uint){
-            InternalWithdrawalAmounts memory amounts = 
-            _poolWithdrawalAmounts(pool,_poolData[pool],poolTokenAmount);
-            return amounts.baseTokensToTransferFromMasterVault;
-    }
 
-    function isPoolStable(Token pool) external view returns (bool)
+    // uint256 baseTokensWithdrawalAmount;
+    // PoolLiquidity memory liquidity;
+    // uint32 poolTradingFeePPM;
+    // uint256 poolTokenTotalSupply;
+    // function poolWithdrawalAmounts(Token pool,uint256 poolTokenAmount) 
+    //     external view returns (uint){
+    //         InternalWithdrawalAmounts memory amounts = 
+    //         _poolWithdrawalAmounts(pool,_poolData[pool],poolTokenAmount, baseTokensWithdrawalAmount, liquidity, poolTradingFeePPM, poolTokenTotalSupply);
+    //         return amounts.baseTokensToTransferFromMasterVault;
+    // }
+
+    function isPoolStable(Token pool) external override view returns (bool)
     {
         PoolLiquidity memory prevLiquidity = _poolData[pool].liquidity;
-        AverageRate memory averageRate = _poolData[pool].averageRate;
+        AverageRates memory averageRate = _poolData[pool].averageRates;
         return _poolRateState(prevLiquidity, averageRate) == PoolRateState.Stable;
     }
 
     function isPoolUnstable(Token pool) external view returns (bool)
     {
         PoolLiquidity memory prevLiquidity = _poolData[pool].liquidity;
-        AverageRate memory averageRate = _poolData[pool].averageRate;
+        AverageRates memory averageRate = _poolData[pool].averageRates;
         return _poolRateState(prevLiquidity, averageRate) == PoolRateState.Unstable;
     }
     
     function averageRateIsPositive(Token pool) public view returns (bool) {
-        AverageRate memory averageRateInfo = _poolData[pool].averageRate;
+        AverageRates memory averageRateInfo = _poolData[pool].averageRates;
         Fraction112 memory averageRate = averageRateInfo.rate;
         return averageRate.isPositive();
      }

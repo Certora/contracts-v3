@@ -437,14 +437,7 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
 }
 
 
-invariant notHasPoolNotHasPoolToken(address pool)
-    !hasPool(pool) => poolToken(pool) == 0
-    {
-       preserved{
-            setUp();
-            require pool == tokenA;
-       }
-    }
+
 
 
 /////////////////////////////////////////////////////////////////

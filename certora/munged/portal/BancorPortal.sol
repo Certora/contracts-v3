@@ -18,19 +18,18 @@ import { Utils } from "../utility/Utils.sol";
 
 import { IBancorNetwork } from "../network/interfaces/IBancorNetwork.sol";
 import { INetworkSettings } from "../network/interfaces/INetworkSettings.sol";
-import { NetworkSettings } from "../network/NetworkSettings.sol";
 import { IPoolToken } from "../pools/interfaces/IPoolToken.sol";
 
-import { IBancorPortal, UniswapV2PositionMigration } from "./interfaces/IBancorPortal.sol";
+import { IBancorPortal, PositionMigration } from "./interfaces/IBancorPortal.sol";
 
 struct MigrationResult {
     IUniswapV2Pair pair;
     Token tokenA;
     Token tokenB;
-    uint256 amountA;
-    uint256 amountB;
     bool depositedA;
     bool depositedB;
+    uint256 amountA;
+    uint256 amountB;
 }
 
 /**
@@ -59,11 +58,14 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
     // Uniswap v2 factory contract
     IUniswapV2Factory private immutable _uniswapV2Factory;
 
-    // SushiSwap v2 router contract
-    IUniswapV2Router02 private immutable _sushiSwapV2Router;
+    // SushiSwap router contract
+    IUniswapV2Router02 private immutable _sushiSwapRouter;
 
-    // SushiSwap v2 factory contract
-    IUniswapV2Factory private immutable _sushiSwapV2Factory;
+    // SushiSwap factory contract
+    IUniswapV2Factory private immutable _sushiSwapFactory;
+
+    // WETH9 contract
+    IERC20 private immutable _weth;
 
     // upgrade forward-compatibility storage gap
     uint256[MAX_GAP - 0] private __gap;
@@ -85,7 +87,7 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
     /**
      * @dev triggered after a successful SushiSwap V1 migration
      */
-    event SushiSwapV2PositionMigrated(
+    event SushiSwapPositionMigrated(
         address indexed provider,
         IUniswapV2Pair poolToken,
         Token indexed tokenA,
@@ -103,36 +105,37 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
      * @dev a "virtual" constructor that is only used to set immutable state variables
      */
     constructor(
-        IBancorNetwork network,
-        INetworkSettings networkSettings,
-        IERC20 bnt,
-        IUniswapV2Router02 uniswapV2Router,
-        IUniswapV2Factory uniswapV2Factory,
-        IUniswapV2Router02 sushiSwapV2Router,
-        IUniswapV2Factory sushiSwapV2Factory
+        IBancorNetwork initNetwork,
+        INetworkSettings initNetworkSettings,
+        IERC20 initBnt,
+        IUniswapV2Router02 initUniswapV2Router,
+        IUniswapV2Factory initUniswapV2Factory,
+        IUniswapV2Router02 initSushiSwapRouter,
+        IUniswapV2Factory initSushiSwapFactory
     )
-        validAddress(address(network))
-        validAddress(address(networkSettings))
-        validAddress(address(bnt))
-        validAddress(address(uniswapV2Router))
-        validAddress(address(uniswapV2Factory))
-        validAddress(address(sushiSwapV2Router))
-        validAddress(address(sushiSwapV2Factory))
+        validAddress(address(initNetwork))
+        validAddress(address(initNetworkSettings))
+        validAddress(address(initBnt))
+        validAddress(address(initUniswapV2Router))
+        validAddress(address(initUniswapV2Factory))
+        validAddress(address(initSushiSwapRouter))
+        validAddress(address(initSushiSwapFactory))
     {
-        _network = network;
-        _networkSettings = networkSettings;
-        _bnt = bnt;
-        _uniswapV2Router = uniswapV2Router;
-        _uniswapV2Factory = uniswapV2Factory;
-        _sushiSwapV2Router = sushiSwapV2Router;
-        _sushiSwapV2Factory = sushiSwapV2Factory;
+        _network = initNetwork;
+        _networkSettings = initNetworkSettings;
+        _bnt = initBnt;
+        _uniswapV2Router = initUniswapV2Router;
+        _uniswapV2Factory = initUniswapV2Factory;
+        _sushiSwapRouter = initSushiSwapRouter;
+        _sushiSwapFactory = initSushiSwapFactory;
+        _weth = IERC20(initUniswapV2Router.WETH());
     }
 
     /**
      * @inheritdoc Upgradeable
      */
     function version() public pure override(IVersioned, Upgradeable) returns (uint16) {
-        return 1;
+        return 3;
     }
 
     /**
@@ -177,7 +180,7 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
         validAddress(address(token0))
         validAddress(address(token1))
         greaterThanZero(poolTokenAmount)
-        returns (UniswapV2PositionMigration memory)
+        returns (PositionMigration memory)
     {
         MigrationResult memory res = _migrateUniswapV2Position(
             _uniswapV2Router,
@@ -199,13 +202,13 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
             depositedB: res.depositedB
         });
 
-        return UniswapV2PositionMigration({ amountA: res.amountA, amountB: res.amountB });
+        return PositionMigration({ amountA: res.amountA, amountB: res.amountB });
     }
 
     /**
      * @inheritdoc IBancorPortal
      */
-    function migrateSushiSwapV1Position(
+    function migrateSushiSwapPosition(
         Token token0,
         Token token1,
         uint256 poolTokenAmount
@@ -215,18 +218,18 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
         validAddress(address(token0))
         validAddress(address(token1))
         greaterThanZero(poolTokenAmount)
-        returns (UniswapV2PositionMigration memory)
+        returns (PositionMigration memory)
     {
         MigrationResult memory res = _migrateUniswapV2Position(
-            _sushiSwapV2Router,
-            _sushiSwapV2Factory,
+            _sushiSwapRouter,
+            _sushiSwapFactory,
             token0,
             token1,
             poolTokenAmount,
             msg.sender
         );
 
-        emit SushiSwapV2PositionMigrated({
+        emit SushiSwapPositionMigrated({
             provider: msg.sender,
             poolToken: res.pair,
             tokenA: res.tokenA,
@@ -237,12 +240,13 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
             depositedB: res.depositedB
         });
 
-        return UniswapV2PositionMigration({ amountA: res.amountA, amountB: res.amountB });
+        return PositionMigration({ amountA: res.amountA, amountB: res.amountB });
     }
 
     /**
-     * @dev migrates funds from a Uniswap V2 pair into a Bancor V3 pool
-     * - unsupported tokens will be transferred to the caller
+     * @dev migrates funds from a Uniswap v2/SushiSwap  pair into a bancor v3 pool and returns the deposited amount for
+     * each token in the same order as stored in Uniswap's pair, or 0 for unsupported tokens (unsupported tokens will be
+     * transferred to the caller)
      *
      * requirements:
      *
@@ -256,9 +260,14 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
         uint256 poolTokenAmount,
         address provider
     ) private returns (MigrationResult memory) {
+        // arrange tokens in an array, replace WETH with the native token
+        Token[2] memory tokens = [
+            _isWETH(token0) ? TokenLibrary.NATIVE_TOKEN : token0,
+            _isWETH(token1) ? TokenLibrary.NATIVE_TOKEN : token1
+        ];
+
         // get Uniswap's pair
-        address pairAddress = factory.getPair(address(token0), address(token1));
-        IUniswapV2Pair pair = IUniswapV2Pair(pairAddress);
+        IUniswapV2Pair pair = _getUniswapV2Pair(factory, tokens);
         if (address(pair) == address(0)) {
             revert NoPairForTokens();
         }
@@ -266,13 +275,11 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
         // transfer the tokens from the caller
         Token(address(pair)).safeTransferFrom(provider, address(this), poolTokenAmount);
 
-        // arrange tokens in an array
-        Token[2] memory tokens = [token0, token1];
-
         // look for relevant whitelisted pools, revert if there are none
         bool[2] memory whitelist;
         for (uint256 i = 0; i < 2; i++) {
-            whitelist[i] = tokens[i].isEqual(_bnt) || _networkSettings.isTokenWhitelisted(tokens[i]);
+            Token token = tokens[i];
+            whitelist[i] = token.isEqual(_bnt) || _networkSettings.isTokenWhitelisted(token);
         }
         if (!whitelist[0] && !whitelist[1]) {
             revert UnsupportedTokens();
@@ -286,14 +293,15 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
 
         // migrate funds
         uint256[2] memory deposited;
-
         for (uint256 i = 0; i < 2; i++) {
-            uint256 delta = tokens[i].balanceOf(address(this)) - previousBalances[i];
+            Token token = tokens[i];
+            uint256 delta = token.balanceOf(address(this)) - previousBalances[i];
             if (whitelist[i]) {
                 deposited[i] = delta;
-                _deposit(tokens[i], deposited[i], provider);
+
+                _deposit(token, deposited[i], provider);
             } else {
-                _transferToProvider(tokens[i], delta, provider);
+                _transferToProvider(token, delta, provider);
             }
         }
 
@@ -302,10 +310,10 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
                 pair: pair,
                 tokenA: tokens[0],
                 tokenB: tokens[1],
-                amountA: deposited[0],
-                amountB: deposited[1],
                 depositedA: whitelist[0],
-                depositedB: whitelist[1]
+                depositedB: whitelist[1],
+                amountA: deposited[0],
+                amountB: deposited[1]
             });
     }
 
@@ -321,6 +329,7 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
             _network.depositFor{ value: amount }(provider, token, amount);
         } else {
             token.toIERC20().safeApprove(address(_network), amount);
+
             _network.depositFor(provider, token, amount);
         }
     }
@@ -350,8 +359,8 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
         uint256 poolTokenAmount
     ) private {
         IERC20(address(pair)).safeApprove(address(router), poolTokenAmount);
-
         uint256 deadline = block.timestamp + MAX_DEADLINE;
+
         if (tokens[0].isNative()) {
             router.removeLiquidityETH(address(tokens[1]), poolTokenAmount, 1, 1, address(this), deadline);
         } else if (tokens[1].isNative()) {
@@ -367,5 +376,28 @@ contract BancorPortal is IBancorPortal, ReentrancyGuardUpgradeable, Utils, Upgra
                 deadline
             );
         }
+    }
+
+    /**
+     * @dev fetches a UniswapV2 pair
+     */
+    function _getUniswapV2Pair(IUniswapV2Factory factory, Token[2] memory tokens)
+        private
+        view
+        returns (IUniswapV2Pair)
+    {
+        // Uniswap does not support ETH input, transform to WETH if necessary
+        address token0Address = tokens[0].isNative() ? address(_weth) : address(tokens[0]);
+        address token1Address = tokens[1].isNative() ? address(_weth) : address(tokens[1]);
+
+        address pairAddress = factory.getPair(token0Address, token1Address);
+        return IUniswapV2Pair(pairAddress);
+    }
+
+    /**
+     * @dev returns true if given token is WETH
+     */
+    function _isWETH(Token token) private view returns (bool) {
+        return address(token) == address(_weth);
     }
 }

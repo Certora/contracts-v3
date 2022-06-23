@@ -11,7 +11,7 @@ import { TokenLibrary } from "../token/TokenLibrary.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract TestFlashLoanRecipient is IFlashLoanRecipient {
+contract TestIFlashLoanRecipient is IFlashLoanRecipient {
     using Address for address payable;
     using SafeERC20 for IERC20;
     using TokenLibrary for Token;

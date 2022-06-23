@@ -29,9 +29,5 @@ contract PendingWithdrawalsHarness is PendingWithdrawals {
     function nextWithdrawalRequestId() external view returns (uint256){
         return _nextWithdrawalRequestId;
     }
-
-    function poolValidity(Token pool) external view returns (bool) {
-        return _network.isPoolValid(pool);
-    }
         
 }

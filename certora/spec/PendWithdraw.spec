@@ -24,7 +24,6 @@ methods {
     completeWithdrawal(bytes32,address,uint256)
     initWithdrawal(address,address,uint256) 
     returnToken(address) returns(address) envfree
-    poolValidity(address) returns(bool) envfree
     withdrawalRequestSpecificId(address, uint) returns uint envfree
     PC.getPoolDataStakedBalance(address) returns (uint) envfree
 

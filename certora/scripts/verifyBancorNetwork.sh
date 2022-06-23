@@ -7,7 +7,7 @@ certoraRun.py \
     certora/munged/vaults/ExternalProtectionVault.sol \
     certora/munged/network/NetworkSettings.sol \
     certora/munged/pools/PoolTokenFactory.sol \
-    certora/munged/helpers/TestFlashLoanRecipient.sol \
+    certora/munged/helpers/TestIFlashLoanRecipient.sol \
     certora/munged/pools/PoolMigrator.sol \
     \
     \
@@ -74,6 +74,6 @@ certoraRun.py \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
             @bancor=node_modules/@bancor \
-    --settings -enableEqualitySaturation=false,-divideNoRemainder=true, -optimistic_fallback \
+    --settings -enableEqualitySaturation=false,-divideNoRemainder=true \
     --msg "BancorNetwork rules"
 

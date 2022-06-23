@@ -357,9 +357,10 @@ rule averageRateNonZero(env e, method f, address pool) filtered { f -> !f.isView
 // Different pools have different pool tokens.
 invariant differentTokens(address tknA, address tknB)
     hasPool(tknA) && hasPool(tknB) && tknA != tknB => poolToken(tknA) != poolToken(tknB)
-    filtered { f -> !f.isView && !f.isFallback &&
-                f.selector != migratePoolIn(address,(address,uint32,bool,bool,(uint32,(uint112,uint112)),uint256,(uint128,uint128,uint256))).selector
-            }
+    filtered { f -> !f.isView 
+                        && !f.isFallback 
+                        && f.selector != migratePoolIn(address,(address,uint32,bool,bool,(uint32,(uint112,uint112),(uint112,uint112)),(uint128,uint128,uint256))).selector
+    }
     {
        preserved{
             setUp();
@@ -367,7 +368,7 @@ invariant differentTokens(address tknA, address tknB)
             require tknB == tokenB;
             requireInvariant notHasPoolNotHasPoolToken(tknA);
        }
-       preserved withdraw(bytes32 contextId,address provider,address pool, uint256 tokenAmount) with (env e)
+       preserved withdraw(bytes32 contextId,address provider,address pool, uint256 poolTokenAmount, uint256 baseTokenAmount) with (env e)
        {
             setUp();
             require provider == user;
@@ -375,6 +376,16 @@ invariant differentTokens(address tknA, address tknB)
             require tknB == tokenB;
             require pool == tknA || pool == tknB;
             require hasPool(pool);
+       }
+    }
+
+// assuming that if pool doesn't exist in `_pools`, `poolToken` is equal to 0
+invariant notHasPoolNotHasPoolToken(address pool)
+    !hasPool(pool) => poolToken(pool) == 0
+    {
+       preserved{
+            setUp();
+            require pool == tokenA;
        }
     }
 
@@ -393,7 +404,7 @@ invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
             require pool1 == tokenA; require pool1 == pool;
             require hasPool(pool1);
         }
-        preserved withdraw(bytes32 contextId,address provider,address pool2, uint256 tokenAmount) with (env e2)
+        preserved withdraw(bytes32 contextId,address provider,address pool2, uint256 poolTokenAmount, uint256 baseTokenAmount) with (env e2)
         {
             setUp();
             require pool2 == tokenA; require pool2 == pool;
@@ -431,10 +442,10 @@ rule withdrawWhenBntIsZero(method f) filtered { f -> !f.isView && !f.isFallback 
 
     bytes32 contextId;
     address pool = tokenA;
-    uint256 poolTokenAmount;
+    uint256 poolTokenAmount; uint256 baseTokenAmount;
 
     require getPoolDataBntTradingLiquidity(e,pool) == 0;
-        uint amount = withdraw@withrevert(e,contextId,provider,pool,poolTokenAmount);
+    uint amount = withdraw@withrevert(e, contextId, provider, pool, poolTokenAmount, baseTokenAmount);
 
     assert !lastReverted => amount == 0;
 }
