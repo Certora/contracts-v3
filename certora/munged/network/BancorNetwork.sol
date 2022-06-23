@@ -742,7 +742,8 @@ contract BancorNetwork is IBancorNetwork, Upgradeable, ReentrancyGuardUpgradeabl
     /**
      * @dev generates context ID for a withdraw request
      */
-    function _withdrawContextId(uint256 id, address caller) private view returns (bytes32) {
+     // Certora : private -> public
+    function _withdrawContextId(uint256 id, address caller) public view returns (bytes32) {
         return keccak256(abi.encodePacked(caller, _time(), id));
     }
 
@@ -1165,7 +1166,8 @@ contract BancorNetwork is IBancorNetwork, Upgradeable, ReentrancyGuardUpgradeabl
     /**
      * @dev verifies that the specified pool is managed by a valid pool collection and returns it
      */
-    function _poolCollection(Token token) private view returns (IPoolCollection) {
+     // Certora: private -> public
+    function _poolCollection(Token token) public view returns (IPoolCollection) {
         // verify that the pool is managed by a valid pool collection
         IPoolCollection poolCollection = _collectionByPool[token];
         if (address(poolCollection) == address(0)) {

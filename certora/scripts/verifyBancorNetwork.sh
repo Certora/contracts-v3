@@ -1,4 +1,4 @@
-certoraRun.py \
+py ../../EVMVerifier/scripts/certoraRun.py \
     certora/harness/BancorNetworkHarness.sol \
     certora/harness/PoolCollectionHarness.sol \
     certora/harness/PendingWithdrawalsHarness.sol \
@@ -71,9 +71,10 @@ certoraRun.py \
     --send_only \
     --disable_auto_cache_key_gen \
     --optimistic_loop \
+    --rule tradeBntLiquidity \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
-            @bancor=node_modules/@bancor \
+    @bancor=node_modules/@bancor \
     --settings -enableEqualitySaturation=false,-divideNoRemainder=true \
-    --msg "BancorNetwork rules"
+    --msg "BancorNetwork tradeBntLiquidity"
 

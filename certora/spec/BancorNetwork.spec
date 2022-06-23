@@ -25,17 +25,18 @@ methods {
     _poolCollection(address) returns (address) envfree
     collectionByPool(address) returns (address) envfree
 
-    isPoolValid(address) returns (bool) envfree
     depositFor(address, address, uint256) returns (uint256) 
     deposit(address, uint256) returns (uint256) 
 
+    /*
     depositForPermitted(address, address, uint256, uint256, 
             uint8, bytes32, bytes32) returns (uint256) 
 
     depositPermitted(address, uint256, uint256,
             uint8, bytes32, bytes32) returns (uint256) 
+    */
 
-    _withdrawContextId(uint256, address) returns(bytes32)
+    //_withdrawContextId(uint256, address) returns(bytes32)
 
     flashLoan(address, uint256, address, bytes) => DISPATCHER(true)
 
@@ -106,8 +107,8 @@ methods {
     destroy(address, uint256) => DISPATCHER(true)
     sendTo() returns(bool) => DISPATCHER(true)
     reserveToken() returns (address) => DISPATCHER(true)
-    mulDivF(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDiv(x,y,z)
-    mulDivC(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDiv(x,y,z)
+    mulDivF(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIf(x,y,z)
+    mulDivC(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIf(x,y,z)
     hasRole(bytes32, address) returns(bool) envfree
     roleAdmin() returns(bytes32) envfree
     roleMigrationManager() returns(bytes32) envfree
@@ -167,13 +168,14 @@ hook Sstore PendWit._withdrawalRequests[KEY uint256 id].poolTokenAmount uint256 
 
 definition depositLikeMethod(method f) returns bool = 
         f.selector == depositFor(address, address, uint256).selector ||
-        f.selector == deposit(address, uint256).selector ||
+        f.selector == deposit(address, uint256).selector;
 
-        f.selector == depositForPermitted(address, address, uint256, uint256, 
+        /*f.selector == depositForPermitted(address, address, uint256, uint256, 
             uint8, bytes32, bytes32).selector ||
 
         f.selector == depositPermitted(address, uint256, uint256, 
-            uint8, bytes32, bytes32).selector ;  
+            uint8, bytes32, bytes32).selector ;
+            */  
 
 definition tradeLikeMethod(method f) returns bool = 
         f.selector == 
@@ -182,8 +184,9 @@ definition tradeLikeMethod(method f) returns bool =
         
         f.selector == 
         tradeByTargetAmount(address, address, uint256, uint256, uint256, address)
-        .selector ||
+        .selector;
 
+        /*
         f.selector == 
         tradeBySourceAmountPermitted(address, address, uint256, uint256, uint256, address,
         uint8, bytes32, bytes32).selector ||
@@ -191,6 +194,7 @@ definition tradeLikeMethod(method f) returns bool =
         f.selector == 
         tradeByTargetAmountPermitted(address, address, uint256, uint256, uint256, address,
         uint8, bytes32, bytes32).selector;
+        */
 
 // A restriction upon the value of f = x * y / z
 // The division quotient y/z or x/z can be either q or 1/q.
@@ -203,6 +207,13 @@ definition constQuotient(uint256 x, uint256 y, uint256 z, uint256 q, uint256 f)
         ( y == q * z && f == q * x ) || 
         ( q * y == z && f == x / q && x % q ==0);
 
+// Allowing division remainders
+definition constQuotientWithRemainder(uint256 x, uint256 y, uint256 z, uint256 q, uint256 f) 
+        returns bool = 
+        ( x == q * z && f == q * y ) || 
+        ( q * x == z && f == y / q ) ||
+        ( y == q * z && f == q * x ) || 
+        ( q * y == z && f == x / q );
 
 ////////////////////////////////////////////////////////////////////////////
 //                       Helper Functions                                 //
@@ -248,61 +259,79 @@ function setupTokenPoolCol(env env1, address token, address PT)
 }
 
 // Summary for mulDivF:
-// A function which assumes a constant quotient y/z or x/z q (or 1/q).
-function constQuotientMulDiv(uint256 x, uint256 y, uint256 z, uint256 q)
-returns uint256
-{
-    uint256 f;
-    require z != 0;
-    require constQuotient(q);
-    return f;
-}
-
-// Summary for mulDivF:
-// Quotients x/z, y/z are either 0,1,2,3,10 or 1/2, 1/3, 1/10.
-// We assume also no division remainders.
-function simpleMulDiv(uint256 x, uint256 y, uint256 z) returns uint256 
-{
-    uint f;
-    bool dontDividebyZero = z != 0;
-    // We restrict to no remainders
-    // Possible quotients : Qut[q] means that y/z or x/z is q.
-    bool Qut0 = ( x ==0 || y ==0) && (f == 0);
-    bool Qut1 = ( x == z && f == y ) || ( y == z && f == x );
-    bool Qut2 = constQuotient(x, y, z, 2, f);
-    bool Qut3 = constQuotient(x, y, z, 3, f);
-    bool Qut10 = constQuotient(x, y, z, 10, f);
-    bool Qut100 = constQuotient(x, y, z, 100, f);
-    bool Qut250 = constQuotient(x, y, z, 250, f);
-    bool Qut400 = constQuotient(x, y, z, 400, f);
-    bool Qut500 = constQuotient(x, y, z, 500, f);
-    bool Qut1000 = constQuotient(x, y, z, 1000, f);
-    bool Qut2000 = constQuotient(x, y, z, 2000, f);
-
-    require dontDividebyZero;
-    require Qut0 || Qut1 || Qut2 || Qut3 || Qut10 || Qut100 || Qut250 || Qut400 ||
-    Qut500 || Qut1000 || Qut2000;
-    return f;
-}
-
-// Summary for mulDivF:
 // quotient y/z is either 0,1,2,3,10 or 1/2, 1/3, 1/10.
-// Nothing resticts the value of x/z;
 function simpleMulDivIf(uint256 x, uint256 y, uint256 z) returns uint256 
 {
     uint f;
     bool dontDividebyZero = z != 0;
-    bool Success = true;
-    require dontDividebyZero;
+    bool Success = dontDividebyZero;
+    uint256 qs = 400; // My special quotient
 
     if (x ==0 || y ==0)      {f = 0;}
-    else if (y == 2 * z)     {f = 2 * x;}
-    else if (y == 3 * z)     {f = 3 * x;}
-    else if (y == 10 * z)    {f = 10 * x;}
-    else if (2 * y == z && x % 2 == 0)  {f = x / 2;}
-    else if (3 * y == z && x % 3 == 0)  {f = x / 3;}
-    else if (10 * y == z && x % 10 == 0)    {f = x / 10;}
     else if (y == z)   { f = x;}
+    else if (x == z)   { f = y;}
+    // Qut = 2, 1/2
+    else if (y == 2 * z)     {f = 2 * x;}
+    else if (x == 2 * z)     {f = 2 * y;}
+    else if (2 * y == z && x % 2 == 0)  {f = x / 2;}
+    else if (2 * x == z && y % 2 == 0)  {f = y / 2;}
+    // Qut = 3, 1/3
+    else if (y == 3 * z)     {f = 3 * x;}
+    else if (x == 3 * z)     {f = 3 * y;}
+    else if (3 * y == z && x % 3 == 0)  {f = x / 3;}
+    else if (3 * x == z && y % 3 == 0)  {f = y / 3;}
+    // Qut = 10, 1/10
+    else if (y == 10 * z)     {f = 10 * x;}
+    else if (x == 10 * z)     {f = 10 * y;}
+    else if (10 * y == z && x % 10 == 0)  {f = x / 10;}
+    else if (10 * x == z && y % 10 == 0)  {f = y / 10;}
+    // Qut = 500, 1/500
+    else if (y == 500 * z)     {f = 500 * x;}
+    else if (x == 500 * z)     {f = 500 * y;}
+    else if (500 * y == z && x % 500 == 0)  {f = x / 500;}
+    else if (500 * x == z && y % 500 == 0)  {f = y / 500;}
+    // Qut = qs, 1/qs
+    else if (y == qs * z)     {f = qs * x;}
+    else if (x == qs * z)     {f = qs * y;}
+    else if (qs * y == z && x % qs == 0)  {f = x / qs;}
+    else if (qs * x == z && y % qs == 0)  {f = y / qs;}
+    //
+    else    {f = 0; Success = false;}
+    require Success;
+    return f;
+}
+
+// Summary for mulDivF (with remainders)
+function simpleMulDivIfWithRemainder(uint256 x, uint256 y, uint256 z) returns uint256 
+{
+    uint f;
+    bool dontDividebyZero = z != 0;
+    bool Success = dontDividebyZero;
+
+    if (x ==0 || y ==0)      {f = 0;}
+    else if (y == z)   { f = x;}
+    else if (x == z)   { f = y;}
+    // Qut = 2, 1/2
+    else if (y == 2 * z)     {f = 2 * x;}
+    else if (x == 2 * z)     {f = 2 * y;}
+    else if (2 * y == z )  {f = x / 2;}
+    else if (2 * x == z )  {f = y / 2;}
+    // Qut = 3, 1/3
+    else if (y == 3 * z)     {f = 3 * x;}
+    else if (x == 3 * z)     {f = 3 * y;}
+    else if (3 * y == z )  {f = x / 3;}
+    else if (3 * x == z )  {f = y / 3;}
+    // Qut = 10, 1/10
+    //else if (y == 10 * z)     {f = 10 * x;}
+    //else if (x == 10 * z)     {f = 10 * y;}
+    //else if (10 * y == z )  {f = x / 10;}
+    //else if (10 * x == z )  {f = y / 10;}
+    // Qut = 500, 1/500
+    else if (y == 500 * z)     {f = 500 * x;}
+    else if (x == 500 * z)     {f = 500 * y;}
+    else if (500 * y == z )  {f = x / 500;}
+    else if (500 * x == z )  {f = y / 500;}
+    //
     else    {f = 0; Success = false;}
 
     require Success;
@@ -310,22 +339,20 @@ function simpleMulDivIf(uint256 x, uint256 y, uint256 z) returns uint256
 }
 
 // Summary for mulDivF:
-// quotient y/z is either 0, 1, 2 or half.
-function mulDivFactor2(uint256 x,uint256 y, uint256 z) returns uint256 
+// A function which assumes a constant quotient y/z or x/z q (or 1/q).
+function constQuotientMulDiv(uint256 x, uint256 y, uint256 z, uint256 qs)
+returns uint256
 {
-    require z !=0;
-    if (x == 0 || y == 0){
-        return 0;
-    }
-    else if (y > z){
-        return to_uint256(2 * x);
-    }
-    else if (y < z){
-        return to_uint256(x / 2);
-    }
-    else{
-        return x;
-    }
+    uint256 f;
+    bool Success =  z != 0;
+    // Qut = qs, 1/qs
+    if (y == qs * z)     {f = qs * x;}
+    else if (x == qs * z)     {f = qs * y;}
+    else if (qs * y == z && x % qs == 0)  {f = x / qs;}
+    else if (qs * x == z && y % qs == 0)  {f = y / qs;}
+    else { f = 0; Success = false;}
+    require Success;
+    return f;
 }
 
 function identity(uint256 x) returns uint256 
@@ -355,7 +382,6 @@ function setConstants_wmn_only(env env1, address pool){
 //                       Rules                                            //
 ////////////////////////////////////////////////////////////////////////////
 
-
 rule invariantValidPoolAfterTrade(method f)
 filtered{f -> tradeLikeMethod(f)}
 {
@@ -363,9 +389,9 @@ filtered{f -> tradeLikeMethod(f)}
     calldataarg args;
     address token = tokenA;
 
-    require !isPoolValid(token) => _poolCollection(token) == 0;
+    require !PoolCol.isPoolValid(token) => _poolCollection(token) == 0;
         f(e,args);
-    assert !isPoolValid(token) => _poolCollection(token) == 0;
+    assert !PoolCol.isPoolValid(token) => _poolCollection(token) == 0;
 }
 
 
@@ -376,11 +402,11 @@ filtered{f -> depositLikeMethod(f)}
     calldataarg args;
     address token = tokenA;
     
-    require !isPoolValid(token) => _poolCollection(token) == 0;
+    require !PoolCol.isPoolValid(token) => _poolCollection(token) == 0;
     
     f(e,args);
     
-    assert !isPoolValid(token) => _poolCollection(token) == 0;
+    assert !PoolCol.isPoolValid(token) => _poolCollection(token) == 0;
 }
 
 
@@ -505,7 +531,7 @@ rule tradeA2BLiquidity(uint amount, bool byTarget)
     
     assert bntBalance1 >= bntBalance2, "Trader cannot gain BNT through the trade";
     
-    assert networkSettings.networkFeePPM(e) == 0 => bntBalance2 == bntBalance1,
+    assert PoolCol.networkFeePPM(e) == 0 => bntBalance2 == bntBalance1,
             "When there are no fees, trade BNT balance stays intact"; 
 }
 
@@ -515,7 +541,7 @@ rule tradeBntLiquidity(uint amount)
 {
     env e;
     uint256 maxSourceAmount = max_uint;
-    uint256 deadline ;
+    uint256 deadline;
     address beneficiary = e.msg.sender;
     address tknA = tokenA;
     address tknB = tokenB;
@@ -544,9 +570,9 @@ rule tradeBntLiquidity(uint amount)
         "BNT liquidites in the source and target pools 
         must decrease and increase respectively";
 
-    assert balanceA1 - amountPaid == balanceA2, "Trader must pay tokens";
-    
     assert balanceB1 + amount == balanceB2 , "Trader must receive his tokens";
+    
+    assert balanceA1 - amountPaid == balanceA2, "Trader must pay tokens";
 }
 
 // Pool tokens are non-tradeable in Bancor Network. with assumption that pool is valid
@@ -561,7 +587,7 @@ rule untradeablePT(address trader, address poolToken, uint amount, bool TKN_2_PT
     // This invariant needs to be verified first.
     // Without this invariant, trade can be successful.
     requireInvariant validPool(poolToken);
-    require !isPoolValid(poolToken);
+    require !PoolCol.isPoolValid(poolToken);
 
     if (TKN_2_PT) {
         tradeByTargetAmount@withrevert
@@ -578,7 +604,7 @@ rule untradeablePT(address trader, address poolToken, uint amount, bool TKN_2_PT
 
 // assumption for untradeablePT
 invariant validPool(address token)
-    !isPoolValid(token) => _poolCollection(token) == 0
+    !PoolCol.isPoolValid(token) => _poolCollection(token) == 0
     filtered{f -> !depositLikeMethod(f) && !tradeLikeMethod(f)}
 
 
@@ -851,7 +877,7 @@ rule depositBNTtransferPTsToProvider(address provider, uint amount)
 // STATUS - verified
 // No pool collection for non-valid pool.
 invariant noPoolNoParty1(address token)
-    !isPoolValid(token) => collectionByPool(token) == 0
+    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
     filtered { f -> f.selector == registerPoolCollection(address).selector 
                         || f.selector == unregisterPoolCollection(address).selector 
                         || f.selector == createPools(address[], address).selector
@@ -859,16 +885,18 @@ invariant noPoolNoParty1(address token)
 
 // STATUS - verified
 invariant noPoolNoParty2(address token)
-    !isPoolValid(token) => collectionByPool(token) == 0
+    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
     filtered { f -> f.selector == depositFor(address, address, uint256).selector
-                        || f.selector == deposit(address, uint256).selector 
+                        || f.selector == deposit(address, uint256).selector
+                        /* 
                         || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
                         || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+                        */
     }
 
 // STATUS - verified
 invariant noPoolNoParty3(address token)
-    !isPoolValid(token) => collectionByPool(token) == 0
+    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
     filtered { f -> f.selector == initWithdrawal(address, uint256).selector
                         || f.selector == cancelWithdrawal(uint256).selector
     }
@@ -876,28 +904,49 @@ invariant noPoolNoParty3(address token)
 
 // STATUS - verified
 invariant noPoolNoParty4(address token)
-    !isPoolValid(token) => collectionByPool(token) == 0
+    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
     filtered { f -> f.selector == withdraw(uint256).selector}
+    
+rule tradeTargetSourceInverse(uint amount)
+{
+    env e;
+    address tknA = tokenA;
+    address tknB = tokenB;
+    uint maxSourceAmount = max_uint;
+    uint minReturnAmount = 1;
+    uint deadline = max_uint;
+    address trader = e.msg.sender;
+    require _poolCollection(tknA) == PoolCol;
+    require _poolCollection(tknB) == PoolCol;
+    require amount > 0;
 
+    storage initialStorage = lastStorage;
+
+    uint256 amountPaid = tradeByTargetAmount(e, tknA, tknB,
+        amount, maxSourceAmount, deadline, trader);
+
+    require amountPaid > 0;
+
+    uint256 amountBack = tradeBySourceAmount(e, tknA, tknB,
+        amountPaid, minReturnAmount, deadline, trader) at initialStorage;
+
+    //assert false;
+    assert amountBack == amount;
+}
 
 // STATUS - verified
 invariant noPoolNoParty5(address token)
-    !isPoolValid(token) => collectionByPool(token) == 0
+    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
     filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector }
 
 // STATUS - verified
 invariant noPoolNoParty6(address token)
-    !isPoolValid(token) => collectionByPool(token) == 0
+    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
     filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
                         || f.selector == withdrawNetworkFees(address).selector
                         || f.selector == pause().selector
                         || f.selector == resume().selector
     }
-
-
-
-
-
 
 // STATUS - verified
 // Check functions for non-reentracncy.
@@ -906,8 +955,8 @@ filtered { f -> f.selector == registerPoolCollection(address).selector
                     || f.selector == unregisterPoolCollection(address).selector
                     || f.selector == createPools(address[], address).selector
                     || f.selector == migratePools(address[], address).selector 
-} {                         
-    uint256 status = _status(e);
+} {                        
+    uint256 status = statusRe(e);
     require status == 2;
 
     calldataarg args;
@@ -920,7 +969,7 @@ rule reentrancyCheck2(env e, method f)
 filtered { f -> f.selector == depositFor(address, address, uint256).selector
                         || f.selector == deposit(address, uint256).selector 
 } {                         
-    uint256 status = _status(e);
+    uint256 status = statusRe(e);
     require status == 2;
 
     calldataarg args;
@@ -933,7 +982,7 @@ rule reentrancyCheck3(env e, method f)
 filtered { f -> f.selector == initWithdrawal(address, uint256).selector
                         || f.selector == cancelWithdrawal(uint256).selector
 } {                         
-    uint256 status = _status(e);
+    uint256 status = statusRe(e);
     require status == 2;
 
     calldataarg args;
@@ -945,7 +994,7 @@ filtered { f -> f.selector == initWithdrawal(address, uint256).selector
 rule reentrancyCheck4(env e, method f) 
 filtered { f -> f.selector == withdraw(uint256).selector }
 {                         
-    uint256 status = _status(e);
+    uint256 status = statusRe(e);
     require status == 2;
 
     calldataarg args;
@@ -957,7 +1006,7 @@ filtered { f -> f.selector == withdraw(uint256).selector }
 rule reentrancyCheck511(env e, method f) 
 filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
 } {                         
-    uint256 status = _status(e);
+    uint256 status = statusRe(e);
     require status == 2;
 
     calldataarg args;
@@ -969,10 +1018,11 @@ filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uin
 // STATUS - verified
 rule reentrancyCheck521(env e, method f) 
 filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
-} {                         
-    uint256 status = _status(e);
+}
+{                          
+    uint256 status = statusRe(e);
     require status == 2;
-
+    
     calldataarg args;
     f@withrevert(e, args);
     assert lastReverted, "Mortal soul cannot get God's power!";
@@ -983,15 +1033,13 @@ rule reentrancyCheck6(env e, method f)
 filtered { f -> f.selector == flashLoan(address, uint256, address, bytes).selector
                         || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
 } {                         
-    uint256 status = _status(e);
+    uint256 status = statusRe(e);
     require status == 2;
 
     calldataarg args;
     f@withrevert(e, args);
     assert lastReverted, "Mortal soul cannot get God's power!";
 }
-
-
 
 // STATUS - verified
 // Only user with admin role can call certain functions

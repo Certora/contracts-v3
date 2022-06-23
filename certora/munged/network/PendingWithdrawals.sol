@@ -46,7 +46,7 @@ contract PendingWithdrawals is IPendingWithdrawals, Upgradeable, Time, Utils {
 
     // a mapping between accounts and their pending withdrawal requests
     uint256 public _nextWithdrawalRequestId; // HARNESS: private -> public
-    mapping(address => EnumerableSetUpgradeable.UintSet) private _withdrawalRequestIdsByProvider;
+    mapping(address => EnumerableSetUpgradeable.UintSet) internal _withdrawalRequestIdsByProvider; // HARNESS: private -> internal
     mapping(uint256 => WithdrawalRequest) internal _withdrawalRequests; // HARNESS: private -> internal
 
     // upgrade forward-compatibility storage gap

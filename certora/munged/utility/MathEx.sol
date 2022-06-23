@@ -142,10 +142,14 @@ library MathEx {
         Fraction memory offsetSample,
         uint32 maxDeviationPPM
     ) internal pure returns (bool) {
-        Uint512 memory min = mul512(baseSample.n, offsetSample.d * (PPM_RESOLUTION - maxDeviationPPM));
-        Uint512 memory mid = mul512(baseSample.d, offsetSample.n * PPM_RESOLUTION);
-        Uint512 memory max = mul512(baseSample.n, offsetSample.d * (PPM_RESOLUTION + maxDeviationPPM));
-        return lte512(min, mid) && lte512(mid, max);
+        //Uint512 memory min = mul512(baseSample.n, offsetSample.d * (PPM_RESOLUTION - maxDeviationPPM));
+        //Uint512 memory mid = mul512(baseSample.d, offsetSample.n * PPM_RESOLUTION);
+        //Uint512 memory max = mul512(baseSample.n, offsetSample.d * (PPM_RESOLUTION + maxDeviationPPM));
+        //return lte512(min, mid) && lte512(mid, max);
+        uint256 min = baseSample.n * offsetSample.d * (PPM_RESOLUTION - maxDeviationPPM);
+        uint256 mid = baseSample.d * offsetSample.n * PPM_RESOLUTION;
+        uint256 max = baseSample.n * offsetSample.d * (PPM_RESOLUTION + maxDeviationPPM);
+        return min <= mid && mid <= max;
     }
 
     /**

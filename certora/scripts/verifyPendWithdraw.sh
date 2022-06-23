@@ -1,4 +1,4 @@
-certoraRun.py \
+py ../../EVMVerifier/scripts/certoraRun.py \
     certora/harness/PendingWithdrawalsHarness.sol \
     certora/helpers/DummyERC20A.sol \
     certora/helpers/DummyERC20bnt.sol \
@@ -15,10 +15,11 @@ certoraRun.py \
             BNTPool:_poolToken=PoolToken \
     --solc solc8.13 \
     --cloud \
-    --rule_sanity advanced \
+    --rule_sanity basic \
     --send_only \
+    --rule nextWithIDVaries \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
             @bancor=node_modules/@bancor \
-    --msg "PendingWithdrawals rules"
+    --msg "PendingWithdrawals nextWithIDVaries"

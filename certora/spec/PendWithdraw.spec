@@ -388,19 +388,15 @@ rule nextWithIDVaries(method f)
     calldataarg args;
 
     uint id1 = nextWithdrawalRequestId();
-    f(e,args);
+        f(e,args);
     uint id2 = nextWithdrawalRequestId();
-
-    assert id1 <= id2, "nextWithdrawalRequestId decreased unexpectedly";
     
     assert ( 
         (id1 + 1 == id2) => 
         f.selector == initWithdrawal(address,address,uint256).selector,
         "Function ${f} changed nextWithdrawalRequestId by 1");
-   
-    require id1 + 1 != id2;
-    
-    assert id1 == id2, "nextWithdrawalRequestId changed unexepectedly";
+       
+    assert id1 + 1 != id2 => id1 == id2, "nextWithdrawalRequestId changed unexepectedly";
 }
 
 // After a successful initWithdrawal request for provider,
@@ -508,17 +504,17 @@ rule checkSpecificId(address provider)
     assert lastReverted;
     // Adding another one.
     uint id2 = initWithdrawal(e,provider,poolToken,Amount);
-    assert withdrawalRequestCount(provider) == Count1+2,
-    " Request count should have increased by two";
     // In total, we added two subsequent requests. Validating that
-    // function gets them properly.    
-    assert id1 == withdrawalRequestSpecificId@withrevert(provider,Count1);
-    assert id2 == withdrawalRequestSpecificId@withrevert(provider,Count1+1);
+    // function gets them properly.
+    assert withdrawalRequestCount(provider) == Count1+2 &&
+    id1 == withdrawalRequestSpecificId@withrevert(provider,Count1) &&
+    id2 == withdrawalRequestSpecificId@withrevert(provider,Count1+1),
+    " Request count should have increased by two";
 }
 
 // No two identical IDs for provider
-// Current status: FAILS (cannot understand counter example: https://vaas-stg.certora.com/output/3106/5a3f0e0557d9c474543d/?anonymousKey=e5bda5cae74ec0a61c62a10e145fcbc8c619d4bb) 
-// probably issue becuase of disabled deletion from map
+// Current status: FAILS for completeWithdrawal and cancelWithdrawal
+// https://prover.certora.com/output/41958/6d9e604ff6ba226b886a/?anonymousKey=9e799f3ab5699c096cd7893ad48115ecadc3207c
 invariant noIdenticalIDs(address provider, uint ind1, uint ind2)
     (
         validInd_Request(provider, ind1) &&
@@ -530,6 +526,8 @@ invariant noIdenticalIDs(address provider, uint ind1, uint ind2)
         withdrawalRequestSpecificId(provider, ind1) != 
         withdrawalRequestSpecificId(provider, ind2)
     )
+    //filtered{f -> !f.selector == cancelWithdrawal(address,uint).selector &&
+    //!f.selector == completeWithdrawal(bytes32,address,uint256).selector}
     
     {
         preserved
