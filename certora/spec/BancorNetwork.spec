@@ -49,11 +49,13 @@ methods {
     poolType() returns (uint16) => DISPATCHER(true)
     poolCount() returns (uint256) => DISPATCHER(true)
     createPool(address) => DISPATCHER(true)
-    withdraw(bytes32, address, address, uint256) returns (uint256) => DISPATCHER(true)
+    poolToken(address) returns (address) => DISPATCHER(true)
+    withdraw(bytes32, address, address, uint256, uint256) returns (uint256) => DISPATCHER(true)
     poolFundingLimit(address) returns(uint256) => DISPATCHER(true)
     poolTokenToUnderlying(address, uint256) returns (uint256) => DISPATCHER(true)
     underlyingToPoolToken(address, uint256) returns (uint256) => DISPATCHER(true)
     onFeesCollected(address, uint256) => DISPATCHER(true)
+    flashLoanFeePPM() returns (uint32) => DISPATCHER(true)
     PoolCol.getPoolDataTradingFee(address) returns (uint32) envfree
     PoolCol.getPoolDataStakedBalance(address) returns (uint256) envfree
     PoolCol.getPoolDataBntTradingLiquidity(address) returns(uint128) envfree
@@ -106,9 +108,10 @@ methods {
     issue(address, uint256) => DISPATCHER(true)
     destroy(address, uint256) => DISPATCHER(true)
     sendTo() returns(bool) => DISPATCHER(true)
+    sendValue() returns(bool) => DISPATCHER(true)
     reserveToken() returns (address) => DISPATCHER(true)
-    mulDivF(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIf(x,y,z)
-    mulDivC(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIf(x,y,z)
+    mulDivF(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIfWithRemainder(x,y,z)
+    mulDivC(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIfWithRemainder(x,y,z)
     hasRole(bytes32, address) returns(bool) envfree
     roleAdmin() returns(bytes32) envfree
     roleMigrationManager() returns(bytes32) envfree
@@ -475,7 +478,7 @@ rule checkInitWithdraw(uint amount, address poolToken)
 }
 
 // User cannot cancel a withdrawal request twice.
-rule noDoubleCancelling(uint amount, address poolToken)
+rule noDoubleCanceling(uint amount, address poolToken)
 {
     env e;
     address token = PendWit.returnToken(poolToken);
@@ -557,6 +560,8 @@ rule tradeBntLiquidity(uint amount)
     uint128 bntLiqB1 = PoolCol.getPoolDataBntTradingLiquidity(tknB);
     uint256 balanceA1 = tokenA.balanceOf(e, e.msg.sender);
     uint256 balanceB1 = tokenB.balanceOf(e, e.msg.sender);
+
+    require balanceA1 <= 10000000000;
 
     uint amountPaid = tradeByTargetAmount(e, tknA, tknB,
         amount, maxSourceAmount, deadline, beneficiary);
@@ -865,48 +870,6 @@ rule depositBNTtransferPTsToProvider(address provider, uint amount)
             "Total supply of BNT pool tokens should not change";
 }
 
-
-
-
-
-
-
-
-
-
-// STATUS - verified
-// No pool collection for non-valid pool.
-invariant noPoolNoParty1(address token)
-    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
-    filtered { f -> f.selector == registerPoolCollection(address).selector 
-                        || f.selector == unregisterPoolCollection(address).selector 
-                        || f.selector == createPools(address[], address).selector
-    }
-
-// STATUS - verified
-invariant noPoolNoParty2(address token)
-    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
-    filtered { f -> f.selector == depositFor(address, address, uint256).selector
-                        || f.selector == deposit(address, uint256).selector
-                        /* 
-                        || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
-                        || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
-                        */
-    }
-
-// STATUS - verified
-invariant noPoolNoParty3(address token)
-    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
-    filtered { f -> f.selector == initWithdrawal(address, uint256).selector
-                        || f.selector == cancelWithdrawal(uint256).selector
-    }
-
-
-// STATUS - verified
-invariant noPoolNoParty4(address token)
-    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
-    filtered { f -> f.selector == withdraw(uint256).selector}
-    
 rule tradeTargetSourceInverse(uint amount)
 {
     env e;
@@ -934,6 +897,45 @@ rule tradeTargetSourceInverse(uint amount)
     assert amountBack == amount;
 }
 
+
+
+
+
+
+
+// STATUS - verified
+// No pool collection for non-valid pool.
+invariant noPoolNoParty1(address token)
+    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
+    filtered { f -> f.selector == registerPoolCollection(address).selector 
+                        || f.selector == unregisterPoolCollection(address).selector 
+                        || f.selector == createPools(address[], address).selector
+    }
+
+// STATUS - verified
+invariant noPoolNoParty2(address token)
+    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
+    filtered { f -> f.selector == depositFor(address, address, uint256).selector
+                        || f.selector == deposit(address, uint256).selector
+                         
+                       // || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
+                       // || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+                        
+    }
+
+// STATUS - verified
+invariant noPoolNoParty3(address token)
+    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
+    filtered { f -> f.selector == initWithdrawal(address, uint256).selector
+                        || f.selector == cancelWithdrawal(uint256).selector
+    }
+
+
+// STATUS - verified
+invariant noPoolNoParty4(address token)
+    !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
+    filtered { f -> f.selector == withdraw(uint256).selector}
+    
 // STATUS - verified
 invariant noPoolNoParty5(address token)
     !PoolCol.isPoolValid(token) => collectionByPool(token) == 0

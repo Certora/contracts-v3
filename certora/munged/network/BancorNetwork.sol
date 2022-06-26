@@ -51,6 +51,9 @@ import { INetworkSettings, NotWhitelisted } from "./interfaces/INetworkSettings.
 import { IPendingWithdrawals, CompletedWithdrawal } from "./interfaces/IPendingWithdrawals.sol";
 import { IBancorNetwork, IFlashLoanRecipient } from "./interfaces/IBancorNetwork.sol";
 
+import "../../helpers/Receiver1.sol";
+import "../../helpers/Receiver2.sol";
+
 /**
  * @dev Bancor Network contract
  */
@@ -1148,11 +1151,16 @@ contract BancorNetwork is IBancorNetwork, Upgradeable, ReentrancyGuardUpgradeabl
 
             // using a regular transfer here would revert due to exceeding the 2300 gas limit which is why we're using
             // call instead (via sendValue), which the 2300 gas limit does not apply for
-            payable(address(_masterVault)).sendValue(amount);
+            
+            // Certora harness: sendValue via Receiver2
+            //(address(_masterVault)).sendValue(amount);
+            Receiver1(payable(address(_masterVault))).sendValue{value:amount}();
 
             // refund the caller for the remaining native token amount
             if (msg.value > amount) {
-                payable(address(caller)).sendValue(msg.value - amount);
+                // Certora harness: sendValue via Receiver2
+                //payable(address(caller)).sendValue(msg.value - amount);
+                Receiver2(payable(address(caller))).sendValue{value:msg.value-amount}();
             }
         } else {
             if (msg.value > 0) {
