@@ -19,10 +19,13 @@ certoraRun.py certora/helpers/Receiver1.sol node_modules/@bancor/token-governanc
             MasterVault:_vbntGovernance=DummyTokenGovernanceB \
             MasterVault:_bnt=DummyERC20bnt \
     --solc solc8.13 \
-    --cloud \
+    --staging \
     --settings -t=1600,-divideNoRemainder=true,-enableEqualitySaturation=false,-solver=z3 \
+    --rule_sanity advanced \
     --disable_auto_cache_key_gen \
     --optimistic_loop \
+    --send_only \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin @bancor=node_modules/@bancor \
-    --msg "PoolCollection rules"
+    --rule "$1" \
+    --msg "PoolCol - $1"

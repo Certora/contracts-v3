@@ -885,6 +885,21 @@ rule tradeTargetSourceInverse(uint amount)
 
     storage initialStorage = lastStorage;
 
+rule tradeTargetSourceInverse(uint amount)
+{
+    env e;
+    address tknA = tokenA;
+    address tknB = tokenB;
+    uint maxSourceAmount = max_uint;
+    uint minReturnAmount = 1;
+    uint deadline = max_uint;
+    address trader = e.msg.sender;
+    require _poolCollection(tknA) == PoolCol;
+    require _poolCollection(tknB) == PoolCol;
+    require amount > 0;
+
+    storage initialStorage = lastStorage;
+
     uint256 amountPaid = tradeByTargetAmount(e, tknA, tknB,
         amount, maxSourceAmount, deadline, trader);
 
@@ -896,6 +911,8 @@ rule tradeTargetSourceInverse(uint amount)
     //assert false;
     assert amountBack == amount;
 }
+
+
 
 
 
@@ -917,11 +934,10 @@ invariant noPoolNoParty2(address token)
     !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
     filtered { f -> f.selector == depositFor(address, address, uint256).selector
                         || f.selector == deposit(address, uint256).selector
-                         
-                       // || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
-                       // || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
-                        
+                        // || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
+                        // || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
     }
+
 
 // STATUS - verified
 invariant noPoolNoParty3(address token)
@@ -936,287 +952,292 @@ invariant noPoolNoParty4(address token)
     !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
     filtered { f -> f.selector == withdraw(uint256).selector}
     
+
 // STATUS - verified
 invariant noPoolNoParty5(address token)
     !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
     filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector }
 
+
 // STATUS - verified
 invariant noPoolNoParty6(address token)
     !PoolCol.isPoolValid(token) => collectionByPool(token) == 0
     filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
-                        || f.selector == withdrawNetworkFees(address).selector
-                        || f.selector == pause().selector
-                        || f.selector == resume().selector
+                        // || f.selector == withdrawNetworkFees(address).selector
+                        // || f.selector == pause().selector
+                        // || f.selector == resume().selector
     }
+
+
+
 
 // STATUS - verified
 // Check functions for non-reentracncy.
-rule reentrancyCheck1(env e, method f) 
-filtered { f -> f.selector == registerPoolCollection(address).selector 
-                    || f.selector == unregisterPoolCollection(address).selector
-                    || f.selector == createPools(address[], address).selector
-                    || f.selector == migratePools(address[], address).selector 
-} {                        
-    uint256 status = statusRe(e);
-    require status == 2;
+// rule reentrancyCheck1(env e, method f) 
+// filtered { f -> f.selector == registerPoolCollection(address).selector 
+//                     || f.selector == unregisterPoolCollection(address).selector
+//                     || f.selector == createPools(address[], address).selector
+//                     || f.selector == migratePools(address[], address).selector 
+// } {                        
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
-
-// STATUS - verified
-rule reentrancyCheck2(env e, method f)
-filtered { f -> f.selector == depositFor(address, address, uint256).selector
-                        || f.selector == deposit(address, uint256).selector 
-} {                         
-    uint256 status = statusRe(e);
-    require status == 2;
-
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
 // STATUS - verified
-rule reentrancyCheck3(env e, method f) 
-filtered { f -> f.selector == initWithdrawal(address, uint256).selector
-                        || f.selector == cancelWithdrawal(uint256).selector
-} {                         
-    uint256 status = statusRe(e);
-    require status == 2;
+// rule reentrancyCheck2(env e, method f)
+// filtered { f -> f.selector == depositFor(address, address, uint256).selector
+//                         || f.selector == deposit(address, uint256).selector 
+// } {                         
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
-// STATUS - verified
-rule reentrancyCheck4(env e, method f) 
-filtered { f -> f.selector == withdraw(uint256).selector }
-{                         
-    uint256 status = statusRe(e);
-    require status == 2;
+// // STATUS - verified
+// rule reentrancyCheck3(env e, method f) 
+// filtered { f -> f.selector == initWithdrawal(address, uint256).selector
+//                         || f.selector == cancelWithdrawal(uint256).selector
+// } {                         
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
-// STATUS - verified
-rule reentrancyCheck511(env e, method f) 
-filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
-} {                         
-    uint256 status = statusRe(e);
-    require status == 2;
+// // STATUS - verified
+// rule reentrancyCheck4(env e, method f) 
+// filtered { f -> f.selector == withdraw(uint256).selector }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
+
+// // STATUS - verified
+// rule reentrancyCheck511(env e, method f) 
+// filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
+// } {                         
+//     uint256 status = _status(e);
+//     require status == 2;
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
 
-// STATUS - verified
-rule reentrancyCheck521(env e, method f) 
-filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
-}
-{                          
-    uint256 status = statusRe(e);
-    require status == 2;
+// // STATUS - verified
+// rule reentrancyCheck521(env e, method f) 
+// filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
+// }
+// {                          
+//     uint256 status = _status(e);
+//     require status == 2;
     
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
-// STATUS - verified
-rule reentrancyCheck6(env e, method f) 
-filtered { f -> f.selector == flashLoan(address, uint256, address, bytes).selector
-                        || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
-} {                         
-    uint256 status = statusRe(e);
-    require status == 2;
+// // STATUS - verified
+// rule reentrancyCheck6(env e, method f) 
+// filtered { f -> f.selector == flashLoan(address, uint256, address, bytes).selector
+//                         || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
+// } {                         
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
 // STATUS - verified
 // Only user with admin role can call certain functions
-rule almightyAdmin1(env e, method f) filtered 
-{ f -> f.selector == registerPoolCollection(address).selector 
-        || f.selector == unregisterPoolCollection(address).selector 
-        || f.selector == createPools(address[], address).selector 
-} {
-    bool roleBefore = hasRole(roleAdmin(), e.msg.sender);
+// rule almightyAdmin1(env e, method f) filtered 
+// { f -> f.selector == registerPoolCollection(address).selector 
+//         || f.selector == unregisterPoolCollection(address).selector 
+//         || f.selector == createPools(address[], address).selector 
+// } {
+//     bool roleBefore = hasRole(roleAdmin(), e.msg.sender);
     
-    calldataarg args;
-    f@withrevert(e, args);
+//     calldataarg args;
+//     f@withrevert(e, args);
 
-    bool isReverted = lastReverted;
+//     bool isReverted = lastReverted;
 
-    assert !roleBefore => isReverted, "With great power comes great responsibility";
-}
+//     assert !roleBefore => isReverted, "With great power comes great responsibility";
+// }
 
 
 
 // STATUS - verified
 // Only user with concrete role can call concrete functions.
-rule almightyAdmin2(method f, env e) filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
-                                            || f.selector == withdrawNetworkFees(address).selector
-                                            || f.selector == pause().selector
-                                            || f.selector == resume().selector} {
-    calldataarg args;
-    f@withrevert(e, args);
+// rule almightyAdmin2(method f, env e) filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
+//                                             || f.selector == withdrawNetworkFees(address).selector
+//                                             || f.selector == pause().selector
+//                                             || f.selector == resume().selector} {
+//     calldataarg args;
+//     f@withrevert(e, args);
 
-    bool isReverted = lastReverted;
+//     bool isReverted = lastReverted;
 
-    assert  (!isReverted && (f.selector == pause() .selector
-                                || f.selector == resume().selector))
-                => hasRole(roleEmergencyStopper(), e.msg.sender), "With great power comes great requestFunding/renounceFunding";
-    assert  (!isReverted && f.selector == withdrawNetworkFees(address).selector)
-                => hasRole(roleNetworkFeeManager(), e.msg.sender), "With great power comes great mint";
-    assert  (!isReverted && f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector)
-                => hasRole(roleMigrationManager(), e.msg.sender), "With great power comes great burnFromVault";
-}
+//     assert  (!isReverted && (f.selector == pause() .selector
+//                                 || f.selector == resume().selector))
+//                 => hasRole(roleEmergencyStopper(), e.msg.sender), "With great power comes great requestFunding/renounceFunding";
+//     assert  (!isReverted && f.selector == withdrawNetworkFees(address).selector)
+//                 => hasRole(roleNetworkFeeManager(), e.msg.sender), "With great power comes great mint";
+//     assert  (!isReverted && f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector)
+//                 => hasRole(roleMigrationManager(), e.msg.sender), "With great power comes great burnFromVault";
+// }
 
 
 
 // STATUS - verified
 // There is no way to call certain functions when network is paused.
-rule whenPausedNothingToDo2(env e, method f) 
-filtered { f -> f.selector == depositFor(address, address, uint256).selector
-                        || f.selector == deposit(address, uint256).selector
-    }
-{
-    require isPaused();
+// rule whenPausedNothingToDo2(env e, method f) 
+// filtered { f -> f.selector == depositFor(address, address, uint256).selector
+//                         || f.selector == deposit(address, uint256).selector
+//     }
+// {
+//     require isPaused();
 
-    calldataarg args;
-    f@withrevert(e, args);
+//     calldataarg args;
+//     f@withrevert(e, args);
 
-    assert lastReverted, "Frozen!";
-}
+//     assert lastReverted, "Frozen!";
+// }
 
-// STATUS - verified
-rule whenPausedNothingToDo3(env e, method f) 
-filtered { f -> f.selector == initWithdrawal(address, uint256).selector
-                        || f.selector == cancelWithdrawal(uint256).selector
-    }
-{
-    require isPaused();
+// // STATUS - verified
+// rule whenPausedNothingToDo3(env e, method f) 
+// filtered { f -> f.selector == initWithdrawal(address, uint256).selector
+//                         || f.selector == cancelWithdrawal(uint256).selector
+//     }
+// {
+//     require isPaused();
 
-    calldataarg args;
-    f@withrevert(e, args);
+//     calldataarg args;
+//     f@withrevert(e, args);
 
-    assert lastReverted, "Frozen!";
-}
+//     assert lastReverted, "Frozen!";
+// }
 
-// STATUS - verified
-rule whenPausedNothingToDo4(env e, method f) 
-filtered { f -> f.selector == withdraw(uint256).selector}
-{
-    require isPaused();
+// // STATUS - verified
+// rule whenPausedNothingToDo4(env e, method f) 
+// filtered { f -> f.selector == withdraw(uint256).selector}
+// {
+//     require isPaused();
 
-    calldataarg args;
-    f@withrevert(e, args);
+//     calldataarg args;
+//     f@withrevert(e, args);
 
-    assert lastReverted, "Frozen!";
-}
-
-
-rule whenPausedNothingToDo512(env e, method f) 
-filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector              
-    }
-{
-    require isPaused();
-
-    calldataarg args;
-    f@withrevert(e, args);
-
-    assert lastReverted, "Frozen!";
-}
-
-rule whenPausedNothingToDo521(env e, method f) 
-filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
-                            }
-{
-    require isPaused();
-
-    calldataarg args;
-    f@withrevert(e, args);
-
-    assert lastReverted, "Frozen!";
-}
+//     assert lastReverted, "Frozen!";
+// }
 
 
-rule whenPausedNothingToDo61(env e, method f) 
-filtered { f -> f.selector == flashLoan(address, uint256, address, bytes).selector                       
-    }
-{
-    require isPaused();
+// rule whenPausedNothingToDo512(env e, method f) 
+// filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector              
+//     }
+// {
+//     require isPaused();
 
-    calldataarg args;
-    f@withrevert(e, args);
+//     calldataarg args;
+//     f@withrevert(e, args);
 
-    assert lastReverted, "Frozen!";
-}
+//     assert lastReverted, "Frozen!";
+// }
 
-rule whenPausedNothingToDo62(env e, method f) 
-filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector             
-    }
-{
-    require isPaused();
+// rule whenPausedNothingToDo521(env e, method f) 
+// filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
+//                             }
+// {
+//     require isPaused();
 
-    calldataarg args;
-    f@withrevert(e, args);
+//     calldataarg args;
+//     f@withrevert(e, args);
 
-    assert lastReverted, "Frozen!";
-}
+//     assert lastReverted, "Frozen!";
+// }
 
-rule whenPausedNothingToDo63(env e, method f) 
-filtered { f -> f.selector == withdrawNetworkFees(address).selector
-    }
-{
-    require isPaused();
 
-    calldataarg args;
-    f@withrevert(e, args);
+// rule whenPausedNothingToDo61(env e, method f) 
+// filtered { f -> f.selector == flashLoan(address, uint256, address, bytes).selector                       
+//     }
+// {
+//     require isPaused();
 
-    assert lastReverted, "Frozen!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     assert lastReverted, "Frozen!";
+// }
+
+// rule whenPausedNothingToDo62(env e, method f) 
+// filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector             
+//     }
+// {
+//     require isPaused();
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     assert lastReverted, "Frozen!";
+// }
+
+// rule whenPausedNothingToDo63(env e, method f) 
+// filtered { f -> f.selector == withdrawNetworkFees(address).selector
+//     }
+// {
+//     require isPaused();
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     assert lastReverted, "Frozen!";
+// }
 
 
 // STATUS - proved
 // `flashLoan()` doesn't decrease network's balance (native or token). 
-rule flashLoanCompleteness(env e){
-    address token;
-    uint256 amount;
-    address recipient;
-    bytes calldata;
+// rule flashLoanCompleteness(env e){
+//     address token;
+//     uint256 amount;
+//     address recipient;
+//     bytes calldata;
 
-    require token == tokenA || token == tokenB;
+//     require token == tokenA || token == tokenB;
 
-    uint256 nativeBalanceBefore = ethBalance();
+//     uint256 nativeBalanceBefore = ethBalance();
 
-    uint256 tokenBalanceBefore;
-    if(token == tokenA){
-        tokenBalanceBefore = tokenA.balanceOf(e, currentContract);
-    } else {
-        tokenBalanceBefore = tokenB.balanceOf(e, currentContract);
-    }
+//     uint256 tokenBalanceBefore;
+//     if(token == tokenA){
+//         tokenBalanceBefore = tokenA.balanceOf(e, currentContract);
+//     } else {
+//         tokenBalanceBefore = tokenB.balanceOf(e, currentContract);
+//     }
 
-    flashLoan(e, token, amount, recipient, calldata);
+//     flashLoan(e, token, amount, recipient, calldata);
 
-    uint256 nativeBalanceAfter = ethBalance();
+//     uint256 nativeBalanceAfter = ethBalance();
     
-    uint256 tokenBalanceAfter;
-    if(token == tokenA){
-        tokenBalanceAfter = tokenA.balanceOf(e, currentContract);
-    } else {
-        tokenBalanceAfter = tokenB.balanceOf(e, currentContract);
-    }
+//     uint256 tokenBalanceAfter;
+//     if(token == tokenA){
+//         tokenBalanceAfter = tokenA.balanceOf(e, currentContract);
+//     } else {
+//         tokenBalanceAfter = tokenB.balanceOf(e, currentContract);
+//     }
 
-    assert nativeBalanceBefore <= nativeBalanceAfter && tokenBalanceBefore <= tokenBalanceAfter, "Flash is a cheater!";
-}
+//     assert nativeBalanceBefore <= nativeBalanceAfter && tokenBalanceBefore <= tokenBalanceAfter, "Flash is a cheater!";
+// }
