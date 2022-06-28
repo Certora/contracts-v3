@@ -17,9 +17,8 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     --cloud \
     --rule_sanity basic \
     --send_only \
-    --rule nextWithIDVaries \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
             @bancor=node_modules/@bancor \
-    --msg "PendingWithdrawals nextWithIDVaries"
+    --msg "PendingWithdrawals rules Roy Fix"

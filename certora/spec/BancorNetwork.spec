@@ -64,6 +64,7 @@ methods {
     PoolCol.defaultTradingFeePPM() returns (uint32) envfree
     PoolCol.tokenUserBalance(address, address) returns (uint256) envfree
     PoolCol.isPoolValid(address) returns(bool) envfree
+    PoolCol.setTradingFeePPM(address, uint32) envfree
     migratePoolOut(address, address) => DISPATCHER(true)
     migratePoolIn(address, address) => DISPATCHER(true)
 
@@ -86,6 +87,7 @@ methods {
     PendWit.returnToken(address) returns (address) envfree
     PendWit.withdrawalRequest(uint256) returns 
             ((address, address, address, uint32, uint256, uint256)) envfree 
+    PendWit.requestReserveTokenAmount(uint256) returns (uint256) envfree
 
     // Governance
     BntGovern._token() returns(address) envfree
@@ -110,8 +112,8 @@ methods {
     sendTo() returns(bool) => DISPATCHER(true)
     sendValue() returns(bool) => DISPATCHER(true)
     reserveToken() returns (address) => DISPATCHER(true)
-    mulDivF(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIfWithRemainder(x,y,z)
-    mulDivC(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIfWithRemainder(x,y,z)
+    //mulDivF(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIfWithRemainder(x,y,z)
+    //mulDivC(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIfWithRemainder(x,y,z)
     hasRole(bytes32, address) returns(bool) envfree
     roleAdmin() returns(bytes32) envfree
     roleMigrationManager() returns(bytes32) envfree
@@ -173,13 +175,6 @@ definition depositLikeMethod(method f) returns bool =
         f.selector == depositFor(address, address, uint256).selector ||
         f.selector == deposit(address, uint256).selector;
 
-        /*f.selector == depositForPermitted(address, address, uint256, uint256, 
-            uint8, bytes32, bytes32).selector ||
-
-        f.selector == depositPermitted(address, uint256, uint256, 
-            uint8, bytes32, bytes32).selector ;
-            */  
-
 definition tradeLikeMethod(method f) returns bool = 
         f.selector == 
         tradeBySourceAmount(address, address, uint256, uint256, uint256, address)
@@ -188,16 +183,6 @@ definition tradeLikeMethod(method f) returns bool =
         f.selector == 
         tradeByTargetAmount(address, address, uint256, uint256, uint256, address)
         .selector;
-
-        /*
-        f.selector == 
-        tradeBySourceAmountPermitted(address, address, uint256, uint256, uint256, address,
-        uint8, bytes32, bytes32).selector ||
-
-        f.selector == 
-        tradeByTargetAmountPermitted(address, address, uint256, uint256, uint256, address,
-        uint8, bytes32, bytes32).selector;
-        */
 
 // A restriction upon the value of f = x * y / z
 // The division quotient y/z or x/z can be either q or 1/q.
@@ -325,16 +310,17 @@ function simpleMulDivIfWithRemainder(uint256 x, uint256 y, uint256 z) returns ui
     else if (3 * y == z )  {f = x / 3;}
     else if (3 * x == z )  {f = y / 3;}
     // Qut = 10, 1/10
-    //else if (y == 10 * z)     {f = 10 * x;}
-    //else if (x == 10 * z)     {f = 10 * y;}
-    //else if (10 * y == z )  {f = x / 10;}
-    //else if (10 * x == z )  {f = y / 10;}
+    else if (y == 10 * z)     {f = 10 * x;}
+    else if (x == 10 * z)     {f = 10 * y;}
+    else if (10 * y == z )  {f = x / 10;}
+    else if (10 * x == z )  {f = y / 10;}
     // Qut = 500, 1/500
     else if (y == 500 * z)     {f = 500 * x;}
     else if (x == 500 * z)     {f = 500 * y;}
     else if (500 * y == z )  {f = x / 500;}
     else if (500 * x == z )  {f = y / 500;}
-    //
+    // Z = 1000000
+    else if (z == 1000000) { f = (x * y) / 1000000;}
     else    {f = 0; Success = false;}
 
     require Success;
@@ -538,7 +524,96 @@ rule tradeA2BLiquidity(uint amount, bool byTarget)
             "When there are no fees, trade BNT balance stays intact"; 
 }
 
- 
+// Checks that balances are updated correctly after tradeByTarget,
+// when trade msg.sender is not the beneficiary.
+rule tradeCorrectBalances1(uint amount)
+{
+    env e;
+    uint256 maxSourceAmount = max_uint;
+    uint256 deadline = max_uint;
+    address beneficiary;
+    address tknA = tokenA;
+    address tknB = tokenB;
+
+    require PoolCol.getPoolDataTradingFee(tokenB) == 0;
+    require PoolCol.networkFeePPM(e) == 0;
+    require e.msg.sender != masVault;
+    require beneficiary != masVault;
+    require beneficiary != e.msg.sender;
+    require beneficiary != 0;
+    require _poolCollection(tknA) == PoolCol;
+    require _poolCollection(tknB) == PoolCol;
+
+    uint256 balanceBenA1 = tokenA.balanceOf(e, beneficiary);
+    uint256 balanceBenB1 = tokenB.balanceOf(e, beneficiary);
+    uint256 balanceSendA1 = tokenA.balanceOf(e, e.msg.sender);
+    uint256 balanceSendB1 = tokenB.balanceOf(e, e.msg.sender);
+    uint256 balanceVaultA1 = tokenA.balanceOf(e, masVault);
+    uint256 balanceVaultB1 = tokenB.balanceOf(e, masVault);
+
+    uint256 amountPaid = tradeByTargetAmount(e, tknA, tknB,
+        amount, maxSourceAmount, deadline, beneficiary);
+
+    uint256 balanceBenA2 = tokenA.balanceOf(e, beneficiary);
+    uint256 balanceBenB2 = tokenB.balanceOf(e, beneficiary);
+    uint256 balanceSendA2 = tokenA.balanceOf(e, e.msg.sender);
+    uint256 balanceSendB2 = tokenB.balanceOf(e, e.msg.sender);
+    uint256 balanceVaultA2 = tokenA.balanceOf(e, masVault);
+    uint256 balanceVaultB2 = tokenB.balanceOf(e, masVault);
+
+    assert balanceBenA1 == balanceBenA2 &&
+
+     balanceBenB2 == balanceBenB1 + amount &&
+
+     balanceSendA1 == balanceSendA2 + amountPaid &&
+
+     balanceSendB2 == balanceSendB1 &&  
+
+     balanceVaultA2 == balanceVaultA1 + amountPaid &&
+
+     balanceVaultB1 == balanceVaultB2 + amount;  
+}
+
+// Checks that balances are updated correctly after tradeByTarget,
+// when trade msg.sender is also beneficiary.
+rule tradeCorrectBalances2(uint amount)
+{
+    env e;
+    uint256 maxSourceAmount = max_uint;
+    uint256 deadline = max_uint;
+    address beneficiary = e.msg.sender;
+    address tknA = tokenA;
+    address tknB = tokenB;
+
+    require PoolCol.defaultTradingFeePPM() == 0;
+    require PoolCol.networkFeePPM(e) == 0;
+    require e.msg.sender != masVault;
+    require _poolCollection(tknA) == PoolCol;
+    require _poolCollection(tknB) == PoolCol;
+
+    uint256 balanceSendA1 = tokenA.balanceOf(e, e.msg.sender);
+    uint256 balanceSendB1 = tokenB.balanceOf(e, e.msg.sender);
+    uint256 balanceVaultA1 = tokenA.balanceOf(e, masVault);
+    uint256 balanceVaultB1 = tokenB.balanceOf(e, masVault);
+
+    uint256 amountPaid = tradeByTargetAmount(e, tknA, tknB,
+        amount, maxSourceAmount, deadline, beneficiary);
+
+    uint256 balanceSendA2 = tokenA.balanceOf(e, e.msg.sender);
+    uint256 balanceSendB2 = tokenB.balanceOf(e, e.msg.sender);
+    uint256 balanceVaultA2 = tokenA.balanceOf(e, masVault);
+    uint256 balanceVaultB2 = tokenB.balanceOf(e, masVault);
+
+
+    assert balanceSendA1 == balanceSendA2 + amountPaid &&
+
+        balanceSendB2 == balanceSendB1 + amount &&
+
+        balanceVaultA2 == balanceVaultA1 + amountPaid && 
+
+        balanceVaultB1 == balanceVaultB2 + amount;  
+}
+
 // Verified
 rule tradeBntLiquidity(uint amount)
 {
@@ -560,8 +635,6 @@ rule tradeBntLiquidity(uint amount)
     uint128 bntLiqB1 = PoolCol.getPoolDataBntTradingLiquidity(tknB);
     uint256 balanceA1 = tokenA.balanceOf(e, e.msg.sender);
     uint256 balanceB1 = tokenB.balanceOf(e, e.msg.sender);
-
-    require balanceA1 <= 10000000000;
 
     uint amountPaid = tradeByTargetAmount(e, tknA, tknB,
         amount, maxSourceAmount, deadline, beneficiary);
@@ -651,13 +724,13 @@ rule afterTradingPTBalanceIntact(address trader, uint amount)
 rule cancellingAlwaysPossible(address poolToken, uint256 amount)
 {
     env e;
+    env e2;
 
-    uint  id = initWithdrawal(e, poolToken, amount);
-    cancelWithdrawal@withrevert(e, id);
+    uint256 id = initWithdrawal(e, poolToken, amount);
+    cancelWithdrawal@withrevert(e2, id);
 
     assert !lastReverted, "cancelWithdrawal reverted for a valid request";
 }
-
 
 // After initiating a withdrawal, the user must hand over his PTs.
 rule RequestRegisteredForValidProvider(uint tokenAmount)
@@ -870,21 +943,7 @@ rule depositBNTtransferPTsToProvider(address provider, uint amount)
             "Total supply of BNT pool tokens should not change";
 }
 
-rule tradeTargetSourceInverse(uint amount)
-{
-    env e;
-    address tknA = tokenA;
-    address tknB = tokenB;
-    uint maxSourceAmount = max_uint;
-    uint minReturnAmount = 1;
-    uint deadline = max_uint;
-    address trader = e.msg.sender;
-    require _poolCollection(tknA) == PoolCol;
-    require _poolCollection(tknB) == PoolCol;
-    require amount > 0;
-
-    storage initialStorage = lastStorage;
-
+// Checks that trading by source and by target are inverses of each other.
 rule tradeTargetSourceInverse(uint amount)
 {
     env e;
@@ -912,9 +971,47 @@ rule tradeTargetSourceInverse(uint amount)
     assert amountBack == amount;
 }
 
+// Checks that pool token value cannot decrease after someone deposits into pool.
+// If such a situation is possible, withdraw() function will revert.
+rule depositWithdrawRevert(uint256 id, uint256 depositAmount)
+{
+    env e1; env e2;
+    
+    address provider; address depositor; 
+    address poolToken; 
+    address reserveToken; 
+    uint32 createdAt; 
+    uint256 poolTokenAmount;
+    uint256 reserveTokenAmount;
 
+    provider, poolToken, reserveToken, createdAt,
+        poolTokenAmount, reserveTokenAmount = 
+        PendWit.withdrawalRequest(id);
 
+    // Set token <-> pool token
+    require ptA.reserveToken(e1) == tokenA;
+    require ptA == PoolCol.poolToken(tokenA);
 
+    // Set withdrawal request details.
+    require provider == e1.msg.sender;
+    require poolToken == ptA;
+    require reserveToken == tokenA;
+    require reserveTokenAmount == 
+        PoolCol.poolTokenToUnderlying(e1, reserveToken, poolTokenAmount);
+    require poolTokenAmount > 0;
+    require poolTokenAmount <= PendWit.poolTotalSupply(poolToken);
+
+    // Valid users
+    require validUser(e1, e1.msg.sender);
+    require validUser(e2, e2.msg.sender);
+    
+    depositFor(e2, depositor, reserveToken, depositAmount);
+
+    uint256 newTokenAmount = 
+        PoolCol.poolTokenToUnderlying(e2, reserveToken, poolTokenAmount);
+
+    assert newTokenAmount >= reserveTokenAmount, "Value of pool token has decreased";
+}
 
 
 

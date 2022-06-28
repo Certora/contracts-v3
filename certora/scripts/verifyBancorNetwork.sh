@@ -67,14 +67,15 @@ py ../../EVMVerifier/scripts/certoraRun.py \
             ExternalProtectionVault:_vbntGovernance=DummyTokenGovernanceB \
             \
     --solc solc8.13 \
-    --cloud \
+    --staging jtoman/bancor-opt \
     --send_only \
+    --rule $1 \
+    --rule_sanity basic \
     --disable_auto_cache_key_gen \
     --optimistic_loop \
-    --rule tradeBntLiquidity \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
     @bancor=node_modules/@bancor \
-    --settings -enableEqualitySaturation=false,-divideNoRemainder=true \
-    --msg "BancorNetwork tradeBntLiquidity"
+    --settings -enableEqualitySaturation=false \
+    --msg "BancorNet $1"
 
