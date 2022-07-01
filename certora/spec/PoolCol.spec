@@ -378,6 +378,15 @@ invariant differentTokens(address tknA, address tknB)
        }
     }
 
+invariant notHasPoolNotHasPoolToken(address pool)
+    !hasPool(pool) => poolToken(pool) == 0
+    {
+       preserved{
+            setUp();
+            require pool == tokenA;
+       }
+    }
+
 
 // If staked balance is zero, then pool token balance is zero too.
 invariant zeroPoolTokensZeroStakedBalance(address pool, env e)

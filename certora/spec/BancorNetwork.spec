@@ -573,6 +573,13 @@ rule untradeablePT(address trader, address poolToken, uint amount, bool TKN_2_PT
     assert lastReverted;
 }
 
+// Failed:
+// https://vaas-stg.certora.com/output/41958/dd6b365803a568c539cd/?anonymousKey=68692b3845ee183ded9e5145dc37f63e8e041e73
+invariant validPool(address token)
+    !isPoolValid(token) => _poolCollection(token) == 0
+    filtered{f -> !depositLikeMethod(f) && !tradeLikeMethod(f)}
+
+
 // Trading should never change the amount of pool tokens for any user.
 rule afterTradingPTBalanceIntact(address trader, uint amount)
 {
@@ -846,7 +853,7 @@ invariant noPoolNoParty1(address token)
     filtered { f -> f.selector == addPoolCollection(address).selector 
                         || f.selector == removePoolCollection(address, address).selector 
                         || f.selector == setLatestPoolCollection(address).selector
-                        || f.selector == createPool(uint16, address).selector     reachability fail
+                        || f.selector == createPool(uint16, address).selector     // reachability fail
                         || f.selector == createPools(uint16, address[]).selector
     }
 

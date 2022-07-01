@@ -74,6 +74,6 @@ certoraRun.py \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
             @bancor=node_modules/@bancor \
-    --settings -enableEqualitySaturation=false,-divideNoRemainder=true, -optimistic_fallback \
+    --settings -enableEqualitySaturation=false,-divideNoRemainder=true \
     --msg "BancorNetwork rules"
 
