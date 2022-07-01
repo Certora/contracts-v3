@@ -17,7 +17,7 @@ import Contracts, {
 } from '../../components/Contracts';
 import { TokenGovernance } from '../../components/LegacyContracts';
 import { Profiler } from '../../components/Profiler';
-import { TradeAmountAndFeeStructOutput } from '../../typechain-types/contracts/pools/PoolCollection';
+import { TradeAmountAndFeeStructOutput } from '../../typechain-types/contracts/helpers/TestPoolCollection';
 import {
     EXP2_INPUT_TOO_HIGH,
     MAX_UINT256,
@@ -25,8 +25,9 @@ import {
     RewardsDistributionType,
     ZERO_ADDRESS
 } from '../../utils/Constants';
+import { permitSignature } from '../../utils/Permit';
 import { NATIVE_TOKEN_ADDRESS, TokenData, TokenSymbol } from '../../utils/TokenData';
-import { max, toPPM, toWei } from '../../utils/Types';
+import { fromPPM, max, toPPM, toWei } from '../../utils/Types';
 import {
     createAutoCompoundingRewards,
     createPool,
@@ -42,9 +43,9 @@ import {
     TokenWithAddress
 } from '../helpers/Factory';
 import { duration, latest } from '../helpers/Time';
-import { transfer } from '../helpers/Utils';
+import { createWallet, transfer } from '../helpers/Utils';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
-import { BigNumber, BigNumberish, ContractTransaction, utils } from 'ethers';
+import { BigNumber, BigNumberish, ContractTransaction, utils, Wallet } from 'ethers';
 import { ethers } from 'hardhat';
 import humanizeDuration from 'humanize-duration';
 import { camelCase } from 'lodash';
@@ -89,16 +90,11 @@ describe('Profile @profile', () => {
         });
 
         const testDeposits = (tokenData: TokenData) => {
+            let token: TokenWithAddress;
+
             const INITIAL_LIQUIDITY = MIN_LIQUIDITY_FOR_TRADING.mul(BASE_TOKEN_VIRTUAL_BALANCE)
                 .div(BNT_VIRTUAL_BALANCE)
                 .mul(2);
-
-            let token: TokenWithAddress;
-            let provider: SignerWithAddress;
-
-            before(async () => {
-                [, provider] = await ethers.getSigners();
-            });
 
             beforeEach(async () => {
                 if (tokenData.isBNT()) {
@@ -109,6 +105,7 @@ describe('Profile @profile', () => {
                     await createPool(token, network, networkSettings, poolCollection);
 
                     await networkSettings.setFundingLimit(token.address, MAX_UINT256);
+                    await poolCollection.setDepositLimit(token.address, MAX_UINT256);
 
                     // ensure that the trading is enabled with sufficient funding
                     if (tokenData.isNative()) {
@@ -131,111 +128,266 @@ describe('Profile @profile', () => {
                 await pendingWithdrawals.setTime(time);
             };
 
-            enum Method {
-                Deposit,
-                DepositFor
-            }
+            const testDeposit = () => {
+                context('regular deposit', () => {
+                    enum Method {
+                        Deposit,
+                        DepositFor
+                    }
 
-            for (const method of [Method.Deposit, Method.DepositFor]) {
-                context(`using ${camelCase(Method[method])} method`, () => {
-                    let sender: SignerWithAddress;
+                    let provider: SignerWithAddress;
 
                     before(async () => {
-                        switch (method) {
-                            case Method.Deposit:
-                                sender = provider;
-
-                                break;
-
-                            case Method.DepositFor:
-                                sender = deployer;
-
-                                break;
-                        }
+                        [, provider] = await ethers.getSigners();
                     });
 
-                    interface Overrides {
-                        value?: BigNumber;
-                        poolAddress?: string;
-                    }
+                    for (const method of [Method.Deposit, Method.DepositFor]) {
+                        context(`using ${camelCase(Method[method])} method`, () => {
+                            let sender: SignerWithAddress;
 
-                    const deposit = async (amount: BigNumber, overrides: Overrides = {}) => {
-                        let { value, poolAddress = token.address } = overrides;
+                            before(async () => {
+                                switch (method) {
+                                    case Method.Deposit:
+                                        sender = provider;
 
-                        value ||= tokenData.isNative() ? amount : BigNumber.from(0);
+                                        break;
 
-                        switch (method) {
-                            case Method.Deposit:
-                                return network.connect(sender).deposit(poolAddress, amount, { value });
+                                    case Method.DepositFor:
+                                        sender = deployer;
 
-                            case Method.DepositFor:
-                                return network
-                                    .connect(sender)
-                                    .depositFor(provider.address, poolAddress, amount, { value });
-                        }
-                    };
-
-                    const testDepositAmount = (amount: BigNumber) => {
-                        const COUNT = 3;
-
-                        const testMultipleDeposits = async () => {
-                            for (let i = 0; i < COUNT; i++) {
-                                await test(amount);
-                            }
-                        };
-
-                        const test = async (amount: BigNumber) =>
-                            await profiler.profile(`deposit ${tokenData.symbol()}`, deposit(amount));
-
-                        context(`${amount} tokens`, () => {
-                            if (!tokenData.isNative()) {
-                                beforeEach(async () => {
-                                    const reserveToken = await Contracts.TestERC20Token.attach(token.address);
-                                    await reserveToken.transfer(sender.address, amount.mul(COUNT));
-                                });
-                            }
-
-                            context('with an approval', () => {
-                                if (!tokenData.isNative()) {
-                                    beforeEach(async () => {
-                                        const reserveToken = await Contracts.TestERC20Token.attach(token.address);
-                                        await reserveToken.connect(sender).approve(network.address, amount.mul(COUNT));
-                                    });
-                                }
-
-                                if (tokenData.isBNT()) {
-                                    context('with requested funding', () => {
-                                        beforeEach(async () => {
-                                            const reserveToken = await createTestToken();
-
-                                            await createPool(reserveToken, network, networkSettings, poolCollection);
-                                            await networkSettings.setFundingLimit(reserveToken.address, FUNDING_LIMIT);
-
-                                            await poolCollection.requestFundingT(
-                                                CONTEXT_ID,
-                                                reserveToken.address,
-                                                amount.mul(COUNT)
-                                            );
-                                        });
-
-                                        it('should complete multiple deposits', async () => {
-                                            await testMultipleDeposits();
-                                        });
-                                    });
-                                } else {
-                                    it('should complete multiple deposits', async () => {
-                                        await testMultipleDeposits();
-                                    });
+                                        break;
                                 }
                             });
-                        });
-                    };
 
-                    for (const amount of [10, 10_000, toWei(1_000_000)]) {
-                        testDepositAmount(BigNumber.from(amount));
+                            interface Overrides {
+                                value?: BigNumber;
+                                poolAddress?: string;
+                            }
+
+                            const deposit = async (amount: BigNumber, overrides: Overrides = {}) => {
+                                let { value, poolAddress = token.address } = overrides;
+
+                                value ||= tokenData.isNative() ? amount : BigNumber.from(0);
+
+                                switch (method) {
+                                    case Method.Deposit:
+                                        return network.connect(sender).deposit(poolAddress, amount, { value });
+
+                                    case Method.DepositFor:
+                                        return network
+                                            .connect(sender)
+                                            .depositFor(provider.address, poolAddress, amount, { value });
+                                }
+                            };
+
+                            const testDepositAmount = (amount: BigNumber) => {
+                                const COUNT = 3;
+
+                                const testMultipleDeposits = async () => {
+                                    for (let i = 0; i < COUNT; i++) {
+                                        await test(amount);
+                                    }
+                                };
+
+                                const test = async (amount: BigNumber) =>
+                                    await profiler.profile(`deposit ${tokenData.symbol()}`, deposit(amount));
+
+                                context(`${amount} tokens`, () => {
+                                    if (!tokenData.isNative()) {
+                                        beforeEach(async () => {
+                                            const reserveToken = await Contracts.TestERC20Token.attach(token.address);
+                                            await reserveToken.transfer(sender.address, amount.mul(COUNT));
+                                        });
+                                    }
+
+                                    context('with an approval', () => {
+                                        if (!tokenData.isNative()) {
+                                            beforeEach(async () => {
+                                                const reserveToken = await Contracts.TestERC20Token.attach(
+                                                    token.address
+                                                );
+                                                await reserveToken
+                                                    .connect(sender)
+                                                    .approve(network.address, amount.mul(COUNT));
+                                            });
+                                        }
+
+                                        if (tokenData.isBNT()) {
+                                            context('with requested funding', () => {
+                                                beforeEach(async () => {
+                                                    const reserveToken = await createTestToken();
+
+                                                    await createPool(
+                                                        reserveToken,
+                                                        network,
+                                                        networkSettings,
+                                                        poolCollection
+                                                    );
+                                                    await networkSettings.setFundingLimit(
+                                                        reserveToken.address,
+                                                        FUNDING_LIMIT
+                                                    );
+
+                                                    await poolCollection.requestFundingT(
+                                                        CONTEXT_ID,
+                                                        reserveToken.address,
+                                                        amount.mul(COUNT)
+                                                    );
+                                                });
+
+                                                it('should complete multiple deposits', async () => {
+                                                    await testMultipleDeposits();
+                                                });
+                                            });
+                                        } else {
+                                            it('should complete multiple deposits', async () => {
+                                                await testMultipleDeposits();
+                                            });
+                                        }
+                                    });
+                                });
+                            };
+
+                            for (const amount of [10, 10_000, toWei(1_000_000)]) {
+                                testDepositAmount(BigNumber.from(amount));
+                            }
+                        });
                     }
                 });
-            }
+            };
+
+            const testDepositPermitted = () => {
+                context('permitted deposit', () => {
+                    enum Method {
+                        DepositPermitted,
+                        DepositForPermitted
+                    }
+
+                    const DEADLINE = MAX_UINT256;
+
+                    let provider: Wallet;
+                    let providerAddress: string;
+
+                    beforeEach(async () => {
+                        provider = await createWallet();
+                        providerAddress = await provider.getAddress();
+                    });
+
+                    for (const method of [Method.DepositPermitted, Method.DepositForPermitted]) {
+                        context(`using ${camelCase(Method[method])} method`, () => {
+                            let sender: Wallet;
+                            let senderAddress: string;
+
+                            beforeEach(async () => {
+                                switch (method) {
+                                    case Method.DepositPermitted:
+                                        sender = provider;
+
+                                        break;
+
+                                    case Method.DepositForPermitted:
+                                        sender = await createWallet();
+
+                                        break;
+                                }
+
+                                senderAddress = await sender.getAddress();
+                            });
+
+                            interface Overrides {
+                                poolAddress?: string;
+                            }
+
+                            const deposit = async (amount: BigNumber, overrides: Overrides = {}) => {
+                                const { poolAddress = token.address } = overrides;
+
+                                const signature = await permitSignature(
+                                    sender,
+                                    poolAddress,
+                                    network,
+                                    bnt,
+                                    amount,
+                                    DEADLINE
+                                );
+
+                                switch (method) {
+                                    case Method.DepositPermitted:
+                                        return network
+                                            .connect(sender)
+                                            .depositPermitted(
+                                                poolAddress,
+                                                amount,
+                                                DEADLINE,
+                                                signature.v,
+                                                signature.r,
+                                                signature.s
+                                            );
+
+                                    case Method.DepositForPermitted:
+                                        return network
+                                            .connect(sender)
+                                            .depositForPermitted(
+                                                providerAddress,
+                                                poolAddress,
+                                                amount,
+                                                DEADLINE,
+                                                signature.v,
+                                                signature.r,
+                                                signature.s
+                                            );
+                                }
+                            };
+
+                            const testDepositAmount = (amount: BigNumber) => {
+                                const test = async () =>
+                                    profiler.profile(`deposit ${tokenData.symbol()}`, deposit(amount));
+
+                                context(`${amount} tokens`, () => {
+                                    if (tokenData.isBNT() || tokenData.isNative()) {
+                                        return;
+                                    }
+
+                                    beforeEach(async () => {
+                                        const reserveToken = await Contracts.TestERC20Token.attach(token.address);
+                                        await reserveToken.transfer(senderAddress, amount);
+                                    });
+
+                                    context('when there is no available BNT funding', () => {
+                                        beforeEach(async () => {
+                                            await networkSettings.setFundingLimit(token.address, 0);
+                                        });
+
+                                        context('with a whitelisted token', async () => {
+                                            it('should complete a deposit', async () => {
+                                                await test();
+                                            });
+                                        });
+                                    });
+
+                                    context('when there is enough available BNT funding', () => {
+                                        beforeEach(async () => {
+                                            await networkSettings.setFundingLimit(token.address, MAX_UINT256);
+                                        });
+
+                                        context('when spot rate is stable', () => {
+                                            it('should complete a deposit', async () => {
+                                                await test();
+                                            });
+                                        });
+                                    });
+                                });
+                            };
+
+                            for (const amount of [10, 10_000, toWei(1_000_000)]) {
+                                testDepositAmount(BigNumber.from(amount));
+                            }
+                        });
+                    }
+                });
+            };
+
+            testDeposit();
+            testDepositPermitted();
         };
 
         for (const symbol of [TokenSymbol.BNT, TokenSymbol.ETH, TokenSymbol.TKN]) {
@@ -304,6 +456,7 @@ describe('Profile @profile', () => {
                     poolToken = await createPool(token, network, networkSettings, poolCollection);
 
                     await networkSettings.setFundingLimit(token.address, MAX_UINT256);
+                    await poolCollection.setDepositLimit(token.address, MAX_UINT256);
                 }
 
                 await depositToPool(provider, token, INITIAL_LIQUIDITY, network);
@@ -425,11 +578,7 @@ describe('Profile @profile', () => {
         let sourceToken: TokenWithAddress;
         let targetToken: TokenWithAddress;
 
-        let trader: SignerWithAddress;
-
-        before(async () => {
-            [, trader] = await ethers.getSigners();
-        });
+        let trader: Wallet;
 
         beforeEach(async () => {
             ({ network, networkInfo, networkSettings, bnt, poolCollection } = await createSystem());
@@ -437,7 +586,9 @@ describe('Profile @profile', () => {
             await networkSettings.setMinLiquidityForTrading(MIN_LIQUIDITY_FOR_TRADING);
         });
 
-        const setupPools = async (source: PoolSpec, target: PoolSpec) => {
+        const setupPools = async (source: PoolSpec, target: PoolSpec, networkFeePPM: number) => {
+            trader = await createWallet();
+
             ({ token: sourceToken } = await setupFundedPool(
                 source,
                 deployer,
@@ -455,6 +606,10 @@ describe('Profile @profile', () => {
                 networkSettings,
                 poolCollection
             ));
+
+            if (networkFeePPM) {
+                await networkSettings.setNetworkFeePPM(networkFeePPM);
+            }
 
             // increase BNT liquidity by the growth factor a few times
             for (let i = 0; i < 5; i++) {
@@ -551,6 +706,68 @@ describe('Profile @profile', () => {
             approvedAmount?: BigNumberish;
         }
 
+        const tradeBySourceAmountPermitted = async (amount: BigNumberish, overrides: TradePermittedOverrides = {}) => {
+            const {
+                limit: minReturnAmount = MIN_RETURN_AMOUNT,
+                deadline = MAX_UINT256,
+                beneficiary = ZERO_ADDRESS,
+                sourceTokenAddress = sourceToken.address,
+                targetTokenAddress = targetToken.address,
+                approvedAmount = amount
+            } = overrides;
+
+            const signature = await permitSignature(trader, sourceTokenAddress, network, bnt, approvedAmount, deadline);
+
+            return network
+                .connect(trader)
+                .tradeBySourceAmountPermitted(
+                    sourceTokenAddress,
+                    targetTokenAddress,
+                    amount,
+                    minReturnAmount,
+                    deadline,
+                    beneficiary,
+                    signature.v,
+                    signature.r,
+                    signature.s
+                );
+        };
+
+        const tradeByTargetAmountPermitted = async (amount: BigNumberish, overrides: TradePermittedOverrides = {}) => {
+            let {
+                limit: maxSourceAmount,
+                deadline = MAX_UINT256,
+                beneficiary = ZERO_ADDRESS,
+                sourceTokenAddress = sourceToken.address,
+                targetTokenAddress = targetToken.address,
+                approvedAmount
+            } = overrides;
+
+            // fetch the required source amount if it wasn't provided
+            maxSourceAmount ||= await networkInfo.tradeInputByTargetAmount(
+                sourceTokenAddress,
+                targetTokenAddress,
+                amount
+            );
+            approvedAmount ||= maxSourceAmount;
+
+            const signature = await permitSignature(trader, sourceTokenAddress, network, bnt, approvedAmount, deadline);
+
+            return network
+                .connect(trader)
+                .tradeByTargetAmountPermitted(
+                    sourceTokenAddress,
+                    targetTokenAddress,
+                    amount,
+                    maxSourceAmount,
+                    deadline,
+                    beneficiary,
+                    signature.v,
+                    signature.r,
+                    signature.s
+                );
+        };
+
         const performTrade = async (
             beneficiaryAddress: string,
             amount: BigNumber,
@@ -564,7 +781,8 @@ describe('Profile @profile', () => {
             const isSourceBNT = sourceToken.address === bnt.address;
             const isTargetBNT = targetToken.address === bnt.address;
 
-            const bySourceAmount = tradeBySourceAmount === tradeFunc;
+            const bySourceAmount = [tradeBySourceAmount, tradeBySourceAmountPermitted].includes(tradeFunc as any);
+            const permitted = [tradeBySourceAmountPermitted, tradeByTargetAmountPermitted].includes(tradeFunc as any);
 
             const deadline = MAX_UINT256;
             let limit: BigNumber;
@@ -611,7 +829,7 @@ describe('Profile @profile', () => {
             const targetSymbol = isTargetNativeToken ? TokenSymbol.ETH : await (targetToken as TestERC20Token).symbol();
 
             await profiler.profile(
-                `trade by providing the ${
+                `${permitted ? 'permitted ' : ''}trade by providing the ${
                     bySourceAmount ? 'source' : 'target'
                 } amount ${sourceSymbol} -> ${targetSymbol}`,
                 tradeFunc(amount, { limit, beneficiary: beneficiaryAddress, deadline })
@@ -636,36 +854,77 @@ describe('Profile @profile', () => {
             await reserveToken.connect(trader).approve(network.address, sourceAmount);
         };
 
-        const testTrades = (source: PoolSpec, target: PoolSpec, amount: BigNumber) => {
+        const testTrades = (source: PoolSpec, target: PoolSpec, networkFeePPM: number, amount: BigNumber) => {
             const isSourceNativeToken = source.tokenData.isNative();
 
-            context(`trade ${amount} tokens from ${specToString(source)} to ${specToString(target)}`, () => {
-                beforeEach(async () => {
-                    await setupPools(source, target);
-                });
-
-                for (const bySourceAmount of [true, false]) {
-                    context(`by providing the ${bySourceAmount ? 'source' : 'target'} amount`, () => {
-                        const tradeFunc = bySourceAmount ? tradeBySourceAmount : tradeByTargetAmount;
-
-                        const TRADES_COUNT = 2;
-
-                        it('should complete multiple trades', async () => {
-                            const currentBlockNumber = await poolCollection.currentBlockNumber();
-
-                            for (let i = 0; i < TRADES_COUNT; i++) {
-                                if (!isSourceNativeToken) {
-                                    await approve(amount, bySourceAmount);
-                                }
-
-                                await performTrade(ZERO_ADDRESS, amount, tradeFunc);
-
-                                await poolCollection.setBlockNumber(currentBlockNumber + i + 1);
-                            }
-                        });
+            context(
+                `trade ${amount} tokens from ${specToString(source)} to ${specToString(target)}, network fee=${fromPPM(
+                    networkFeePPM
+                )}%`,
+                () => {
+                    beforeEach(async () => {
+                        await setupPools(source, target, networkFeePPM);
                     });
+
+                    for (const bySourceAmount of [true, false]) {
+                        context(`by providing the ${bySourceAmount ? 'source' : 'target'} amount`, () => {
+                            const tradeFunc = bySourceAmount ? tradeBySourceAmount : tradeByTargetAmount;
+
+                            const TRADES_COUNT = 2;
+
+                            it('should complete multiple trades', async () => {
+                                const currentBlockNumber = await poolCollection.currentBlockNumber();
+
+                                for (let i = 0; i < TRADES_COUNT; i++) {
+                                    if (!isSourceNativeToken) {
+                                        await approve(amount, bySourceAmount);
+                                    }
+
+                                    await performTrade(ZERO_ADDRESS, amount, tradeFunc);
+
+                                    await poolCollection.setBlockNumber(currentBlockNumber + i + 1);
+                                }
+                            });
+                        });
+                    }
                 }
-            });
+            );
+        };
+
+        const testPermittedTrades = (source: PoolSpec, target: PoolSpec, networkFeePPM: number, amount: BigNumber) => {
+            const isSourceNativeToken = source.tokenData.isNative();
+            const isSourceBNT = source.tokenData.isBNT();
+
+            if (isSourceNativeToken || isSourceBNT) {
+                return;
+            }
+
+            context(
+                `trade permitted ${amount} tokens from ${specToString(source)} to ${specToString(
+                    target
+                )}, network fee=${fromPPM(networkFeePPM)}%`,
+                () => {
+                    beforeEach(async () => {
+                        await setupPools(source, target, networkFeePPM);
+                    });
+
+                    for (const bySourceAmount of [true, false]) {
+                        context(`by providing the ${bySourceAmount ? 'source' : 'target'} amount`, () => {
+                            const tradeFunc = bySourceAmount
+                                ? tradeBySourceAmountPermitted
+                                : tradeByTargetAmountPermitted;
+
+                            beforeEach(async () => {
+                                await approve(amount, bySourceAmount);
+                            });
+
+                            it('should complete a permitted trade', async () => {
+                                await performTrade(ZERO_ADDRESS, amount, tradeFunc);
+                            });
+                        });
+                    }
+                }
+            );
         };
 
         for (const [sourceSymbol, targetSymbol] of [
@@ -680,53 +939,80 @@ describe('Profile @profile', () => {
             const sourceTokenData = new TokenData(sourceSymbol);
             const targetTokenData = new TokenData(targetSymbol);
 
+            testPermittedTrades(
+                {
+                    tokenData: sourceTokenData,
+                    balance: toWei(1_000_000),
+                    requestedLiquidity: toWei(1_000_000).mul(1000),
+                    bntVirtualBalance: BNT_VIRTUAL_BALANCE,
+                    baseTokenVirtualBalance: BASE_TOKEN_VIRTUAL_BALANCE
+                },
+                {
+                    tokenData: targetTokenData,
+                    balance: toWei(5_000_000),
+                    requestedLiquidity: toWei(5_000_000).mul(1000),
+                    bntVirtualBalance: BNT_VIRTUAL_BALANCE,
+                    baseTokenVirtualBalance: BASE_TOKEN_VIRTUAL_BALANCE
+                },
+                toPPM(20),
+                toWei(1000)
+            );
+
             for (const sourceBalance of [toWei(1_000_000), toWei(100_000_000)]) {
                 for (const targetBalance of [toWei(1_000_000), toWei(100_000_000)]) {
                     for (const amount of [toWei(100)]) {
                         for (const tradingFeePercent of [0, 5]) {
-                            // if either the source or the target token is BNT - only test fee in one of the
-                            // directions
-                            if (sourceTokenData.isBNT() || targetTokenData.isBNT()) {
-                                testTrades(
-                                    {
-                                        tokenData: new TokenData(sourceSymbol),
-                                        balance: sourceBalance,
-                                        requestedFunding: sourceBalance.mul(1000),
-                                        tradingFeePPM: sourceTokenData.isBNT() ? undefined : toPPM(tradingFeePercent),
-                                        bntVirtualBalance: BNT_VIRTUAL_BALANCE,
-                                        baseTokenVirtualBalance: BASE_TOKEN_VIRTUAL_BALANCE
-                                    },
-                                    {
-                                        tokenData: new TokenData(targetSymbol),
-                                        balance: targetBalance,
-                                        requestedFunding: targetBalance.mul(1000),
-                                        tradingFeePPM: targetTokenData.isBNT() ? undefined : toPPM(tradingFeePercent),
-                                        bntVirtualBalance: BNT_VIRTUAL_BALANCE,
-                                        baseTokenVirtualBalance: BASE_TOKEN_VIRTUAL_BALANCE
-                                    },
-                                    BigNumber.from(amount)
-                                );
-                            } else {
-                                for (const tradingFeePercent2 of [0, 5]) {
+                            for (const networkFeePercent of [0, 20]) {
+                                // if either the source or the target token is BNT - only test fee in one of the
+                                // directions
+                                if (sourceTokenData.isBNT() || targetTokenData.isBNT()) {
                                     testTrades(
                                         {
                                             tokenData: new TokenData(sourceSymbol),
                                             balance: sourceBalance,
-                                            requestedFunding: sourceBalance.mul(1000),
-                                            tradingFeePPM: toPPM(tradingFeePercent),
+                                            requestedLiquidity: sourceBalance.mul(1000),
+                                            tradingFeePPM: sourceTokenData.isBNT()
+                                                ? undefined
+                                                : toPPM(tradingFeePercent),
                                             bntVirtualBalance: BNT_VIRTUAL_BALANCE,
                                             baseTokenVirtualBalance: BASE_TOKEN_VIRTUAL_BALANCE
                                         },
                                         {
                                             tokenData: new TokenData(targetSymbol),
                                             balance: targetBalance,
-                                            requestedFunding: targetBalance.mul(1000),
-                                            tradingFeePPM: toPPM(tradingFeePercent2),
+                                            requestedLiquidity: targetBalance.mul(1000),
+                                            tradingFeePPM: targetTokenData.isBNT()
+                                                ? undefined
+                                                : toPPM(tradingFeePercent),
                                             bntVirtualBalance: BNT_VIRTUAL_BALANCE,
                                             baseTokenVirtualBalance: BASE_TOKEN_VIRTUAL_BALANCE
                                         },
+                                        toPPM(networkFeePercent),
                                         BigNumber.from(amount)
                                     );
+                                } else {
+                                    for (const tradingFeePercent2 of [0, 5]) {
+                                        testTrades(
+                                            {
+                                                tokenData: new TokenData(sourceSymbol),
+                                                balance: sourceBalance,
+                                                requestedLiquidity: sourceBalance.mul(1000),
+                                                tradingFeePPM: toPPM(tradingFeePercent),
+                                                bntVirtualBalance: BNT_VIRTUAL_BALANCE,
+                                                baseTokenVirtualBalance: BASE_TOKEN_VIRTUAL_BALANCE
+                                            },
+                                            {
+                                                tokenData: new TokenData(targetSymbol),
+                                                balance: targetBalance,
+                                                requestedLiquidity: targetBalance.mul(1000),
+                                                tradingFeePPM: toPPM(tradingFeePercent2),
+                                                bntVirtualBalance: BNT_VIRTUAL_BALANCE,
+                                                baseTokenVirtualBalance: BASE_TOKEN_VIRTUAL_BALANCE
+                                            },
+                                            toPPM(networkFeePercent),
+                                            BigNumber.from(amount)
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -763,7 +1049,7 @@ describe('Profile @profile', () => {
                     {
                         tokenData,
                         balance: BALANCE,
-                        requestedFunding: BALANCE.mul(1000),
+                        requestedLiquidity: BALANCE.mul(1000),
                         bntVirtualBalance: BNT_VIRTUAL_BALANCE,
                         baseTokenVirtualBalance: BASE_TOKEN_VIRTUAL_BALANCE
                     },
@@ -813,20 +1099,19 @@ describe('Profile @profile', () => {
         let networkInfo: BancorNetworkInfo;
         let networkSettings: NetworkSettings;
         let network: TestBancorNetwork;
+        let bnt: IERC20;
         let pendingWithdrawals: TestPendingWithdrawals;
         let poolCollection: TestPoolCollection;
 
-        let provider: SignerWithAddress;
+        let provider: Wallet;
         let poolTokenAmount: BigNumber;
 
         const BALANCE = toWei(1_000_000);
 
-        before(async () => {
-            [, provider] = await ethers.getSigners();
-        });
-
         beforeEach(async () => {
-            ({ network, networkInfo, networkSettings, poolCollection, pendingWithdrawals } = await createSystem());
+            ({ network, bnt, networkInfo, networkSettings, poolCollection, pendingWithdrawals } = await createSystem());
+
+            provider = await createWallet();
 
             await networkSettings.setMinLiquidityForTrading(MIN_LIQUIDITY_FOR_TRADING);
 
@@ -836,7 +1121,7 @@ describe('Profile @profile', () => {
                 {
                     tokenData: new TokenData(TokenSymbol.TKN),
                     balance: BALANCE,
-                    requestedFunding: BALANCE.mul(1000),
+                    requestedLiquidity: BALANCE.mul(1000),
                     bntVirtualBalance: BNT_VIRTUAL_BALANCE,
                     baseTokenVirtualBalance: BASE_TOKEN_VIRTUAL_BALANCE
                 },
@@ -856,6 +1141,31 @@ describe('Profile @profile', () => {
             await profiler.profile(
                 'init withdrawal',
                 network.connect(provider).initWithdrawal(poolToken.address, poolTokenAmount)
+            );
+        });
+
+        it('should initiate a permitted withdrawal request', async () => {
+            const signature = await permitSignature(
+                provider as Wallet,
+                poolToken.address,
+                network,
+                bnt,
+                poolTokenAmount,
+                MAX_UINT256
+            );
+
+            await profiler.profile(
+                'init withdrawal permitted',
+                network
+                    .connect(provider)
+                    .initWithdrawalPermitted(
+                        poolToken.address,
+                        poolTokenAmount,
+                        MAX_UINT256,
+                        signature.v,
+                        signature.r,
+                        signature.s
+                    )
             );
         });
 
@@ -896,7 +1206,7 @@ describe('Profile @profile', () => {
                 {
                     tokenData,
                     balance: providerStake,
-                    requestedFunding: tokenData.isBNT() ? max(providerStake, totalRewards).mul(1000) : 0,
+                    requestedLiquidity: tokenData.isBNT() ? max(providerStake, totalRewards).mul(1000) : 0,
                     bntVirtualBalance: BNT_VIRTUAL_BALANCE,
                     baseTokenVirtualBalance: BASE_TOKEN_VIRTUAL_BALANCE
                 },
@@ -994,26 +1304,6 @@ describe('Profile @profile', () => {
                         );
                     };
 
-                    const testMultipleDistributionsAtOnce = (totalTime: number) => {
-                        context(
-                            `in 1 step of ${humanizeDuration(totalTime * 1000, { units: ['d'] })} long steps`,
-                            () => {
-                                it('should distribute rewards', async () => {
-                                    await autoCompoundingRewards.setTime(startTime + totalTime);
-
-                                    await profiler.profile(
-                                        `${
-                                            distributionType === RewardsDistributionType.Flat
-                                                ? 'flat'
-                                                : 'exponential decay'
-                                        } program / auto-process ${tokenData.symbol()} rewards`,
-                                        autoCompoundingRewards.autoProcessRewards()
-                                    );
-                                });
-                            }
-                        );
-                    };
-
                     switch (distributionType) {
                         case RewardsDistributionType.Flat:
                             for (const percent of [6, 25]) {
@@ -1021,7 +1311,6 @@ describe('Profile @profile', () => {
                                     Math.floor((programDuration * percent) / 100),
                                     Math.floor(100 / percent)
                                 );
-                                testMultipleDistributionsAtOnce(Math.floor((programDuration * percent) / 100));
                             }
 
                             break;
@@ -1030,7 +1319,6 @@ describe('Profile @profile', () => {
                             for (const step of [duration.hours(1), duration.weeks(1)]) {
                                 for (const totalSteps of [5]) {
                                     testMultipleDistributions(step, totalSteps);
-                                    testMultipleDistributionsAtOnce(step * totalSteps);
                                 }
                             }
 
@@ -1143,7 +1431,7 @@ describe('Profile @profile', () => {
                 {
                     tokenData: poolData,
                     balance: initialBalance,
-                    requestedFunding: poolData.isBNT() ? BigNumber.from(initialBalance).mul(1000) : 0,
+                    requestedLiquidity: poolData.isBNT() ? BigNumber.from(initialBalance).mul(1000) : 0,
                     bntVirtualBalance: 1,
                     baseTokenVirtualBalance: 2
                 },

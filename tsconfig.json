@@ -23,7 +23,6 @@
     "./utils",
     "./test",
     "./scripts",
-    "./data",
     "./deploy",
     "./deployments"
   ]

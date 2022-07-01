@@ -42,9 +42,7 @@
         "tknTradingLiquidity": "0",
         "bntTradingLiquidity": "0",
         "averageRateN": "0",
-        "averageRateD": "1",
-        "averageInvRateN": "0",
-        "averageInvRateD": "1"
+        "averageRateD": "1"
       }
     },
     {
@@ -78,9 +76,7 @@
         "tknTradingLiquidity": "20",
         "bntTradingLiquidity": "20000",
         "averageRateN": "1000",
-        "averageRateD": "1",
-        "averageInvRateN": "1",
-        "averageInvRateD": "1000"
+        "averageRateD": "1"
       }
     },
     {
@@ -111,9 +107,7 @@
         "tknTradingLiquidity": "10.025",
         "bntTradingLiquidity": "10025",
         "averageRateN": "1000",
-        "averageRateD": "1",
-        "averageInvRateN": "1",
-        "averageInvRateD": "1000"
+        "averageRateD": "1"
       }
     },
     {
@@ -144,9 +138,7 @@
         "tknTradingLiquidity": "20.05",
         "bntTradingLiquidity": "20050",
         "averageRateN": "1000",
-        "averageRateD": "1",
-        "averageInvRateN": "1",
-        "averageInvRateD": "1000"
+        "averageRateD": "1"
       }
     },
     {
@@ -177,9 +169,7 @@
         "tknTradingLiquidity": "20.05",
         "bntTradingLiquidity": "20050",
         "averageRateN": "1000",
-        "averageRateD": "1",
-        "averageInvRateN": "1",
-        "averageInvRateD": "1000"
+        "averageRateD": "1"
       }
     },
     {
@@ -210,9 +200,7 @@
         "tknTradingLiquidity": "40.05",
         "bntTradingLiquidity": "40050",
         "averageRateN": "1000",
-        "averageRateD": "1",
-        "averageInvRateN": "1",
-        "averageInvRateD": "1000"
+        "averageRateD": "1"
       }
     },
     {
@@ -243,9 +231,7 @@
         "tknTradingLiquidity": "30.075",
         "bntTradingLiquidity": "30075",
         "averageRateN": "1000",
-        "averageRateD": "1",
-        "averageInvRateN": "1",
-        "averageInvRateD": "1000"
+        "averageRateD": "1"
       }
     },
     {
@@ -276,9 +262,7 @@
         "tknTradingLiquidity": "50.075",
         "bntTradingLiquidity": "50075",
         "averageRateN": "1000",
-        "averageRateD": "1",
-        "averageInvRateN": "1",
-        "averageInvRateD": "1000"
+        "averageRateD": "1"
       }
     },
     {
@@ -309,9 +293,7 @@
         "tknTradingLiquidity": "40.1",
         "bntTradingLiquidity": "40100",
         "averageRateN": "1000",
-        "averageRateD": "1",
-        "averageInvRateN": "1",
-        "averageInvRateD": "1000"
+        "averageRateD": "1"
       }
     },
     {
@@ -342,9 +324,7 @@
         "tknTradingLiquidity": "60.1",
         "bntTradingLiquidity": "60100",
         "averageRateN": "1000",
-        "averageRateD": "1",
-        "averageInvRateN": "1",
-        "averageInvRateD": "1000"
+        "averageRateD": "1"
       }
     },
     {
@@ -375,9 +355,7 @@
         "tknTradingLiquidity": "50.125",
         "bntTradingLiquidity": "50125",
         "averageRateN": "1000",
-        "averageRateD": "1",
-        "averageInvRateN": "1",
-        "averageInvRateD": "1000"
+        "averageRateD": "1"
       }
     }
   ]

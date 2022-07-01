@@ -14,7 +14,7 @@ struct WithdrawalRequest {
     address provider; // the liquidity provider
     IPoolToken poolToken; // the locked pool token
     Token reserveToken; // the reserve token to withdraw
-    uint32 createdAt; // the time when the request was created (Unix timestamp)
+    uint32 createdAt; // the time when the request was created (Unix timestamp))
     uint256 poolTokenAmount; // the locked pool token amount
     uint256 reserveTokenAmount; // the expected reserve token amount to withdraw
 }
@@ -23,9 +23,9 @@ struct WithdrawalRequest {
  * @dev the data struct representing a completed withdrawal request
  */
 struct CompletedWithdrawal {
-    IPoolToken poolToken; // the withdraw pool token
-    uint256 poolTokenAmount; // the original pool token amount in the withdrawal request
-    uint256 reserveTokenAmount; // the original reserve token amount at the time of the withdrawal init request
+    IPoolToken poolToken; // the transferred pool token
+    uint256 effectivePoolTokenAmount; // the transferred pool token amount
+    uint256 originalPoolTokenAmount; // the original pool token amount at the time of the withdrawal init request
 }
 
 /**

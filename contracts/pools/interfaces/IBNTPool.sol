@@ -99,14 +99,13 @@ interface IBNTPool is IVault {
      * requirements:
      *
      * - the caller must be the network contract
-     * - bnBNT token must have been already deposited into the contract
-     * - vBNT token must have been already deposited into the contract
+     * - VBNT token must have been already deposited into the contract
      */
     function withdraw(
         bytes32 contextId,
         address provider,
         uint256 poolTokenAmount,
-        uint256 bntAmount
+        uint256 originalPoolTokenAmount
     ) external returns (uint256);
 
     /**

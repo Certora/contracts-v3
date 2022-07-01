@@ -5,10 +5,13 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { ITokenGovernance } from "@bancor/token-governance/contracts/ITokenGovernance.sol";
 
+import { Token } from "../token/Token.sol";
+
 import { IVersioned } from "../utility/interfaces/IVersioned.sol";
 import { Upgradeable } from "../utility/Upgradeable.sol";
-import { InvalidParam, InvalidStakedBalance } from "../utility/Utils.sol";
+import { Utils, InvalidStakedBalance } from "../utility/Utils.sol";
 import { PPM_RESOLUTION } from "../utility/Constants.sol";
+import { Fraction } from "../utility/FractionLibrary.sol";
 import { MathEx } from "../utility/MathEx.sol";
 
 import { IBancorNetwork } from "../network/interfaces/IBancorNetwork.sol";
@@ -26,12 +29,15 @@ import {
 } from "./interfaces/IBNTPool.sol";
 
 import { IPoolToken } from "./interfaces/IPoolToken.sol";
+import { IPoolCollection, Pool } from "./interfaces/IPoolCollection.sol";
 
 import { Token } from "../token/Token.sol";
 import { TokenLibrary } from "../token/TokenLibrary.sol";
 
 import { Vault } from "../vaults/Vault.sol";
 import { IVault } from "../vaults/interfaces/IVault.sol";
+
+import { PoolToken } from "./PoolToken.sol";
 
 /**
  * @dev BNT Pool contract
@@ -342,14 +348,14 @@ contract BNTPool is IBNTPool, Vault {
 
         uint256 vbntAmount = poolTokenAmount;
 
-        // the provider should receive pool tokens and vBNT in equal amounts. since the provider might already have
-        // some vBNT during migration, the contract only mints the delta between the full amount and the amount the
+        // the provider should receive pool tokens and VBNT in equal amounts. since the provider might already have
+        // some VBNT during migration, the contract only mints the delta between the full amount and the amount the
         // provider already has
         if (isMigrating) {
             vbntAmount = MathEx.subMax0(vbntAmount, originalVBNTAmount);
         }
 
-        // mint vBNT to the provider
+        // mint VBNT to the provider
         if (vbntAmount > 0) {
             _vbntGovernance.mint(provider, vbntAmount);
         }
@@ -372,26 +378,22 @@ contract BNTPool is IBNTPool, Vault {
         bytes32 contextId,
         address provider,
         uint256 poolTokenAmount,
-        uint256 bntAmount
+        uint256 originalPoolTokenAmount
     )
         external
         only(address(_network))
         validAddress(provider)
         greaterThanZero(poolTokenAmount)
-        greaterThanZero(bntAmount)
+        greaterThanZero(originalPoolTokenAmount)
         returns (uint256)
     {
-        // ensure that the provided amounts correspond to the state of the pool (please note the pool tokens should
-        // have been already deposited back from the network)
-        uint256 underlyingAmount = _poolTokenToUnderlying(poolTokenAmount);
-        if (bntAmount > underlyingAmount) {
-            revert InvalidParam();
-        }
+        InternalWithdrawalAmounts memory amounts = _withdrawalAmounts(poolTokenAmount);
 
-        InternalWithdrawalAmounts memory amounts = _withdrawalAmounts(bntAmount);
+        // get the pool tokens from the caller
+        _poolToken.transferFrom(msg.sender, address(this), poolTokenAmount);
 
-        // burn the respective vBNT amount
-        _vbntGovernance.burn(poolTokenAmount);
+        // burn the respective VBNT amount
+        _vbntGovernance.burn(originalPoolTokenAmount);
 
         // mint BNT to the provider
         _bntGovernance.mint(provider, amounts.bntAmount);
@@ -401,7 +403,7 @@ contract BNTPool is IBNTPool, Vault {
             provider: provider,
             bntAmount: amounts.bntAmount,
             poolTokenAmount: poolTokenAmount,
-            vbntAmount: poolTokenAmount,
+            vbntAmount: originalPoolTokenAmount,
             withdrawalFeeAmount: amounts.withdrawalFeeAmount
         });
 
@@ -417,7 +419,9 @@ contract BNTPool is IBNTPool, Vault {
         greaterThanZero(poolTokenAmount)
         returns (uint256)
     {
-        return _withdrawalAmounts(_poolTokenToUnderlying(poolTokenAmount)).bntAmount;
+        InternalWithdrawalAmounts memory amounts = _withdrawalAmounts(poolTokenAmount);
+
+        return amounts.bntAmount;
     }
 
     /**
@@ -580,7 +584,10 @@ contract BNTPool is IBNTPool, Vault {
     /**
      * @dev returns withdrawal amounts
      */
-    function _withdrawalAmounts(uint256 bntAmount) internal view returns (InternalWithdrawalAmounts memory) {
+    function _withdrawalAmounts(uint256 poolTokenAmount) internal view returns (InternalWithdrawalAmounts memory) {
+        // calculate BNT amount to transfer
+        uint256 bntAmount = _poolTokenToUnderlying(poolTokenAmount);
+
         // deduct the exit fee from BNT amount
         uint256 withdrawalFeeAmount = MathEx.mulDivF(bntAmount, _networkSettings.withdrawalFeePPM(), PPM_RESOLUTION);
 

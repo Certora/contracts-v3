@@ -58,7 +58,7 @@ describe('MathEx', () => {
                     }
                 );
             } else {
-                await expect(mathContract.exp2(f)).to.revertedWithError('Overflow');
+                await expect(mathContract.exp2(f)).to.revertedWith('Overflow');
             }
         });
     };
@@ -70,12 +70,6 @@ describe('MathEx', () => {
             expect(actual.n).to.lte(max);
             expect(actual.d).to.lte(max);
             expect(actual).to.almostEqual({ n: expected, d: 1 }, { maxRelativeError });
-        });
-    };
-
-    const testReducedFractionRevert = (fraction: Fraction<BigNumber>, max: BigNumber) => {
-        it(`reducedFraction(${toString(fraction)}), ${max}) should revert`, async () => {
-            await expect(mathContract.reducedFraction(fraction, max)).to.be.revertedWithError('InvalidFraction');
         });
     };
 
@@ -125,7 +119,7 @@ describe('MathEx', () => {
                     const actual = await actualFunc(x, y, z);
                     expect(actual).to.equal(expected);
                 } else {
-                    await expect(actualFunc(x, y, z)).to.be.revertedWithError('Overflow');
+                    await expect(actualFunc(x, y, z)).to.be.revertedWith('Overflow');
                 }
             });
         }
@@ -225,14 +219,6 @@ describe('MathEx', () => {
                         max,
                         new Decimal('0.000000000000000000000000000000000000003')
                     );
-                }
-            }
-        }
-
-        for (const n of [100, 200]) {
-            for (const d of [2, 3]) {
-                for (const max of [3, 5]) {
-                    testReducedFractionRevert({ n: BigNumber.from(n), d: BigNumber.from(d) }, BigNumber.from(max));
                 }
             }
         }

@@ -44,21 +44,19 @@ describe('Vault', () => {
         });
 
         it('should revert when attempting to create with an invalid BNT governance contract', async () => {
-            await expect(Contracts.TestVault.deploy(ZERO_ADDRESS, vbntGovernance.address)).to.be.revertedWithError(
+            await expect(Contracts.TestVault.deploy(ZERO_ADDRESS, vbntGovernance.address)).to.be.revertedWith(
                 'InvalidAddress'
             );
         });
 
-        it('should revert when attempting to create with an invalid vBNT governance contract', async () => {
-            await expect(Contracts.TestVault.deploy(bntGovernance.address, ZERO_ADDRESS)).to.be.revertedWithError(
+        it('should revert when attempting to create with an invalid VBNT governance contract', async () => {
+            await expect(Contracts.TestVault.deploy(bntGovernance.address, ZERO_ADDRESS)).to.be.revertedWith(
                 'InvalidAddress'
             );
         });
 
         it('should revert when attempting to reinitialize', async () => {
-            await expect(testVault.initialize()).to.be.revertedWithError(
-                'Initializable: contract is already initialized'
-            );
+            await expect(testVault.initialize()).to.be.revertedWith('Initializable: contract is already initialized');
         });
 
         it('should be properly initialized', async () => {
@@ -98,9 +96,9 @@ describe('Vault', () => {
 
         context('non-payable', () => {
             it('should revert when sending the native token', async () => {
-                await expect(
-                    deployer.sendTransaction({ value: amount, to: testVault.address })
-                ).to.be.revertedWithError('NotPayable');
+                await expect(deployer.sendTransaction({ value: amount, to: testVault.address })).to.be.revertedWith(
+                    'NotPayable'
+                );
             });
         });
     });
@@ -137,7 +135,7 @@ describe('Vault', () => {
             });
 
             it('should revert when withdrawing tokens to an invalid address', async () => {
-                await expect(testVault.withdrawFunds(token.address, ZERO_ADDRESS, amount)).to.be.revertedWithError(
+                await expect(testVault.withdrawFunds(token.address, ZERO_ADDRESS, amount)).to.be.revertedWith(
                     'InvalidAddress'
                 );
             });
@@ -158,7 +156,7 @@ describe('Vault', () => {
                         target.address,
                         (await getBalance({ address: token.address }, testVault.address)).add(1)
                     )
-                ).to.be.revertedWithError(tokenData.errors().exceedsBalance);
+                ).to.be.revertedWith(tokenData.errors().exceedsBalance);
             });
 
             context('when paused', () => {
@@ -167,7 +165,7 @@ describe('Vault', () => {
                 });
 
                 it('should revert', async () => {
-                    await expect(testVault.withdrawFunds(token.address, target.address, amount)).to.revertedWithError(
+                    await expect(testVault.withdrawFunds(token.address, target.address, amount)).to.revertedWith(
                         'Pausable: paused'
                     );
                 });
@@ -228,7 +226,7 @@ describe('Vault', () => {
 
             if (tokenData.isNative()) {
                 it('should revert when attempting to burn the native token', async () => {
-                    await expect(testVault.burn(token.address, amount)).to.revertedWithError('InvalidToken');
+                    await expect(testVault.burn(token.address, amount)).to.revertedWith('InvalidToken');
                 });
             } else {
                 it('should burn funds', async () => {
@@ -245,7 +243,7 @@ describe('Vault', () => {
                 });
 
                 it('should revert when trying to burn more tokens than the vault holds', async () => {
-                    await expect(testVault.burn(token.address, amount + 1)).to.be.revertedWithError(
+                    await expect(testVault.burn(token.address, amount + 1)).to.be.revertedWith(
                         tokenData.errors().burnExceedsBalance
                     );
                 });
@@ -257,7 +255,7 @@ describe('Vault', () => {
                 });
 
                 it('should revert', async () => {
-                    await expect(testVault.burn(token.address, amount)).to.revertedWithError('Pausable: paused');
+                    await expect(testVault.burn(token.address, amount)).to.revertedWith('Pausable: paused');
                 });
             });
         };
@@ -291,15 +289,15 @@ describe('Vault', () => {
                 });
 
                 it('should allow to withdraw', async () => {
-                    await expect(testVault.withdrawFunds(token.address, target.address, amount)).not.to.be.reverted;
+                    await expect(testVault.withdrawFunds(token.address, target.address, amount)).to.not.reverted;
                 });
             });
 
             context('when unauthorized', () => {
                 it('should revert', async () => {
-                    await expect(
-                        testVault.withdrawFunds(token.address, target.address, amount)
-                    ).to.be.revertedWithError('AccessDenied');
+                    await expect(testVault.withdrawFunds(token.address, target.address, amount)).to.be.revertedWith(
+                        'AccessDenied'
+                    );
                 });
             });
         };
@@ -344,7 +342,7 @@ describe('Vault', () => {
 
         const testPauseRestricted = () => {
             it('should revert when a non-admin is attempting to pause', async () => {
-                await expect(testVault.connect(sender).pause()).to.be.revertedWithError('AccessDenied');
+                await expect(testVault.connect(sender).pause()).to.be.revertedWith('AccessDenied');
             });
 
             context('when paused', () => {
@@ -353,7 +351,7 @@ describe('Vault', () => {
                 });
 
                 it('should revert when a non-admin is attempting unpause', async () => {
-                    await expect(testVault.connect(sender).unpause()).to.be.revertedWithError('AccessDenied');
+                    await expect(testVault.connect(sender).unpause()).to.be.revertedWith('AccessDenied');
                 });
             });
         };

@@ -32,8 +32,9 @@ library RewardsMath {
         uint32 timeElapsed,
         uint32 halfLife
     ) internal pure returns (uint256) {
-        Fraction memory input = Fraction({ n: timeElapsed, d: halfLife });
-        Fraction memory output = MathEx.exp2(input);
-        return MathEx.mulDivF(totalRewards, output.n - output.d, output.n);
+        // Fraction memory input = Fraction({ n: timeElapsed, d: halfLife });
+        // Fraction memory output = MathEx.exp2(input);
+        // return MathEx.mulDivF(totalRewards, output.n - output.d, output.n);
+        return 1;
     }
 }

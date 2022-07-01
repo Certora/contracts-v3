@@ -24,7 +24,6 @@ import {
     BNT,
     CheckpointStore,
     ContractRegistry,
-    LegacyBancorNetwork,
     LiquidityProtection,
     LiquidityProtectionSettings,
     LiquidityProtectionStats,
@@ -37,22 +36,17 @@ import {
     TokenHolder,
     VBNT
 } from '../components/LegacyContracts';
-import { PoolCollectionType1V5 } from '../components/LegacyContractsV3';
+import { PoolCollectionType1V1 } from '../components/LegacyContractsV3';
+import { ExternalContracts } from '../deployments/data';
 import Logger from '../utils/Logger';
 import { DeploymentNetwork, ZERO_BYTES } from './Constants';
 import { RoleIds } from './Roles';
 import { toWei } from './Types';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
-import { BigNumber, Contract, ContractInterface, utils } from 'ethers';
+import { BigNumber, Contract } from 'ethers';
 import fs from 'fs';
-import glob from 'glob';
 import { config, deployments, ethers, getNamedAccounts, tenderly } from 'hardhat';
-import {
-    Address,
-    DeployFunction,
-    Deployment as DeploymentData,
-    ProxyOptions as DeployProxyOptions
-} from 'hardhat-deploy/types';
+import { Address, DeployFunction, ProxyOptions as DeployProxyOptions } from 'hardhat-deploy/types';
 import path from 'path';
 
 const {
@@ -64,8 +58,6 @@ const {
     getArtifact,
     run
 } = deployments;
-
-const { AbiCoder } = utils;
 
 const tenderlyNetwork = tenderly.network();
 
@@ -81,10 +73,9 @@ enum LegacyInstanceNameV2 {
     VBNT = 'VBNT',
     VBNTGovernance = 'VBNTGovernance',
     ContractRegistry = 'ContractRegistry',
-    LegacyBancorNetwork = 'LegacyBancorNetwork',
+    LiquidityProtection = 'LiquidityProtection',
     LegacyLiquidityProtection = 'LegacyLiquidityProtection',
     LegacyLiquidityProtection2 = 'LegacyLiquidityProtection2',
-    LiquidityProtection = 'LiquidityProtection',
     LiquidityProtectionSettings = 'LiquidityProtectionSettings',
     LiquidityProtectionStats = 'LiquidityProtectionStats',
     LiquidityProtectionStore = 'LiquidityProtectionStore',
@@ -97,7 +88,7 @@ enum LegacyInstanceNameV2 {
 }
 
 enum LegacyInstanceNameV3 {
-    PoolCollectionType1V5 = 'PoolCollectionType1V5'
+    PoolCollectionType1V1 = 'PoolCollectionType1V1'
 }
 
 enum NewInstanceName {
@@ -111,11 +102,11 @@ enum NewInstanceName {
     BNTPoolProxy = 'BNTPoolProxy',
     BNTPool = 'BNTPool',
     ExternalProtectionVault = 'ExternalProtectionVault',
-    ExternalStandardRewardsVault = 'ExternalStandardRewardsVault',
+    ExternalRewardsVault = 'ExternalRewardsVault',
     MasterVault = 'MasterVault',
     NetworkSettings = 'NetworkSettings',
     PendingWithdrawals = 'PendingWithdrawals',
-    PoolCollectionType1V6 = 'PoolCollectionType1V6',
+    PoolCollectionType1V2 = 'PoolCollectionType1V2',
     PoolMigrator = 'PoolMigrator',
     PoolTokenFactory = 'PoolTokenFactory',
     ProxyAdmin = 'ProxyAdmin',
@@ -144,7 +135,6 @@ const DeployedLegacyContractsV2 = {
     VBNT: deployed<VBNT>(InstanceName.VBNT),
     VBNTGovernance: deployed<TokenGovernance>(InstanceName.VBNTGovernance),
     ContractRegistry: deployed<ContractRegistry>(InstanceName.ContractRegistry),
-    LegacyBancorNetwork: deployed<LegacyBancorNetwork>(InstanceName.LegacyBancorNetwork),
     LegacyLiquidityProtection: deployed<LiquidityProtection>(InstanceName.LegacyLiquidityProtection),
     LegacyLiquidityProtection2: deployed<LiquidityProtection>(InstanceName.LegacyLiquidityProtection2),
     LiquidityProtection: deployed<LiquidityProtection>(InstanceName.LiquidityProtection),
@@ -162,7 +152,7 @@ const DeployedLegacyContractsV2 = {
 };
 
 const DeployedLegacyContracts = {
-    PoolCollectionType1V5: deployed<PoolCollectionType1V5>(InstanceName.PoolCollectionType1V5)
+    PoolCollectionType1V1: deployed<PoolCollectionType1V1>(InstanceName.PoolCollectionType1V1)
 };
 
 const DeployedNewContracts = {
@@ -176,11 +166,11 @@ const DeployedNewContracts = {
     BNTPoolProxy: deployed<TransparentUpgradeableProxyImmutable>(InstanceName.BNTPoolProxy),
     BNTPool: deployed<BNTPool>(InstanceName.BNTPool),
     ExternalProtectionVault: deployed<ExternalProtectionVault>(InstanceName.ExternalProtectionVault),
-    ExternalStandardRewardsVault: deployed<ExternalRewardsVault>(InstanceName.ExternalStandardRewardsVault),
+    ExternalRewardsVault: deployed<ExternalRewardsVault>(InstanceName.ExternalRewardsVault),
     MasterVault: deployed<MasterVault>(InstanceName.MasterVault),
     NetworkSettings: deployed<NetworkSettings>(InstanceName.NetworkSettings),
     PendingWithdrawals: deployed<PendingWithdrawals>(InstanceName.PendingWithdrawals),
-    PoolCollectionType1V6: deployed<PoolCollection>(InstanceName.PoolCollectionType1V6),
+    PoolCollectionType1V2: deployed<PoolCollection>(InstanceName.PoolCollectionType1V2),
     PoolMigrator: deployed<PoolMigrator>(InstanceName.PoolMigrator),
     PoolTokenFactory: deployed<PoolTokenFactory>(InstanceName.PoolTokenFactory),
     ProxyAdmin: deployed<ProxyAdmin>(InstanceName.ProxyAdmin),
@@ -311,29 +301,19 @@ const WAIT_CONFIRMATIONS = isLive() ? 2 : 1;
 interface FunctionParams {
     name?: string;
     contractName?: string;
-    contractArtifactData?: ArtifactData;
     methodName?: string;
     args?: any[];
 }
 
 const logParams = async (params: FunctionParams) => {
-    const { name, contractName, contractArtifactData, methodName, args = [] } = params;
+    const { name, contractName, methodName, args = [] } = params;
 
-    if (!name && !contractArtifactData && !contractName) {
-        throw new Error('Either name, contractArtifactData, or contractName must be provided!');
+    if (!name && !contractName) {
+        throw new Error('Either name of contractName must be provided!');
     }
 
-    let contractInterface: ContractInterface;
-
-    if (name) {
-        ({ interface: contractInterface } = await ethers.getContract(name));
-    } else if (contractArtifactData) {
-        contractInterface = new utils.Interface(contractArtifactData!.abi);
-    } else {
-        ({ interface: contractInterface } = await ethers.getContractFactory(contractName!));
-    }
-
-    const fragment = methodName ? contractInterface.getFunction(methodName) : contractInterface.deploy;
+    const contract = name ? await ethers.getContract(name) : await ethers.getContractFactory(contractName!);
+    const fragment = methodName ? contract.interface.getFunction(methodName) : contract.interface.deploy;
 
     Logger.log(`  ${methodName ?? 'constructor'} params: ${args.length === 0 ? '[]' : ''}`);
     if (args.length === 0) {
@@ -343,23 +323,6 @@ const logParams = async (params: FunctionParams) => {
     for (const [i, arg] of args.entries()) {
         const input = fragment.inputs[i];
         Logger.log(`    ${input.name} (${input.type}): ${arg.toString()}`);
-    }
-};
-
-interface TypedParam {
-    name: string;
-    type: string;
-    value: any;
-}
-
-const logTypedParams = async (methodName: string, params: TypedParam[] = []) => {
-    Logger.log(`  ${methodName} params: ${params.length === 0 ? '[]' : ''}`);
-    if (params.length === 0) {
-        return;
-    }
-
-    for (const { name, type, value } of params) {
-        Logger.log(`    ${name} (${type}): ${value.toString()}`);
     }
 };
 
@@ -389,7 +352,7 @@ export const deploy = async (options: DeployOptions) => {
         Logger.log(`  deploying ${contractName}${customAlias}`);
     }
 
-    await logParams({ contractName, contractArtifactData, args });
+    await logParams({ contractName, args });
 
     const res = await deployContract(name, {
         contract: contractArtifactData ?? contractName,
@@ -401,9 +364,8 @@ export const deploy = async (options: DeployOptions) => {
         log: true
     });
 
-    if (!proxy) {
+    if (!proxy || !proxy.skipInitialization) {
         const data = { name, contract: contractName };
-
         await saveTypes(data);
 
         await verifyTenderlyFork({
@@ -423,28 +385,12 @@ export const deployProxy = async (options: DeployOptions, proxy: ProxyOptions = 
         proxy
     });
 
-// an array of typed parameters which will be encoded and passed to the postUpgrade callback
-//
-// for example:
-//
-// postUpgradeArgs: [
-//    {
-//        name: 'x',
-//        type: 'uint256',
-//        value: 12
-//    },
-//    {
-//        name: 'y',
-//        type: 'string',
-//        value: 'Hello World!'
-//    }
-// ]
 interface UpgradeProxyOptions extends DeployOptions {
-    postUpgradeArgs?: TypedParam[];
+    upgradeArgs?: string;
 }
 
 export const upgradeProxy = async (options: UpgradeProxyOptions) => {
-    const { name, contract, from, value, args, postUpgradeArgs, contractArtifactData } = options;
+    const { name, contract, from, value, args, upgradeArgs, contractArtifactData } = options;
     const contractName = contract ?? name;
 
     await fundAccount(from);
@@ -454,30 +400,18 @@ export const upgradeProxy = async (options: UpgradeProxyOptions) => {
         throw new Error(`Proxy ${name} can't be found!`);
     }
 
-    const proxyAdmin = await DeployedContracts.ProxyAdmin.deployed();
     const prevVersion = await (deployed as IVersioned).version();
 
-    let upgradeCallData;
-    if (postUpgradeArgs && postUpgradeArgs.length) {
-        const types = postUpgradeArgs.map(({ type }) => type);
-        const values = postUpgradeArgs.map(({ value }) => value);
-        const abiCoder = new AbiCoder();
-
-        upgradeCallData = [abiCoder.encode(types, values)];
-    } else {
-        upgradeCallData = [ZERO_BYTES];
-    }
-
+    const proxyAdmin = await DeployedContracts.ProxyAdmin.deployed();
     const proxyOptions = {
         proxyContract: PROXY_CONTRACT,
         owner: await proxyAdmin.owner(),
         viaAdminContract: InstanceName.ProxyAdmin,
-        execute: { onUpgrade: { methodName: POST_UPGRADE, args: upgradeCallData } }
+        execute: { onUpgrade: { methodName: POST_UPGRADE, args: upgradeArgs ?? [ZERO_BYTES] } }
     };
 
     Logger.log(`  upgrading proxy ${contractName} V${prevVersion}`);
 
-    await logTypedParams(POST_UPGRADE, postUpgradeArgs);
     await logParams({ contractName, args });
 
     const res = await deployContract(name, {
@@ -494,12 +428,14 @@ export const upgradeProxy = async (options: UpgradeProxyOptions) => {
 
     Logger.log(`  upgraded proxy ${contractName} V${prevVersion} to V${newVersion}`);
 
+    const data = { name, contract: contractName };
+    await saveTypes(data);
+
     await verifyTenderlyFork({
-        name,
-        contract: contractName,
         address: res.address,
         proxy: true,
-        implementation: res.implementation
+        implementation: res.implementation,
+        ...data
     });
 
     return res.address;
@@ -597,14 +533,20 @@ interface Deployment {
     address: Address;
     proxy?: boolean;
     implementation?: Address;
+    skipTypechain?: boolean;
     skipVerification?: boolean;
 }
 
 export const save = async (deployment: Deployment) => {
-    const { name, contract, address, proxy, skipVerification } = deployment;
+    const { name, contract, address, proxy, skipVerification, skipTypechain } = deployment;
 
     const contractName = contract ?? name;
     const { abi } = await getExtendedArtifact(contractName);
+
+    // save the typechain for future use
+    if (!skipTypechain) {
+        await saveTypes({ name, contract: contractName });
+    }
 
     // save the deployment json data in the deployments folder
     await saveContract(name, { abi, address });
@@ -650,6 +592,8 @@ const verifyTenderlyFork = async (deployment: Deployment) => {
         address: contractAddress
     });
 
+    tenderlyNetwork.setHead('');
+
     for (const contract of contracts) {
         Logger.log('  verifying on tenderly', contract.name, 'at', contract.address);
 
@@ -658,7 +602,7 @@ const verifyTenderlyFork = async (deployment: Deployment) => {
 };
 
 export const deploymentTagExists = (tag: string) => {
-    const externalDeployments = config.external?.deployments![getNetworkName()];
+    const externalDeployments = (ExternalContracts.deployments as Record<string, string[]>)[getNetworkName()];
     const migrationsPath = path.resolve(
         __dirname,
         '../',
@@ -725,24 +669,4 @@ export const runPendingDeployments = async () => {
         deletePreviousDeployments: false,
         writeDeploymentsToFiles: true
     });
-};
-
-export const getInstanceNameByAddress = (address: string): InstanceName => {
-    const externalDeployments = config.external?.deployments![getNetworkName()];
-    const deploymentsPath = externalDeployments ? externalDeployments[0] : path.join('deployments', getNetworkName());
-
-    const deploymentPaths = glob.sync(`${deploymentsPath}/**/*.json`);
-    for (const deploymentPath of deploymentPaths) {
-        const name = path.basename(deploymentPath).split('.')[0];
-        if (name.endsWith('_Implementation') || name.endsWith('_Proxy')) {
-            continue;
-        }
-
-        const deployment: DeploymentData = JSON.parse(fs.readFileSync(deploymentPath, 'utf-8'));
-        if (deployment.address.toLowerCase() === address.toLowerCase()) {
-            return name as InstanceName;
-        }
-    }
-
-    throw new Error(`Unable to find deployment for ${address}`);
 };

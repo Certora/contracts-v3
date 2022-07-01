@@ -1,7 +1,6 @@
 import Contracts, {
     ExternalProtectionVault,
     IERC20,
-    IPoolCollection,
     MasterVault,
     NetworkSettings,
     PoolToken,
@@ -12,11 +11,9 @@ import Contracts, {
     TestPoolCollection,
     TestPoolMigrator
 } from '../../components/Contracts';
-import LegacyContractsV3, { PoolCollectionType1V5 } from '../../components/LegacyContractsV3';
-import { MAX_UINT256, NETWORK_FEE_PPM, ZERO_ADDRESS } from '../../utils/Constants';
-import { toWei } from '../../utils/Types';
+import { ZERO_ADDRESS } from '../../utils/Constants';
 import { expectRole, expectRoles, Roles } from '../helpers/AccessControl';
-import { createPool, createPoolCollection, createSystem, createTestToken, depositToPool } from '../helpers/Factory';
+import { createPool, createPoolCollection, createSystem, createTestToken } from '../helpers/Factory';
 import { shouldHaveGap } from '../helpers/Proxy';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 import { expect } from 'chai';
@@ -39,17 +36,17 @@ describe('PoolMigrator', () => {
         });
 
         it('should revert when attempting to create with an invalid network contract', async () => {
-            await expect(Contracts.TestPoolMigrator.deploy(ZERO_ADDRESS)).to.be.revertedWithError('InvalidAddress');
+            await expect(Contracts.TestPoolMigrator.deploy(ZERO_ADDRESS)).to.be.revertedWith('InvalidAddress');
         });
 
         it('should revert when attempting to reinitialize', async () => {
-            await expect(poolMigrator.initialize()).to.be.revertedWithError(
+            await expect(poolMigrator.initialize()).to.be.revertedWith(
                 'Initializable: contract is already initialized'
             );
         });
 
         it('should be properly initialized', async () => {
-            expect(await poolMigrator.version()).to.equal(5);
+            expect(await poolMigrator.version()).to.equal(1);
 
             await expectRoles(poolMigrator, Roles.Upgradeable);
 
@@ -59,27 +56,18 @@ describe('PoolMigrator', () => {
         });
     });
 
-    describe('pool migration', () => {
+    describe('pool migrate', () => {
         let network: TestBancorNetwork;
         let bnt: IERC20;
         let networkSettings: NetworkSettings;
         let masterVault: MasterVault;
         let externalProtectionVault: ExternalProtectionVault;
         let bntPool: TestBNTPool;
+        let poolCollection: TestPoolCollection;
         let poolMigrator: TestPoolMigrator;
         let poolTokenFactory: PoolTokenFactory;
         let poolToken: PoolToken;
         let reserveToken: TestERC20Token;
-
-        let prevPoolCollection: PoolCollectionType1V5;
-        let newPoolCollection: TestPoolCollection;
-
-        const BNT_VIRTUAL_BALANCE = 1;
-        const BASE_TOKEN_VIRTUAL_BALANCE = 2;
-        const MIN_LIQUIDITY_FOR_TRADING = toWei(1000);
-        const INITIAL_LIQUIDITY = MIN_LIQUIDITY_FOR_TRADING.mul(BASE_TOKEN_VIRTUAL_BALANCE)
-            .div(BNT_VIRTUAL_BALANCE)
-            .mul(1000);
 
         beforeEach(async () => {
             ({
@@ -90,108 +78,38 @@ describe('PoolMigrator', () => {
                 externalProtectionVault,
                 bntPool,
                 poolMigrator,
+                poolCollection,
                 poolTokenFactory
             } = await createSystem());
 
             reserveToken = await createTestToken();
 
-            await networkSettings.setMinLiquidityForTrading(MIN_LIQUIDITY_FOR_TRADING);
-
-            prevPoolCollection = await LegacyContractsV3.PoolCollectionType1V5.deploy(
-                network.address,
-                bnt.address,
-                networkSettings.address,
-                masterVault.address,
-                bntPool.address,
-                externalProtectionVault.address,
-                poolTokenFactory.address,
-                poolMigrator.address
-            );
-
-            await network.registerPoolCollection(prevPoolCollection.address);
-
-            poolToken = await createPool(
-                reserveToken,
-                network,
-                networkSettings,
-                prevPoolCollection as any as IPoolCollection
-            );
-
-            await networkSettings.setFundingLimit(reserveToken.address, MAX_UINT256);
-
-            await depositToPool(deployer, reserveToken, INITIAL_LIQUIDITY, network);
-
-            await prevPoolCollection.enableTrading(
-                reserveToken.address,
-                BNT_VIRTUAL_BALANCE,
-                BASE_TOKEN_VIRTUAL_BALANCE
-            );
-
-            newPoolCollection = await createPoolCollection(
-                network,
-                bnt,
-                networkSettings,
-                masterVault,
-                bntPool,
-                externalProtectionVault,
-                poolTokenFactory,
-                poolMigrator
-            );
-
-            await network.registerPoolCollection(newPoolCollection.address);
+            poolToken = await createPool(reserveToken, network, networkSettings, poolCollection);
         });
 
         it('should revert when attempting to migrate from a non-network', async () => {
             const nonNetwork = deployer;
 
-            await expect(
-                poolMigrator.connect(nonNetwork).migratePool(reserveToken.address, newPoolCollection.address)
-            ).to.be.revertedWithError('AccessDenied');
+            await expect(poolMigrator.connect(nonNetwork).migratePool(reserveToken.address)).to.be.revertedWith(
+                'AccessDenied'
+            );
         });
 
         it('should revert when attempting to migrate an invalid pool', async () => {
-            await expect(
-                network.migratePoolT(poolMigrator.address, ZERO_ADDRESS, newPoolCollection.address)
-            ).to.be.revertedWithError('InvalidPool');
-        });
-
-        it('should revert when attempting to migrate to an invalid pool collection', async () => {
-            await expect(
-                network.migratePoolT(poolMigrator.address, reserveToken.address, ZERO_ADDRESS)
-            ).to.be.revertedWithError('InvalidAddress');
+            await expect(network.migratePoolT(poolMigrator.address, ZERO_ADDRESS)).to.be.revertedWith('InvalidPool');
         });
 
         it('should revert when attempting to migrate a non-existing pool', async () => {
             const reserveToken2 = await createTestToken();
-            await expect(
-                network.migratePoolT(poolMigrator.address, reserveToken2.address, newPoolCollection.address)
-            ).to.be.revertedWithError('InvalidPool');
-        });
-
-        it('should revert when attempting to migrate a pool that already exists in the pool collection', async () => {
-            await expect(
-                network.migratePoolT(poolMigrator.address, reserveToken.address, prevPoolCollection.address)
-            ).to.be.revertedWithError('AlreadyExists');
-        });
-
-        it('should revert when attempting to migrate a pool to a pool collection of a different type', async () => {
-            const newPoolCollection2 = await createPoolCollection(
-                network,
-                bnt,
-                networkSettings,
-                masterVault,
-                bntPool,
-                externalProtectionVault,
-                poolTokenFactory,
-                poolMigrator,
-                NETWORK_FEE_PPM,
-                (await prevPoolCollection.poolType()) + 10,
-                await newPoolCollection.version()
+            await expect(network.migratePoolT(poolMigrator.address, reserveToken2.address)).to.be.revertedWith(
+                'InvalidPool'
             );
+        });
 
-            await expect(
-                network.migratePoolT(poolMigrator.address, reserveToken.address, newPoolCollection2.address)
-            ).to.be.revertedWithError('InvalidPoolType');
+        it('should revert when attempting to migrate a pool already existing in the latest pool collection', async () => {
+            await expect(network.migratePoolT(poolMigrator.address, reserveToken.address)).to.be.revertedWith(
+                'InvalidPoolCollection'
+            );
         });
 
         it('should revert when attempting to migrate a pool with an unsupported version', async () => {
@@ -205,43 +123,75 @@ describe('PoolMigrator', () => {
                 externalProtectionVault,
                 poolTokenFactory,
                 poolMigrator,
-                NETWORK_FEE_PPM,
-                await prevPoolCollection.poolType(),
-                0
+                1000
             );
             await createPool(reserveToken2, network, networkSettings, poolCollection2);
 
-            await expect(
-                network.migratePoolT(poolMigrator.address, reserveToken2.address, newPoolCollection.address)
-            ).to.be.revertedWithError('UnsupportedVersion');
+            const reserveToken3 = await createTestToken();
+            const poolCollection3 = await createPoolCollection(
+                network,
+                bnt,
+                networkSettings,
+                masterVault,
+                bntPool,
+                externalProtectionVault,
+                poolTokenFactory,
+                poolMigrator,
+                (await poolCollection2.version()) + 1
+            );
+            await createPool(reserveToken3, network, networkSettings, poolCollection3);
+
+            await expect(network.migratePoolT(poolMigrator.address, reserveToken2.address)).to.be.revertedWith(
+                'UnsupportedVersion'
+            );
         });
 
-        it('should migrate', async () => {
-            let poolData = await prevPoolCollection.poolData(reserveToken.address);
-            let newPoolData = await newPoolCollection.poolData(reserveToken.address);
-            expect(newPoolData.poolToken).to.equal(ZERO_ADDRESS);
+        context('v1', () => {
+            let targetPoolCollection: TestPoolCollection;
 
-            expect(await poolToken.owner()).to.equal(prevPoolCollection.address);
+            beforeEach(async () => {
+                targetPoolCollection = await createPoolCollection(
+                    network,
+                    bnt,
+                    networkSettings,
+                    masterVault,
+                    bntPool,
+                    externalProtectionVault,
+                    poolTokenFactory,
+                    poolMigrator,
+                    (await poolCollection.version()) + 1
+                );
 
-            await network.migratePoolT(poolMigrator.address, reserveToken.address, newPoolCollection.address);
+                await network.addPoolCollection(targetPoolCollection.address);
+            });
 
-            newPoolData = await newPoolCollection.poolData(reserveToken.address);
+            it('should migrate', async () => {
+                const newPoolCollection = await network.callStatic.migratePoolT(
+                    poolMigrator.address,
+                    reserveToken.address
+                );
 
-            expect(newPoolData.poolToken).to.equal(poolData.poolToken);
-            expect(newPoolData.tradingFeePPM).to.equal(poolData.tradingFeePPM);
-            expect(newPoolData.tradingEnabled).to.equal(poolData.tradingEnabled);
-            expect(newPoolData.depositingEnabled).to.equal(poolData.depositingEnabled);
+                expect(newPoolCollection).to.equal(targetPoolCollection.address);
 
-            expect(newPoolData.averageRates.blockNumber).to.equal(poolData.averageRates.blockNumber);
-            expect(newPoolData.averageRates.rate).to.deep.equal(poolData.averageRates.rate);
-            expect(newPoolData.averageRates.invRate).to.deep.equal(poolData.averageRates.invRate);
+                let poolData = await poolCollection.poolData(reserveToken.address);
+                let newPoolData = await targetPoolCollection.poolData(reserveToken.address);
+                expect(newPoolData.poolToken).to.equal(ZERO_ADDRESS);
 
-            expect(newPoolData.liquidity).to.deep.equal(poolData.liquidity);
+                expect(await poolToken.owner()).to.equal(poolCollection.address);
 
-            poolData = await prevPoolCollection.poolData(reserveToken.address);
-            expect(poolData.poolToken).to.equal(ZERO_ADDRESS);
+                const res = await network.migratePoolT(poolMigrator.address, reserveToken.address);
+                await expect(res)
+                    .to.emit(poolMigrator, 'PoolMigrated')
+                    .withArgs(reserveToken.address, poolCollection.address, targetPoolCollection.address);
 
-            expect(await poolToken.owner()).to.equal(newPoolCollection.address);
+                newPoolData = await targetPoolCollection.poolData(reserveToken.address);
+                expect(newPoolData).to.deep.equal(poolData);
+
+                poolData = await poolCollection.poolData(reserveToken.address);
+                expect(poolData.poolToken).to.equal(ZERO_ADDRESS);
+
+                expect(await poolToken.owner()).to.equal(targetPoolCollection.address);
+            });
         });
     });
 });

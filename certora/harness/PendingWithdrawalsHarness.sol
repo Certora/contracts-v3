@@ -4,7 +4,6 @@ pragma solidity 0.8.13;
 import "../munged/network/PendingWithdrawals.sol";
 
 contract PendingWithdrawalsHarness is PendingWithdrawals {
-    using EnumerableSetUpgradeable for EnumerableSetUpgradeable.UintSet;
     
     constructor(
         IBancorNetwork initNetwork,
@@ -26,21 +25,13 @@ contract PendingWithdrawalsHarness is PendingWithdrawals {
         return poolToken.balanceOf(account);
     }
 
-    function requestReserveTokenAmount(uint256 id) external view returns (uint256) {
-        return _withdrawalRequests[id].reserveTokenAmount;
-    }
-
-
     // Added a getter (also made the variable public, see contract)
     function nextWithdrawalRequestId() external view returns (uint256){
         return _nextWithdrawalRequestId;
     }
 
-    function withdrawalRequestSpecificId(address provider, uint arrayInd) 
-    external view returns(uint)
-    {
-         uint256[] memory ids = _withdrawalRequestIdsByProvider[provider].values();
-         return ids[arrayInd];
+    function poolValidity(Token pool) external view returns (bool) {
+        return _network.isPoolValid(pool);
     }
         
 }

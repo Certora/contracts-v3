@@ -14,10 +14,9 @@ struct PoolLiquidity {
     uint256 stakedBalance; // the staked balance
 }
 
-struct AverageRates {
+struct AverageRate {
     uint32 blockNumber;
     Fraction112 rate;
-    Fraction112 invRate;
 }
 
 struct Pool {
@@ -25,7 +24,8 @@ struct Pool {
     uint32 tradingFeePPM; // the trading fee (in units of PPM)
     bool tradingEnabled; // whether trading is enabled
     bool depositingEnabled; // whether depositing is enabled
-    AverageRates averageRates; // the recent average rates
+    AverageRate averageRate; // the recent average rate
+    uint256 depositLimit; // the deposit limit
     PoolLiquidity liquidity; // the overall liquidity in the pool
 }
 
@@ -39,7 +39,6 @@ struct WithdrawalAmounts {
 uint8 constant TRADING_STATUS_UPDATE_DEFAULT = 0;
 uint8 constant TRADING_STATUS_UPDATE_ADMIN = 1;
 uint8 constant TRADING_STATUS_UPDATE_MIN_LIQUIDITY = 2;
-uint8 constant TRADING_STATUS_UPDATE_INVALID_STATE = 3;
 
 struct TradeAmountAndFee {
     uint256 amount; // the source/target amount (depending on the context) resulting from the trade
@@ -54,17 +53,12 @@ interface IPoolCollection is IVersioned {
     /**
      * @dev returns the type of the pool
      */
-    function poolType() external view returns (uint16);
+    function poolType() external pure returns (uint16);
 
     /**
      * @dev returns the default trading fee (in units of PPM)
      */
     function defaultTradingFeePPM() external view returns (uint32);
-
-    /**
-     * @dev returns the network fee (in units of PPM)
-     */
-    function networkFeePPM() external view returns (uint32);
 
     /**
      * @dev returns all the pools which are managed by this pool collection
@@ -82,6 +76,11 @@ interface IPoolCollection is IVersioned {
     function isPoolValid(Token pool) external view returns (bool);
 
     /**
+     * @dev returns specific pool's data
+     */
+    function poolData(Token pool) external view returns (Pool memory);
+
+    /**
      * @dev returns the overall liquidity in the pool
      */
     function poolLiquidity(Token pool) external view returns (PoolLiquidity memory);
@@ -92,26 +91,6 @@ interface IPoolCollection is IVersioned {
     function poolToken(Token pool) external view returns (IPoolToken);
 
     /**
-     * @dev returns the trading fee (in units of PPM)
-     */
-    function tradingFeePPM(Token pool) external view returns (uint32);
-
-    /**
-     * @dev returns whether trading is enabled
-     */
-    function tradingEnabled(Token pool) external view returns (bool);
-
-    /**
-     * @dev returns whether depositing is enabled
-     */
-    function depositingEnabled(Token pool) external view returns (bool);
-
-    /**
-     * @dev returns whether the pool is stable
-     */
-    function isPoolStable(Token pool) external view returns (bool);
-
-    /**
      * @dev converts the specified pool token amount to the underlying base token amount
      */
     function poolTokenToUnderlying(Token pool, uint256 poolTokenAmount) external view returns (uint256);
@@ -119,7 +98,7 @@ interface IPoolCollection is IVersioned {
     /**
      * @dev converts the specified underlying base token amount to pool token amount
      */
-    function underlyingToPoolToken(Token pool, uint256 baseTokenAmount) external view returns (uint256);
+    function underlyingToPoolToken(Token pool, uint256 tokenAmount) external view returns (uint256);
 
     /**
      * @dev returns the number of pool token to burn in order to increase everyone's underlying value by the specified
@@ -127,7 +106,7 @@ interface IPoolCollection is IVersioned {
      */
     function poolTokenAmountToBurn(
         Token pool,
-        uint256 baseTokenAmountToDistribute,
+        uint256 tokenAmountToDistribute,
         uint256 protocolPoolTokenAmount
     ) external view returns (uint256);
 
@@ -154,7 +133,7 @@ interface IPoolCollection is IVersioned {
         bytes32 contextId,
         address provider,
         Token pool,
-        uint256 baseTokenAmount
+        uint256 tokenAmount
     ) external returns (uint256);
 
     /**
@@ -169,8 +148,7 @@ interface IPoolCollection is IVersioned {
         bytes32 contextId,
         address provider,
         Token pool,
-        uint256 poolTokenAmount,
-        uint256 baseTokenAmount
+        uint256 poolTokenAmount
     ) external returns (uint256);
 
     /**

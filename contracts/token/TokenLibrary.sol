@@ -10,6 +10,12 @@ import { SafeERC20Ex } from "./SafeERC20Ex.sol";
 
 import { Token } from "./Token.sol";
 
+struct Signature {
+    uint8 v;
+    bytes32 r;
+    bytes32 s;
+}
+
 /**
  * @dev This library implements ERC20 and SafeERC20 utilities for both the native token and for ERC20 tokens
  */
@@ -20,16 +26,13 @@ library TokenLibrary {
     error PermitUnsupported();
 
     // the address that represents the native token reserve
-    address private constant NATIVE_TOKEN_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    address public constant NATIVE_TOKEN_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     // the symbol that represents the native token
     string private constant NATIVE_TOKEN_SYMBOL = "ETH";
 
     // the decimals for the native token
     uint8 private constant NATIVE_TOKEN_DECIMALS = 18;
-
-    // the token representing the native token
-    Token public constant NATIVE_TOKEN = Token(NATIVE_TOKEN_ADDRESS);
 
     /**
      * @dev returns whether the provided token represents an ERC20 or the native token reserve
@@ -143,6 +146,34 @@ library TokenLibrary {
     }
 
     /**
+     * @dev performs an EIP2612 permit
+     */
+    function permit(
+        Token token,
+        address owner,
+        address spender,
+        uint256 tokenAmount,
+        uint256 deadline,
+        Signature memory signature
+    ) internal {
+        if (isNative(token)) {
+            revert PermitUnsupported();
+        }
+
+        // permit the amount the owner is trying to deposit. Please note, that if the base token doesn't support
+        // EIP2612 permit - either this call or the inner safeTransferFrom will revert
+        IERC20Permit(address(token)).permit(
+            owner,
+            spender,
+            tokenAmount,
+            deadline,
+            signature.v,
+            signature.r,
+            signature.s
+        );
+    }
+
+    /**
      * @dev compares between a token and another raw ERC20 token
      */
     function isEqual(Token token, IERC20 erc20Token) internal pure returns (bool) {
@@ -150,14 +181,14 @@ library TokenLibrary {
     }
 
     /**
-     * @dev utility function that converts a token to an IERC20
+     * @dev utility function that converts an token to an IERC20
      */
     function toIERC20(Token token) internal pure returns (IERC20) {
         return IERC20(address(token));
     }
 
     /**
-     * @dev utility function that converts a token to an ERC20
+     * @dev utility function that converts an token to an ERC20
      */
     function toERC20(Token token) internal pure returns (ERC20) {
         return ERC20(address(token));

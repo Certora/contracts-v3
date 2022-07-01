@@ -25,17 +25,17 @@ describe('ExternalRewardsVault', () => {
         it('should revert when attempting to create with an invalid BNT governance contract', async () => {
             await expect(
                 Contracts.ExternalRewardsVault.deploy(ZERO_ADDRESS, vbntGovernance.address)
-            ).to.be.revertedWithError('InvalidAddress');
+            ).to.be.revertedWith('InvalidAddress');
         });
 
-        it('should revert when attempting to create with an invalid vBNT governance contract', async () => {
-            await expect(
-                Contracts.ExternalRewardsVault.deploy(bntGovernance.address, ZERO_ADDRESS)
-            ).to.be.revertedWithError('InvalidAddress');
+        it('should revert when attempting to create with an invalid VBNT governance contract', async () => {
+            await expect(Contracts.ExternalRewardsVault.deploy(bntGovernance.address, ZERO_ADDRESS)).to.be.revertedWith(
+                'InvalidAddress'
+            );
         });
 
         it('should revert when attempting to reinitialize', async () => {
-            await expect(externalRewardsVault.initialize()).to.be.revertedWithError(
+            await expect(externalRewardsVault.initialize()).to.be.revertedWith(
                 'Initializable: contract is already initialized'
             );
         });
@@ -78,7 +78,7 @@ describe('ExternalRewardsVault', () => {
             it('should revert', async () => {
                 await expect(
                     externalRewardsVault.connect(user).withdrawFunds(token.address, user.address, amount)
-                ).to.revertedWithError('AccessDenied');
+                ).to.revertedWith('AccessDenied');
             });
         };
 

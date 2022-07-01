@@ -49,7 +49,7 @@ methods {
     burnFromVault(uint256)
 
     stakedBalance() returns(uint256) envfree
-    withdrawalAmountClean(uint256) returns(uint256) envfree
+    withdrawalAmount(uint256) returns(uint256) envfree
     roleBNTPoolTokenManager() returns(bytes32) envfree
     roleBNTManager() returns(bytes32) envfree
     roleVaultManager() returns(bytes32) envfree
@@ -82,18 +82,21 @@ hook Sstore _currentPoolFunding[KEY address id] uint256 funding (uint256 old_fun
 // BNT solvency: total amount of all BNTs (`_stakedBalance`) should be greater or equal to the sum of BNTs in all pools (from `_currentPoolFunding`)
 invariant bntCorrelation()
     currentPoolFundingSum() <= stakedBalance()
-    filtered { f -> !f.isFallback }
+
 
 // STATUS - verified
 // `_currentPoolFunding` cannot exceed `poolFundingLimit`
 invariant bntMintingLimit(address pool)
     currentPoolFunding(pool) <= NetSet.poolFundingLimit(pool)
-    filtered { f -> f.selector != onFeesCollected(address, uint256, bool).selector && !f.isFallback}
+    filtered { f -> f.selector != onFeesCollected(address, uint256, bool).selector }
+
+
+
 
 
 // STATUS - verified
 // If `_stakedBalance` is 0 then `totalSupply` of `poolToken` is 0 too and vice versa (assume only calls from users without any role. Users with manager roles can violated it).
-rule zeroCorrelation(method f, env e) filtered { f -> !f.isFallback } {
+rule zeroCorrelation(method f, env e){
     require e.msg.sender != _network();
 
     bytes32 bntPoolM = roleBNTPoolTokenManager();
@@ -117,13 +120,13 @@ rule zeroCorrelation(method f, env e) filtered { f -> !f.isFallback } {
 }
 
 
+
 // STATUS - verified
 // Only `IBancorNetwork` contract can call `depositFor()`, `withdraw()`, `onFeesCollected()`.
 // Proved safe assumption for properties related to tokens changes.
-rule networkGodMode(method f, env e) filtered { f -> !f.isFallback
-                                                        && (f.selector == onFeesCollected(address, uint256, bool).selector 
+rule networkGodMode(method f, env e) filtered { f -> f.selector == onFeesCollected(address, uint256, bool).selector 
                                                         || f.selector == withdraw(bytes32, address, uint256, uint256).selector 
-                                                        || f.selector == depositFor(bytes32, address, uint256, bool, uint256).selector)} {
+                                                        || f.selector == depositFor(bytes32, address, uint256, bool, uint256).selector} {
     calldataarg args;
     f@withrevert(e, args);
     assert !lastReverted => e.msg.sender == _network(), "Mortal soul cannot get God's power!";
@@ -154,8 +157,7 @@ rule almightyAdmin(method f, env e) filtered { f -> f.selector == requestFunding
 // STATUS - verified
 // It's impossible to acquire any role from BNTPool contract, except `grantRole()` function. It's checked separately.
 // Proved safe assumption for properties related to tokens changes.
-rule imposterCheck(method f, env e, env e2) filtered{ f -> !f.isFallback
-                                                        && f.selector != grantRole(bytes32, address).selector } {
+rule imposterCheck(method f, env e, env e2) filtered{ f -> f.selector != grantRole(bytes32, address).selector } {
     bytes32 bntPoolM = roleBNTPoolTokenManager();
     bytes32 bntM = roleBNTManager();
     bytes32 vaultM = roleVaultManager();
@@ -181,7 +183,7 @@ rule imposterCheck(method f, env e, env e2) filtered{ f -> !f.isFallback
 
 // STATUS - verified
 // `msg.sender` without admin role cannot grant role to anyone: `grantRole()` will revert in this case.
-rule imposterAdminCheck(env e) {
+rule imposterAdminCheck(method f, env e){
     address user;
     bytes32 role;
 
@@ -191,11 +193,120 @@ rule imposterAdminCheck(env e) {
 
     assert lastReverted, "Admin is imposter!";
 }
-  
+
+
+// STATUS - in progress 
+// Expected to fail because Bancor doesn't have this protection.
+// grantRole() also leads to the violation because user could have soemthing before granting them role
+// invariant noMoneyForAdmin(env e, address user)
+//     (hasRole(roleBNTPoolTokenManager(), user) || hasRole(roleBNTManager(), user) 
+//             || hasRole(roleVaultManager(), user) || hasRole(roleFundingManager(), user) 
+//             || hasRole(DungeonMaster.roleAssetManager(), user))
+//     => (PoolT.balanceOf(user) == 0 
+//             && BntGovern.getBNTBalance(e, user) == 0 
+//             && VbntGovern.getBNTBalance(e, user) == 0)
+//     {
+//         preserved with (env e2){
+//             require user != DungeonMaster;
+//             require user != _network();
+//             require user != currentContract;
+//             require BntGovern._token() != VbntGovern._token();
+//             // require BntGovern.getToken(e2) != VbntGovern.getToken(e2);
+//         }
+//     }
+
+
+
+
+
+
+
+
+
+// STATUS - in progress. Round off issue. issue with vbnt, init values are picked in the way that calculations produce > 0 value for depositFor(a + b) 
+// and 0 for separated deposits: depostFor(a) and DepositFor(b)
+// https://vaas-stg.certora.com/output/3106/6560511b6266620250c6/?anonymousKey=3a746426debec45825993efed77dfc7a478b1cd8
+// `depositFor()` is additive: `depositFor(a)` + `depositFor(b)` has the same effect as `depositFor(a + b)`
+// migrations isn't considered. fees in `_withdrawalAmounts()` isn't considered.
+rule depositForAdditivity(env e){
+    bytes32 contextId;
+    address provider;
+    uint256 bntAmount; uint256 bntAmount1; uint256 bntAmount2;
+    bool isMigrating;
+    uint256 originalVBNTAmount;
+    
+    require bntAmount == bntAmount1 + bntAmount2;
+    require BntGovern._token() != VbntGovern._token();
+
+    require isMigrating == false;
+
+    uint256 providerPTBefore = PoolT.balanceOf(provider);
+    uint256 bntBefore = BntGovern.getBNTBalance(e, currentContract);
+    uint256 vbntBefore = VbntGovern.getBNTBalance(e, provider);
+
+    storage initialStorage = lastStorage;
+
+    depositFor(e, contextId, provider, bntAmount, isMigrating, originalVBNTAmount);
+
+    uint256 providerPTSimple = PoolT.balanceOf(provider);
+    uint256 bntSimple = BntGovern.getBNTBalance(e, currentContract);
+    uint256 vbntSimple = VbntGovern.getBNTBalance(e, provider);
+
+    depositFor(e, contextId, provider, bntAmount1, isMigrating, originalVBNTAmount) at initialStorage;
+    depositFor(e, contextId, provider, bntAmount2, isMigrating, originalVBNTAmount);
+
+    uint256 providerPTComplex = PoolT.balanceOf(provider);
+    uint256 bntComplex = BntGovern.getBNTBalance(e, currentContract);
+    uint256 vbntComplex = VbntGovern.getBNTBalance(e, provider);
+
+    assert providerPTSimple == providerPTComplex, "should be additive (pt)";
+    assert bntSimple == bntComplex, "should be additive (bnt)";
+    assert vbntSimple == vbntComplex, "should be additive (vbnt)";
+}
+
+
+// STATUS - in progress.
+// `withdraw()` is additive: `withdraw(a)` + `withdraw(b)` has the same effect as `withdraw(a + b)` *
+// * we don't calculate fees in `_withdrawalAmounts()`, otherwise can found a counterexample where for (a + b)
+// fees will be > 0, but for case `a`, then `b`, fees will be 0. Tool doesn't know about migration data passed from other versions. 
+rule withdrawAdditivity(env e){
+    bytes32 contextId;
+    address provider;
+    uint256 poolTokenAmount; uint256 poolTokenAmount1; uint256 poolTokenAmount2;
+    uint256 originalPoolTokenAmount; uint256 originalPoolTokenAmount1; uint256 originalPoolTokenAmount2;
+    
+    require poolTokenAmount == poolTokenAmount1 + poolTokenAmount2;
+    require originalPoolTokenAmount == originalPoolTokenAmount1 + originalPoolTokenAmount2;
+    require BntGovern._token() != VbntGovern._token();
+
+    uint256 providerPTBefore = PoolT.balanceOf(currentContract);
+    uint256 bntBefore = BntGovern.getBNTBalance(e, provider);
+    uint256 vbntBefore = VbntGovern.getBNTBalance(e, currentContract);
+
+    storage initialStorage = lastStorage;
+
+    withdraw(e, contextId, provider, poolTokenAmount, originalPoolTokenAmount);
+
+    uint256 providerPTSimple = PoolT.balanceOf(currentContract);
+    uint256 bntSimple = BntGovern.getBNTBalance(e, provider);
+    uint256 vbntSimple = VbntGovern.getBNTBalance(e, currentContract);
+
+    withdraw(e, contextId, provider, poolTokenAmount1, originalPoolTokenAmount1) at initialStorage;
+    withdraw(e, contextId, provider, poolTokenAmount2, originalPoolTokenAmount2);
+
+    uint256 providerPTComplex = PoolT.balanceOf(currentContract);
+    uint256 bntComplex = BntGovern.getBNTBalance(e, provider);
+    uint256 vbntComplex = VbntGovern.getBNTBalance(e, currentContract);
+
+    assert providerPTSimple == providerPTComplex, "should be additive (pt)";
+    assert bntSimple == bntComplex, "should be additive (bnt)";
+    assert vbntSimple == vbntComplex, "should be additive (vbnt)";
+}
+
 
 // STATUS - verified 
 // After a successful request funding operation for pool, _currentPoolFunding(pool) > 0 and must increase up to the funding limit.
-rule increaseAfterRequestFunding(env e) {
+rule increaseAfterRequestFunding(env e){
     bytes32 contextId;
     uint256 bntAmount;
     address pool;
@@ -214,7 +325,7 @@ rule increaseAfterRequestFunding(env e) {
 
 // STATUS - verified 
 // After a successful renounce funding operation for pool, _currentPoolFunding(pool) >= 0 and must decrease if was greater than 0.
-rule increaseAfterRenounceFunding(env e) {
+rule increaseAfterRenounceFunding(env e){
     bytes32 contextId;
     uint256 bntAmount;
     address pool;
@@ -233,7 +344,7 @@ rule increaseAfterRenounceFunding(env e) {
 
 // STATUS - verified 
 // _currentPoolFunding should not be changed after a BNT withdrawal
-rule untouchableCurrentPoolFunding(env e) {
+rule untouchableCurrentPoolFunding(env e){
     address pool;
     bytes32 contextId;
     address provider;
@@ -264,7 +375,7 @@ rule withdrawUnitTest(env e) {
     uint256 providerPTBefore = PoolT.balanceOf(currentContract);
     uint256 bntBefore = BntGovern.getBNTBalance(e, provider);
     uint256 vbntBefore = VbntGovern.getBNTBalance(e, currentContract);
-    uint256 withAmount = withdrawalAmountClean(originalPoolTokenAmount);
+    uint256 withAmount = withdrawalAmount(poolTokenAmount);
 
     withdraw(e, contextId, provider, poolTokenAmount, originalPoolTokenAmount);
 
@@ -273,14 +384,14 @@ rule withdrawUnitTest(env e) {
     uint256 vbntAfter = VbntGovern.getBNTBalance(e, currentContract);
 
     assert bntBefore + withAmount == bntAfter, "Wrong BNT update";
-    assert vbntBefore - poolTokenAmount == vbntAfter, "Wrong VBNT update";
-    assert providerPTBefore == providerPTAfter, "Wrong PT update"; 
+    assert vbntBefore - originalPoolTokenAmount == vbntAfter, "Wrong VBNT update";
+    assert providerPTBefore + poolTokenAmount == providerPTAfter, "Wrong PT update"; 
 }
 
 
 // STATUS - verified 
 // If `provider` is `msg.sender`, but not `_network`, withdraw reverts.
-rule providerCheck(env e) {
+rule providerCheck(env e){
     address pool;
     bytes32 contextId;
     address provider;
@@ -295,7 +406,7 @@ rule providerCheck(env e) {
 
 // STATUS - verified 
 // A user’s PT balance can increase/decrease if and only if he stakes/withdraws BNT in the pool.
-rule doppelganger(method f, env e) filtered { f -> !f.isFallback } {
+rule doppelganger(method f, env e) {
     address provider;
 
     require provider != _network();
@@ -334,6 +445,17 @@ rule bntMintLonelyUserIncrease(env e) {
     uint256 randUserBalanceAfter = BntGovern.getBNTBalance(e, randUser);
 
     assert randUserBalanceBefore == randUserBalanceAfter => provider != randUser, "Two-Face is back";
+}
+
+
+// STATUS - verified
+// `poolTokenToUnderlying()` then `underlyingToPoolToken()` and vice versa case, should return the same amount as at the beginning.
+rule toTheMoonAndBack() {
+    uint256 poolTokenAmount;
+    uint256 bntAmount;
+
+    assert poolTokenAmount == underlyingToPoolToken(poolTokenToUnderlying(poolTokenAmount)), "wrong poolTokenAmount conversion";
+    assert bntAmount == poolTokenToUnderlying(underlyingToPoolToken(bntAmount)), "wrong bntAmount conversion";
 }
 
 

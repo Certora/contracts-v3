@@ -26,12 +26,4 @@ contract BancorNetworkHarness is BancorNetwork {
     function ethBalance() public view returns(uint256){
         return address(this).balance;
     }
-
-    function statusRe() public view returns(uint256){
-        return _status;
-    }
-
-    function isPaused() external view returns (bool) {
-        return paused();
-    }
 }

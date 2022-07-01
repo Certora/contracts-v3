@@ -10,5 +10,3 @@ struct Fraction112 {
     uint112 n;
     uint112 d;
 }
-
-error InvalidFraction();

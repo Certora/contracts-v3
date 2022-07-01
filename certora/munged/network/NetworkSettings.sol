@@ -39,8 +39,8 @@ contract NetworkSettings is INetworkSettings, Upgradeable, Utils {
     // below that amount, trading is disabled and co-investments use the initial rate
     uint256 private _minLiquidityForTrading;
 
-    // DEPRECATED (uint32 private _networkFeePPM)
-    uint32 private _deprecated0;
+    // the fee (in units of PPM)
+    uint32 private _networkFeePPM;
 
     // the withdrawal fee (in units of PPM)
     uint32 private _withdrawalFeePPM;
@@ -76,6 +76,11 @@ contract NetworkSettings is INetworkSettings, Upgradeable, Utils {
      * @dev triggered when the minimum liquidity for trading is updated
      */
     event MinLiquidityForTradingUpdated(uint256 prevLiquidity, uint256 newLiquidity);
+
+    /**
+     * @dev triggered when the network fee is updated
+     */
+    event NetworkFeePPMUpdated(uint32 prevFeePPM, uint32 newFeePPM);
 
     /**
      * @dev triggered when the withdrawal fee is updated
@@ -137,7 +142,7 @@ contract NetworkSettings is INetworkSettings, Upgradeable, Utils {
      * @inheritdoc Upgradeable
      */
     function version() public pure override(IVersioned, Upgradeable) returns (uint16) {
-        return 3;
+        return 2;
     }
 
     /**
@@ -308,6 +313,31 @@ contract NetworkSettings is INetworkSettings, Upgradeable, Utils {
     /**
      * @inheritdoc INetworkSettings
      */
+    function networkFeePPM() external view returns (uint32) {
+        return _networkFeePPM;
+    }
+
+    /**
+     * @dev sets the network fee (in units of PPM)
+     *
+     * requirements:
+     *
+     * - the caller must be the admin of the contract
+     */
+    function setNetworkFeePPM(uint32 newNetworkFeePPM) external onlyAdmin validFee(newNetworkFeePPM) {
+        uint32 prevNetworkFeePPM = _networkFeePPM;
+        if (prevNetworkFeePPM == newNetworkFeePPM) {
+            return;
+        }
+
+        _networkFeePPM = newNetworkFeePPM;
+
+        emit NetworkFeePPMUpdated({ prevFeePPM: prevNetworkFeePPM, newFeePPM: newNetworkFeePPM });
+    }
+
+    /**
+     * @inheritdoc INetworkSettings
+     */
     function withdrawalFeePPM() external view returns (uint32) {
         return _withdrawalFeePPM;
     }
@@ -422,6 +452,15 @@ contract NetworkSettings is INetworkSettings, Upgradeable, Utils {
             prevBurnRewardMaxAmount: prevVortexBurnRewardMaxAmount,
             newBurnRewardMaxAmount: rewards.burnRewardMaxAmount
         });
+    }
+
+    /**
+     * @dev performs post-upgrade initialization
+     */
+    function _postUpgrade(
+        bytes calldata /* data */
+    ) internal virtual override {
+        _setDefaultFlashLoanFeePPM(DEFAULT_FLASH_LOAN_FEE_PPM);
     }
 
     /**

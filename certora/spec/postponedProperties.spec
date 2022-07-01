@@ -3,30 +3,6 @@
 ////////////////////////////////////////////////////
 
 
-// STATUS - in progress 
-// Expected to fail because Bancor doesn't have this protection.
-// grantRole() also leads to the violation because user could have soemthing before granting them role
-invariant noMoneyForAdmin(env e, address user)
-    (hasRole(roleBNTPoolTokenManager(), user) || hasRole(roleBNTManager(), user) 
-            || hasRole(roleVaultManager(), user) || hasRole(roleFundingManager(), user) 
-            || hasRole(DungeonMaster.roleAssetManager(), user))
-    => (PoolT.balanceOf(user) == 0 
-            && BntGovern.getBNTBalance(e, user) == 0 
-            && VbntGovern.getBNTBalance(e, user) == 0)
-    {
-        preserved with (env e2){
-            require user != DungeonMaster;
-            require user != _network();
-            require user != currentContract;
-            require BntGovern._token() != VbntGovern._token();
-            // require BntGovern.getToken(e2) != VbntGovern.getToken(e2);
-        }
-    }
-
-
-
-
-
 
 
 ////////////////////////////////////////////////////
@@ -387,17 +363,6 @@ rule withdrawAll(method f, address provider) filtered { f -> !f.isView && !f.isF
     assert getPoolDataBntTradingLiquidity(e,pool) == 0 && getPoolDataBaseTokenLiquidity(e,pool) == 0;
 }
 
-// Set withdrawal parameters (w,m,n) to constants.
-function setConstants_wmn_only(env e, address pool){
-    uint256 w = 0;
-    uint256 m = 0;//2000;
-    uint256 n = 0;//2500;
-    address epv = _externalProtectionVault(e);  
-
-    require w == tokenUserBalance(e,pool,epv);
-    require m == getPoolDataTradingFee(e,pool);
-}
-
 
 /////////////////////////////////////////////////////////////////
 //      Timeout
@@ -472,7 +437,14 @@ rule ShareValueUponWithdrawal(method f, address provider, uint share) filtered {
 }
 
 
-
+invariant notHasPoolNotHasPoolToken(address pool)
+    !hasPool(pool) => poolToken(pool) == 0
+    {
+       preserved{
+            setUp();
+            require pool == tokenA;
+       }
+    }
 
 
 /////////////////////////////////////////////////////////////////

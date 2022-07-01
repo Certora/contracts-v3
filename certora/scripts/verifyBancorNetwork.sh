@@ -1,4 +1,4 @@
-py ../../EVMVerifier/scripts/certoraRun.py \
+certoraRun.py \
     certora/harness/BancorNetworkHarness.sol \
     certora/harness/PoolCollectionHarness.sol \
     certora/harness/PendingWithdrawalsHarness.sol \
@@ -7,7 +7,7 @@ py ../../EVMVerifier/scripts/certoraRun.py \
     certora/munged/vaults/ExternalProtectionVault.sol \
     certora/munged/network/NetworkSettings.sol \
     certora/munged/pools/PoolTokenFactory.sol \
-    certora/munged/helpers/TestIFlashLoanRecipient.sol \
+    certora/munged/helpers/TestFlashLoanRecipient.sol \
     certora/munged/pools/PoolMigrator.sol \
     \
     \
@@ -67,15 +67,13 @@ py ../../EVMVerifier/scripts/certoraRun.py \
             ExternalProtectionVault:_vbntGovernance=DummyTokenGovernanceB \
             \
     --solc solc8.13 \
-    --staging jtoman/bancor-opt \
+    --cloud \
     --send_only \
-    --rule $1 \
-    --rule_sanity basic \
     --disable_auto_cache_key_gen \
     --optimistic_loop \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin \
-    @bancor=node_modules/@bancor \
-    --settings -enableEqualitySaturation=false \
-    --msg "BancorNet $1"
+            @bancor=node_modules/@bancor \
+    --settings -enableEqualitySaturation=false,-divideNoRemainder=true, -optimistic_fallback \
+    --msg "BancorNetwork rules"
 

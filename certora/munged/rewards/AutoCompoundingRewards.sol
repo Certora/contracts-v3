@@ -8,7 +8,7 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { IVersioned } from "../utility/interfaces/IVersioned.sol";
 import { Upgradeable } from "../utility/Upgradeable.sol";
-import { Utils, DoesNotExist, AlreadyExists, InvalidParam } from "../utility/Utils.sol";
+import { Utils, AccessDenied, DoesNotExist, AlreadyExists, InvalidParam } from "../utility/Utils.sol";
 import { Time } from "../utility/Time.sol";
 
 import { INetworkSettings, NotWhitelisted } from "../network/interfaces/INetworkSettings.sol";
@@ -42,15 +42,6 @@ contract AutoCompoundingRewards is IAutoCompoundingRewards, ReentrancyGuardUpgra
 
     error InsufficientFunds();
 
-    // the default number of programs to auto-process the rewards for
-    uint8 private constant DEFAULT_AUTO_PROCESS_REWARDS_COUNT = 3;
-
-    // the minimum time elapsed before the rewards of a program can be auto-processed
-    uint16 private constant AUTO_PROCESS_REWARDS_MIN_TIME_DELTA = 1 hours;
-
-    // the factor used to calculate the maximum number of programs to attempt to auto-process in a single attempt
-    uint8 private constant AUTO_PROCESS_MAX_PROGRAMS_FACTOR = 2;
-
     // the network contract
     IBancorNetwork private immutable _network;
 
@@ -75,14 +66,8 @@ contract AutoCompoundingRewards is IAutoCompoundingRewards, ReentrancyGuardUpgra
     // a set of all pools that have a rewards program associated with them
     EnumerableSetUpgradeable.AddressSet private _pools;
 
-    // the number of programs to auto-process the rewards for
-    uint256 private _autoProcessRewardsCount;
-
-    // the index of the next program to auto-process the rewards for
-    uint256 internal _autoProcessRewardsIndex;
-
     // upgrade forward-compatibility storage gap
-    uint256[MAX_GAP - 5] private __gap;
+    uint256[MAX_GAP - 3] private __gap;
 
     /**
      * @dev triggered when a flat program is created
@@ -103,11 +88,6 @@ contract AutoCompoundingRewards is IAutoCompoundingRewards, ReentrancyGuardUpgra
      * @dev triggered when a program is enabled/disabled
      */
     event ProgramEnabled(Token indexed pool, bool status, uint256 remainingRewards);
-
-    /**
-     * @dev triggered when the number of programs to auto-process the rewards for is updated
-     */
-    event AutoProcessRewardsCountUpdated(uint256 prevCount, uint256 newCount);
 
     /**
      * @dev triggered when rewards are distributed
@@ -165,9 +145,7 @@ contract AutoCompoundingRewards is IAutoCompoundingRewards, ReentrancyGuardUpgra
     /**
      * @dev performs contract-specific initialization
      */
-    function __AutoCompoundingRewards_init_unchained() internal onlyInitializing {
-        _autoProcessRewardsCount = DEFAULT_AUTO_PROCESS_REWARDS_COUNT;
-    }
+    function __AutoCompoundingRewards_init_unchained() internal onlyInitializing {}
 
     // solhint-enable func-name-mixedcase
 
@@ -209,35 +187,10 @@ contract AutoCompoundingRewards is IAutoCompoundingRewards, ReentrancyGuardUpgra
     /**
      * @inheritdoc IAutoCompoundingRewards
      */
-    function autoProcessRewardsCount() external view returns (uint256) {
-        return _autoProcessRewardsCount;
-    }
-
-    /**
-     * @dev sets the number of programs to auto-process the rewards for
-     *
-     * requirements:
-     *
-     * - the caller must be the admin of the contract
-     */
-    function setAutoProcessRewardsCount(uint256 newCount) external greaterThanZero(newCount) onlyAdmin {
-        uint256 prevCount = _autoProcessRewardsCount;
-        if (prevCount == newCount) {
-            return;
-        }
-
-        _autoProcessRewardsCount = newCount;
-
-        emit AutoProcessRewardsCountUpdated({ prevCount: prevCount, newCount: newCount });
-    }
-
-    /**
-     * @inheritdoc IAutoCompoundingRewards
-     */
     function isProgramActive(Token pool) external view returns (bool) {
         ProgramData memory p = _programs[pool];
 
-        if (!_programExists(p)) {
+        if (!_doesProgramExist(p)) {
             return false;
         }
 
@@ -258,7 +211,7 @@ contract AutoCompoundingRewards is IAutoCompoundingRewards, ReentrancyGuardUpgra
         uint256 totalRewards,
         uint32 startTime,
         uint32 endTime
-    ) external validAddress(address(pool)) greaterThanZero(totalRewards) onlyAdmin nonReentrant {
+    ) external {
         if (startTime >= endTime) {
             revert InvalidParam();
         }
@@ -276,7 +229,7 @@ contract AutoCompoundingRewards is IAutoCompoundingRewards, ReentrancyGuardUpgra
         uint256 totalRewards,
         uint32 startTime,
         uint32 halfLife
-    ) external validAddress(address(pool)) greaterThanZero(totalRewards) onlyAdmin nonReentrant {
+    ) external {
         if (halfLife == 0) {
             revert InvalidParam();
         }
@@ -294,10 +247,10 @@ contract AutoCompoundingRewards is IAutoCompoundingRewards, ReentrancyGuardUpgra
     /**
      * @inheritdoc IAutoCompoundingRewards
      */
-    function terminateProgram(Token pool) external onlyAdmin nonReentrant {
+    function terminateProgram(Token pool) external onlyAdmin {
         ProgramData memory p = _programs[pool];
 
-        if (!_programExists(p)) {
+        if (!_doesProgramExist(p)) {
             revert DoesNotExist();
         }
 
@@ -311,10 +264,10 @@ contract AutoCompoundingRewards is IAutoCompoundingRewards, ReentrancyGuardUpgra
     /**
      * @inheritdoc IAutoCompoundingRewards
      */
-    function enableProgram(Token pool, bool status) external onlyAdmin nonReentrant {
+    function enableProgram(Token pool, bool status) external onlyAdmin {
         ProgramData memory p = _programs[pool];
 
-        if (!_programExists(p)) {
+        if (!_doesProgramExist(p)) {
             revert DoesNotExist();
         }
 
@@ -331,58 +284,23 @@ contract AutoCompoundingRewards is IAutoCompoundingRewards, ReentrancyGuardUpgra
     /**
      * @inheritdoc IAutoCompoundingRewards
      */
-    function autoProcessRewards() external nonReentrant {
-        uint256 numOfPools = _pools.length();
-        uint256 index = _autoProcessRewardsIndex;
-        uint256 count = _autoProcessRewardsCount;
-        uint256 maxCount = Math.min(count * AUTO_PROCESS_MAX_PROGRAMS_FACTOR, numOfPools);
-
-        for (uint256 i = 0; i < maxCount; i++) {
-            bool completed = _processRewards(Token(_pools.at(index % numOfPools)), true);
-            index++;
-            if (completed) {
-                count--;
-                if (count == 0) {
-                    break;
-                }
-            }
-        }
-
-        _autoProcessRewardsIndex = index % numOfPools;
-    }
-
-    /**
-     * @inheritdoc IAutoCompoundingRewards
-     */
     function processRewards(Token pool) external nonReentrant {
-        _processRewards(pool, false);
-    }
-
-    /**
-     * @dev processes the rewards of a given pool and returns true if the rewards processing was completed, and false
-     * if it was skipped
-     */
-    function _processRewards(Token pool, bool skipRecent) private returns (bool) {
         ProgramData memory p = _programs[pool];
 
         uint32 currTime = _time();
 
         if (!p.isEnabled || currTime < p.startTime) {
-            return false;
-        }
-
-        if (skipRecent && currTime < p.prevDistributionTimestamp + AUTO_PROCESS_REWARDS_MIN_TIME_DELTA) {
-            return false;
+            return;
         }
 
         uint256 tokenAmountToDistribute = _tokenAmountToDistribute(p, currTime);
         if (tokenAmountToDistribute == 0) {
-            return true;
+            return;
         }
 
         uint256 poolTokenAmountToBurn = _poolTokenAmountToBurn(pool, p, tokenAmountToDistribute);
         if (poolTokenAmountToBurn == 0) {
-            return true;
+            return;
         }
 
         IVault rewardsVault = _rewardsVault(pool);
@@ -400,8 +318,6 @@ contract AutoCompoundingRewards is IAutoCompoundingRewards, ReentrancyGuardUpgra
             poolTokenAmount: poolTokenAmountToBurn,
             remainingRewards: p.remainingRewards
         });
-
-        return true;
     }
 
     /**
@@ -414,8 +330,8 @@ contract AutoCompoundingRewards is IAutoCompoundingRewards, ReentrancyGuardUpgra
         uint32 startTime,
         uint32 endTime,
         uint32 halfLife
-    ) private {
-        if (_programExists(_programs[pool])) {
+    ) private validAddress(address(pool)) greaterThanZero(totalRewards) onlyAdmin nonReentrant {
+        if (_doesProgramExist(_programs[pool])) {
             revert AlreadyExists();
         }
 
@@ -496,7 +412,7 @@ contract AutoCompoundingRewards is IAutoCompoundingRewards, ReentrancyGuardUpgra
     /**
      * @dev returns whether or not a given program exists
      */
-    function _programExists(ProgramData memory p) private pure returns (bool) {
+    function _doesProgramExist(ProgramData memory p) private pure returns (bool) {
         return address(p.poolToken) != address(0);
     }
 

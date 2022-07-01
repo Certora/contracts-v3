@@ -11,16 +11,22 @@ import { TokenLibrary } from "../token/TokenLibrary.sol";
 import { Utils } from "../utility/Utils.sol";
 
 import { MockUniswapV2Pair } from "./MockUniswapV2Pair.sol";
+import { TestERC20Token } from "./TestERC20Token.sol";
 
-contract MockUniswapV2Factory is Utils {
+contract MockUniswapV2Factory is TestERC20Token, Utils {
     using SafeERC20 for IERC20;
+    using TokenLibrary for Token;
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    MockUniswapV2Pair private immutable _pair;
-
     EnumerableSet.AddressSet private _tokens;
+    MockUniswapV2Pair private _pair;
 
-    constructor(MockUniswapV2Pair pair) {
+    constructor(
+        string memory name,
+        string memory symbol,
+        uint256 totalSupply,
+        MockUniswapV2Pair pair
+    ) TestERC20Token(name, symbol, totalSupply) {
         _pair = pair;
     }
 

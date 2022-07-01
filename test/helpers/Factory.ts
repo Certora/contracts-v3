@@ -22,7 +22,7 @@ import Contracts, {
 } from '../../components/Contracts';
 import LegacyContracts, { BNT__factory, TokenGovernance, VBNT__factory } from '../../components/LegacyContracts';
 import { isProfiling } from '../../components/Profiler';
-import { MAX_UINT256, NETWORK_FEE_PPM, PoolType } from '../../utils/Constants';
+import { MAX_UINT256 } from '../../utils/Constants';
 import { Roles } from '../../utils/Roles';
 import { NATIVE_TOKEN_ADDRESS, TokenData, TokenSymbol } from '../../utils/TokenData';
 import { Addressable, fromPPM, toWei } from '../../utils/Types';
@@ -34,7 +34,7 @@ import { ethers, waffle } from 'hardhat';
 const { formatBytes32String } = utils;
 
 const TOTAL_SUPPLY = toWei(1_000_000_000);
-const POOL_COLLECTION_CURRENT_VERSION = 6;
+const V1 = 1;
 
 type CtorArgs = Parameters<any>;
 type InitArgs = Parameters<any>;
@@ -215,13 +215,10 @@ export const createPoolCollection = async (
     externalProtectionVault: string | ExternalProtectionVault,
     poolTokenFactory: string | PoolTokenFactory,
     poolMigrator: string | PoolMigrator,
-    networkFeePPM: number = NETWORK_FEE_PPM,
-    type: number = PoolType.Standard,
-    version: number = POOL_COLLECTION_CURRENT_VERSION
+    version: number = V1
 ) =>
     Contracts.TestPoolCollection.deploy(
-        type,
-        BigNumber.from(version),
+        version,
         toAddress(network),
         toAddress(bnt),
         toAddress(networkSettings),
@@ -229,8 +226,7 @@ export const createPoolCollection = async (
         toAddress(bntPool),
         toAddress(externalProtectionVault),
         toAddress(poolTokenFactory),
-        toAddress(poolMigrator),
-        networkFeePPM
+        toAddress(poolMigrator)
     );
 
 const createBNTPool = async (
@@ -288,12 +284,12 @@ export const createPool = async (
 
     const poolCollections = await network.poolCollections();
     if (!poolCollections.includes(poolCollection.address)) {
-        await network.registerPoolCollection(poolCollection.address);
+        await network.addPoolCollection(poolCollection.address);
     }
-    await network.createPools([reserveToken.address], poolCollection.address);
+    await network.createPool(await poolCollection.poolType(), reserveToken.address);
 
-    const poolToken = await poolCollection.poolToken(reserveToken.address);
-    return Contracts.PoolToken.attach(poolToken);
+    const pool = await poolCollection.poolData(reserveToken.address);
+    return Contracts.PoolToken.attach(pool.poolToken);
 };
 
 const createNetwork = async (
@@ -443,7 +439,7 @@ export interface PoolSpec {
     tokenData: TokenData;
     token?: TokenWithAddress;
     balance: BigNumberish;
-    requestedFunding?: BigNumberish;
+    requestedLiquidity: BigNumberish;
     bntVirtualBalance: BigNumberish;
     baseTokenVirtualBalance: BigNumberish;
     tradingFeePPM?: number;
@@ -472,9 +468,7 @@ const setupPool = async (
         await createPool(reserveToken, network, networkSettings, poolCollection);
 
         await networkSettings.setFundingLimit(reserveToken.address, MAX_UINT256);
-        if (spec.requestedFunding) {
-            await poolCollection.requestFundingT(formatBytes32String(''), reserveToken.address, spec.requestedFunding);
-        }
+        await poolCollection.requestFundingT(formatBytes32String(''), reserveToken.address, spec.requestedLiquidity);
 
         await depositToPool(provider, bnt, spec.balance, network);
 
@@ -485,6 +479,7 @@ const setupPool = async (
     const poolToken = await createPool(token, network, networkSettings, poolCollection);
 
     await networkSettings.setFundingLimit(token.address, MAX_UINT256);
+    await poolCollection.setDepositLimit(token.address, MAX_UINT256);
     await poolCollection.setTradingFeePPM(token.address, spec.tradingFeePPM ?? 0);
 
     await depositToPool(provider, token, spec.balance, network);

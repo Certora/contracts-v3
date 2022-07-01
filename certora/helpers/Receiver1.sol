@@ -5,7 +5,5 @@ contract Receiver1 {
 
     function sendTo() external payable returns (bool) { return true; }
 
-    function sendValue() external payable returns (bool) { return true; }
-
     receive() external payable { }
 }
