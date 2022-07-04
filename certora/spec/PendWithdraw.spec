@@ -8,10 +8,6 @@ using DummyPoolTokenB as ptB
 using DummyERC20A as erc20
 using PendingWithdrawalsHarness as MAIN
 
-/* *************************
-LAST SANITY CHECK (rule_sanity basic) 22/05 :
-https://vaas-stg.certora.com/output/41958/4d0f98faa692c1f5aa89/?anonymousKey=cbe100110510822f35ed4e26731aa4a42fee86a6
-*****************************/
 
 methods {
     nextWithdrawalRequestId() returns(uint256) envfree
@@ -392,16 +388,23 @@ rule nextWithIDVaries(method f)
     f(e,args);
     uint id2 = nextWithdrawalRequestId();
 
-    assert id1 <= id2, "nextWithdrawalRequestId decreased unexpectedly";
-    
     assert ( 
         (id1 + 1 == id2) => 
         f.selector == initWithdrawal(address,address,uint256).selector,
         "Function ${f} changed nextWithdrawalRequestId by 1");
-   
-    require id1 + 1 != id2;
-    
-    assert id1 == id2, "nextWithdrawalRequestId changed unexepectedly";
+       
+    assert id1 + 1 != id2 => id1 == id2, "nextWithdrawalRequestId changed unexepectedly";
+
+    // assert id1 <= id2, "nextWithdrawalRequestId decreased unexpectedly";
+    // 
+    // assert ( 
+    //     (id1 + 1 == id2) => 
+    //     f.selector == initWithdrawal(address,address,uint256).selector,
+    //     "Function ${f} changed nextWithdrawalRequestId by 1");
+   // 
+    // require id1 + 1 != id2;
+    // 
+    // assert id1 == id2, "nextWithdrawalRequestId changed unexepectedly";
 }
 
 // After a successful initWithdrawal request for provider,
@@ -516,29 +519,6 @@ rule checkSpecificId(address provider)
     assert id1 == withdrawalRequestSpecificId@withrevert(provider,Count1);
     assert id2 == withdrawalRequestSpecificId@withrevert(provider,Count1+1);
 }
-
-// No two identical IDs for provider
-// Current status: FAILS (cannot understand counter example: https://vaas-stg.certora.com/output/3106/5a3f0e0557d9c474543d/?anonymousKey=e5bda5cae74ec0a61c62a10e145fcbc8c619d4bb) 
-// probably issue becuase of disabled deletion from map
-invariant noIdenticalIDs(address provider, uint ind1, uint ind2)
-    (
-        validInd_Request(provider, ind1) &&
-        validInd_Request(provider, ind2) &&
-        ind1 != ind2
-    ) 
-    =>
-    (
-        withdrawalRequestSpecificId(provider, ind1) != 
-        withdrawalRequestSpecificId(provider, ind2)
-    )
-    
-    {
-        preserved
-        {
-            require (withdrawalRequestSpecificId(provider, ind1) != 0 &&
-                        withdrawalRequestSpecificId(provider, ind2) != 0);
-        }
-    }
     
 
 // Withdrawal request details must not vary but only after

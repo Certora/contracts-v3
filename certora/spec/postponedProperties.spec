@@ -3,6 +3,25 @@
 ////////////////////////////////////////////////////
 
 
+// STATUS - in progress 
+// Expected to fail because Bancor doesn't have this protection.
+// grantRole() also leads to the violation because user could have soemthing before granting them role
+invariant noMoneyForAdmin(env e, address user)
+    (hasRole(roleBNTPoolTokenManager(), user) || hasRole(roleBNTManager(), user) 
+            || hasRole(roleVaultManager(), user) || hasRole(roleFundingManager(), user) 
+            || hasRole(DungeonMaster.roleAssetManager(), user))
+    => (PoolT.balanceOf(user) == 0 
+            && BntGovern.getBNTBalance(e, user) == 0 
+            && VbntGovern.getBNTBalance(e, user) == 0)
+    {
+        preserved with (env e2){
+            require user != DungeonMaster;
+            require user != _network();
+            require user != currentContract;
+            require BntGovern._token() != VbntGovern._token();
+            // require BntGovern.getToken(e2) != VbntGovern.getToken(e2);
+        }
+    }
 
 
 ////////////////////////////////////////////////////
@@ -194,6 +213,35 @@ rule validRequestTime(method f)
     uint timeEnd = e.block.timestamp;
     assert timeEnd >= time && time >= timeInit;
 }
+
+
+// No two identical IDs for provider
+// Current status: FAILS (cannot understand counter example: https://vaas-stg.certora.com/output/3106/5a3f0e0557d9c474543d/?anonymousKey=e5bda5cae74ec0a61c62a10e145fcbc8c619d4bb) 
+// probably issue becuase of disabled deletion from map
+invariant noIdenticalIDs(address provider, uint ind1, uint ind2)
+    (
+        validInd_Request(provider, ind1) &&
+        validInd_Request(provider, ind2) &&
+        ind1 != ind2
+    ) 
+    =>
+    (
+        withdrawalRequestSpecificId(provider, ind1) != 
+        withdrawalRequestSpecificId(provider, ind2)
+    )
+    
+    {
+        preserved
+        {
+            require (withdrawalRequestSpecificId(provider, ind1) != 0 &&
+                        withdrawalRequestSpecificId(provider, ind2) != 0);
+        }
+    }
+
+
+
+
+
 
 
 

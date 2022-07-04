@@ -195,115 +195,6 @@ rule imposterAdminCheck(method f, env e){
 }
 
 
-// STATUS - in progress 
-// Expected to fail because Bancor doesn't have this protection.
-// grantRole() also leads to the violation because user could have soemthing before granting them role
-// invariant noMoneyForAdmin(env e, address user)
-//     (hasRole(roleBNTPoolTokenManager(), user) || hasRole(roleBNTManager(), user) 
-//             || hasRole(roleVaultManager(), user) || hasRole(roleFundingManager(), user) 
-//             || hasRole(DungeonMaster.roleAssetManager(), user))
-//     => (PoolT.balanceOf(user) == 0 
-//             && BntGovern.getBNTBalance(e, user) == 0 
-//             && VbntGovern.getBNTBalance(e, user) == 0)
-//     {
-//         preserved with (env e2){
-//             require user != DungeonMaster;
-//             require user != _network();
-//             require user != currentContract;
-//             require BntGovern._token() != VbntGovern._token();
-//             // require BntGovern.getToken(e2) != VbntGovern.getToken(e2);
-//         }
-//     }
-
-
-
-
-
-
-
-
-
-// STATUS - in progress. Round off issue. issue with vbnt, init values are picked in the way that calculations produce > 0 value for depositFor(a + b) 
-// and 0 for separated deposits: depostFor(a) and DepositFor(b)
-// https://vaas-stg.certora.com/output/3106/6560511b6266620250c6/?anonymousKey=3a746426debec45825993efed77dfc7a478b1cd8
-// `depositFor()` is additive: `depositFor(a)` + `depositFor(b)` has the same effect as `depositFor(a + b)`
-// migrations isn't considered. fees in `_withdrawalAmounts()` isn't considered.
-rule depositForAdditivity(env e){
-    bytes32 contextId;
-    address provider;
-    uint256 bntAmount; uint256 bntAmount1; uint256 bntAmount2;
-    bool isMigrating;
-    uint256 originalVBNTAmount;
-    
-    require bntAmount == bntAmount1 + bntAmount2;
-    require BntGovern._token() != VbntGovern._token();
-
-    require isMigrating == false;
-
-    uint256 providerPTBefore = PoolT.balanceOf(provider);
-    uint256 bntBefore = BntGovern.getBNTBalance(e, currentContract);
-    uint256 vbntBefore = VbntGovern.getBNTBalance(e, provider);
-
-    storage initialStorage = lastStorage;
-
-    depositFor(e, contextId, provider, bntAmount, isMigrating, originalVBNTAmount);
-
-    uint256 providerPTSimple = PoolT.balanceOf(provider);
-    uint256 bntSimple = BntGovern.getBNTBalance(e, currentContract);
-    uint256 vbntSimple = VbntGovern.getBNTBalance(e, provider);
-
-    depositFor(e, contextId, provider, bntAmount1, isMigrating, originalVBNTAmount) at initialStorage;
-    depositFor(e, contextId, provider, bntAmount2, isMigrating, originalVBNTAmount);
-
-    uint256 providerPTComplex = PoolT.balanceOf(provider);
-    uint256 bntComplex = BntGovern.getBNTBalance(e, currentContract);
-    uint256 vbntComplex = VbntGovern.getBNTBalance(e, provider);
-
-    assert providerPTSimple == providerPTComplex, "should be additive (pt)";
-    assert bntSimple == bntComplex, "should be additive (bnt)";
-    assert vbntSimple == vbntComplex, "should be additive (vbnt)";
-}
-
-
-// STATUS - in progress.
-// `withdraw()` is additive: `withdraw(a)` + `withdraw(b)` has the same effect as `withdraw(a + b)` *
-// * we don't calculate fees in `_withdrawalAmounts()`, otherwise can found a counterexample where for (a + b)
-// fees will be > 0, but for case `a`, then `b`, fees will be 0. Tool doesn't know about migration data passed from other versions. 
-rule withdrawAdditivity(env e){
-    bytes32 contextId;
-    address provider;
-    uint256 poolTokenAmount; uint256 poolTokenAmount1; uint256 poolTokenAmount2;
-    uint256 originalPoolTokenAmount; uint256 originalPoolTokenAmount1; uint256 originalPoolTokenAmount2;
-    
-    require poolTokenAmount == poolTokenAmount1 + poolTokenAmount2;
-    require originalPoolTokenAmount == originalPoolTokenAmount1 + originalPoolTokenAmount2;
-    require BntGovern._token() != VbntGovern._token();
-
-    uint256 providerPTBefore = PoolT.balanceOf(currentContract);
-    uint256 bntBefore = BntGovern.getBNTBalance(e, provider);
-    uint256 vbntBefore = VbntGovern.getBNTBalance(e, currentContract);
-
-    storage initialStorage = lastStorage;
-
-    withdraw(e, contextId, provider, poolTokenAmount, originalPoolTokenAmount);
-
-    uint256 providerPTSimple = PoolT.balanceOf(currentContract);
-    uint256 bntSimple = BntGovern.getBNTBalance(e, provider);
-    uint256 vbntSimple = VbntGovern.getBNTBalance(e, currentContract);
-
-    withdraw(e, contextId, provider, poolTokenAmount1, originalPoolTokenAmount1) at initialStorage;
-    withdraw(e, contextId, provider, poolTokenAmount2, originalPoolTokenAmount2);
-
-    uint256 providerPTComplex = PoolT.balanceOf(currentContract);
-    uint256 bntComplex = BntGovern.getBNTBalance(e, provider);
-    uint256 vbntComplex = VbntGovern.getBNTBalance(e, currentContract);
-
-    assert providerPTSimple == providerPTComplex, "should be additive (pt)";
-    assert bntSimple == bntComplex, "should be additive (bnt)";
-    assert vbntSimple == vbntComplex, "should be additive (vbnt)";
-}
-
-
 // STATUS - verified 
 // After a successful request funding operation for pool, _currentPoolFunding(pool) > 0 and must increase up to the funding limit.
 rule increaseAfterRequestFunding(env e){
@@ -445,17 +336,6 @@ rule bntMintLonelyUserIncrease(env e) {
     uint256 randUserBalanceAfter = BntGovern.getBNTBalance(e, randUser);
 
     assert randUserBalanceBefore == randUserBalanceAfter => provider != randUser, "Two-Face is back";
-}
-
-
-// STATUS - verified
-// `poolTokenToUnderlying()` then `underlyingToPoolToken()` and vice versa case, should return the same amount as at the beginning.
-rule toTheMoonAndBack() {
-    uint256 poolTokenAmount;
-    uint256 bntAmount;
-
-    assert poolTokenAmount == underlyingToPoolToken(poolTokenToUnderlying(poolTokenAmount)), "wrong poolTokenAmount conversion";
-    assert bntAmount == poolTokenToUnderlying(underlyingToPoolToken(bntAmount)), "wrong bntAmount conversion";
 }
 
 
