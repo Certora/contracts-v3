@@ -67,7 +67,7 @@ certoraRun.py \
             ExternalProtectionVault:_vbntGovernance=DummyTokenGovernanceB \
             \
     --solc solc8.13 \
-    --cloud \
+    --staging \
     --send_only \
     --disable_auto_cache_key_gen \
     --optimistic_loop \
@@ -75,5 +75,8 @@ certoraRun.py \
     --packages @openzeppelin=node_modules/@openzeppelin \
             @bancor=node_modules/@bancor \
     --settings -enableEqualitySaturation=false,-divideNoRemainder=true \
-    --msg "BancorNetwork rules"
+    --rule "$1" \
+    --msg "BancorNetwork - $1 no sanity"
 
+
+#     --rule_sanity basic \

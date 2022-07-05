@@ -13,6 +13,7 @@ certoraRun.py certora/munged/pools/BNTPool.sol certora/helpers/DummyERC20A.sol c
     --solc solc8.13 \
     --cloud \
     --optimistic_loop \
+    --rule_sanity advanced \
     --packages_path node_modules \
     --packages @openzeppelin=node_modules/@openzeppelin @bancor=node_modules/@bancor \
     --msg "BNTPool rules"

@@ -356,6 +356,9 @@ function setConstants_wmn_only(env env1, address pool){
 ////////////////////////////////////////////////////////////////////////////
 
 
+// sanity advanced (14m 32s) : https://vaas-stg.certora.com/output/3106/223c2d920412af027e8a/?anonymousKey=629c69a24f10c7194afc00bdde1b867ea1d7406f
+// sanity basic (37m 42s) : https://vaas-stg.certora.com/output/3106/8e640d3090a559eebfe6/?anonymousKey=68c9017fe1b756395df1d17e7f0ddcdbe8cc9071
+// no sanity (1h 34m 34s) : https://vaas-stg.certora.com/output/3106/0aa0ff1ffa3d163331d9/?anonymousKey=27014e42bee623004e4230db04469ea04346175e
 rule invariantValidPoolAfterTrade(method f)
 filtered{f -> tradeLikeMethod(f)}
 {
@@ -369,101 +372,103 @@ filtered{f -> tradeLikeMethod(f)}
 }
 
 
-rule invariantValidPoolAfterDeposit(method f)
-filtered{f -> depositLikeMethod(f)}
-{
-    env e;
-    calldataarg args;
-    address token = tokenA;
+// rule invariantValidPoolAfterDeposit(method f)
+// filtered{f -> depositLikeMethod(f)}
+// {
+//     env e;
+//     calldataarg args;
+//     address token = tokenA;
     
-    require !isPoolValid(token) => _poolCollection(token) == 0;
-        f(e,args);
-    assert !isPoolValid(token) => _poolCollection(token) == 0;
-}
+//     require !isPoolValid(token) => _poolCollection(token) == 0;
+//         f(e,args);
+//     assert !isPoolValid(token) => _poolCollection(token) == 0;
+// }
 
 
 // Conversion to pool tokens from underlying and vice-versa are reciprocal actions.
 // Note that the functions are using mulDivF, mulDivC which are summarized via simpleMulDiv(x,y,z).
-rule underlyingToPTinverse(uint amount)
-{
-    env e;
-    address token = tokenA;
-    address PT = ptA;
+// rule underlyingToPTinverse(uint amount)
+// {
+//     env e;
+//     address token = tokenA;
+//     address PT = ptA;
 
-    require PoolCol.poolToken(token) == PT;
+//     require PoolCol.poolToken(token) == PT;
 
-    uint256 a = PoolCol.poolTokenToUnderlying(e, token, amount);
-    uint256 b = PoolCol.underlyingToPoolToken(e, token, a);
+//     uint256 a = PoolCol.poolTokenToUnderlying(e, token, amount);
+//     uint256 b = PoolCol.underlyingToPoolToken(e, token, a);
 
-    uint256 c = BNTp.poolTokenToUnderlying(e, amount);
-    uint256 d = BNTp.underlyingToPoolToken(e, c);
+//     uint256 c = BNTp.poolTokenToUnderlying(e, amount);
+//     uint256 d = BNTp.underlyingToPoolToken(e, c);
     
-    assert b == amount && d == amount, "Calculations are not reciprocal";
-}
+//     assert b == amount && d == amount, "Calculations are not reciprocal";
+// }
 
 
-rule underlyingToPTmono(uint amount1, uint amount2)
-{
-    env e;
-    address token = tokenA;
-    address PT = ptA;
+// rule underlyingToPTmono(uint amount1, uint amount2)
+// {
+//     env e;
+//     address token = tokenA;
+//     address PT = ptA;
 
-    require PoolCol.poolToken(token) == PT;
-    uint256 a = PoolCol.underlyingToPoolToken(e, token, amount1);
-    uint256 b = PoolCol.underlyingToPoolToken(e, token, amount2);
+//     require PoolCol.poolToken(token) == PT;
+//     uint256 a = PoolCol.underlyingToPoolToken(e, token, amount1);
+//     uint256 b = PoolCol.underlyingToPoolToken(e, token, amount2);
     
-    assert amount1 > amount2 => a > b, "Not monotonic";
-}
+//     assert amount1 > amount2 => a > b, "Not monotonic";
+// }
 
-// Verify the proper registration details in a withdrawal request.
-rule checkInitWithdraw(uint amount, address poolToken)
-{
-    env e;
-    address token;
+// // Verify the proper registration details in a withdrawal request.
+// rule checkInitWithdraw(uint amount, address poolToken)
+// {
+//     env e;
+//     address token;
 
-    require poolToken != ptBNT =>
-            (poolToken == ptA && token == tokenA && 
-            token == ptA.reserveToken(e) &&
-            tokenInPoolCollection(token, PoolCol));
+//     require poolToken != ptBNT =>
+//             (poolToken == ptA && token == tokenA && 
+//             token == ptA.reserveToken(e) &&
+//             tokenInPoolCollection(token, PoolCol));
 
-    require poolToken == ptBNT =>
-            (token == bnt && token == ptBNT.reserveToken(e));
+//     require poolToken == ptBNT =>
+//             (token == bnt && token == ptBNT.reserveToken(e));
 
-    uint id = initWithdrawal(e, poolToken, amount);
+//     uint id = initWithdrawal(e, poolToken, amount);
 
-    address provider;
-    address poolToken2;
-    address reserveToken;
-    uint32 createdAt;
-    uint256 poolTokenAmount;
-    uint256 reserveTokenAmount;
+//     address provider;
+//     address poolToken2;
+//     address reserveToken;
+//     uint32 createdAt;
+//     uint256 poolTokenAmount;
+//     uint256 reserveTokenAmount;
 
-    provider, poolToken2, reserveToken, createdAt, poolTokenAmount, 
-            reserveTokenAmount = PendWit.withdrawalRequest(id);
-    assert poolToken2 == poolToken, "Pool token not registered correctly";
-    assert reserveToken == token, "Reserve token not registered correctly";
-    assert provider == e.msg.sender, "Provider is not the original message sender";
-    assert poolTokenAmount == amount, "Pool token amount was not registered correctly";
-}
+//     provider, poolToken2, reserveToken, createdAt, poolTokenAmount, 
+//             reserveTokenAmount = PendWit.withdrawalRequest(id);
+//     assert poolToken2 == poolToken, "Pool token not registered correctly";
+//     assert reserveToken == token, "Reserve token not registered correctly";
+//     assert provider == e.msg.sender, "Provider is not the original message sender";
+//     assert poolTokenAmount == amount, "Pool token amount was not registered correctly";
+// }
 
-// User cannot cancel a withdrawal request twice.
-rule noDoubleCancelling(uint amount, address poolToken)
-{
-    env e;
-    address token = PendWit.returnToken(poolToken);
+// // User cannot cancel a withdrawal request twice.
+// rule noDoubleCancelling(uint amount, address poolToken)
+// {
+//     env e;
+//     address token = PendWit.returnToken(poolToken);
 
-    require poolToken == ptBNT <=> bnt == token;
+//     require poolToken == ptBNT <=> bnt == token;
 
-    require poolToken != ptBNT =>
-            (poolToken == ptA && token == tokenA && 
-            tokenInPoolCollection(token, PoolCol));
+//     require poolToken != ptBNT =>
+//             (poolToken == ptA && token == tokenA && 
+//             tokenInPoolCollection(token, PoolCol));
     
-    uint id = initWithdrawal(e, poolToken, amount);
-    cancelWithdrawal(e, id);
-    cancelWithdrawal@withrevert(e, id);
-    assert lastReverted;
-}
+//     uint id = initWithdrawal(e, poolToken, amount);
+//     cancelWithdrawal(e, id);
+//     cancelWithdrawal@withrevert(e, id);
+//     assert lastReverted;
+// }
 
+
+// https://vaas-stg.certora.com/output/3106/d6ec0c5cb65c44e6e7e4/?anonymousKey=ae7c8feeb4017307298185154e54c87c7fcaa72f
 // Verified
 rule tradeA2BLiquidity(uint amount, bool byTarget)
 {
@@ -507,7 +512,8 @@ rule tradeA2BLiquidity(uint amount, bool byTarget)
             "When there are no fees, trade BNT balance stays intact"; 
 }
 
- 
+
+// https://vaas-stg.certora.com/output/3106/6ba4b6b103dd89762f7a/?anonymousKey=7f36e3e8ff70ce76fbe8e515a735193676c6a8ba
 // Verified
 rule tradeBntLiquidity(uint amount)
 {
@@ -547,6 +553,8 @@ rule tradeBntLiquidity(uint amount)
     assert balanceB1 + amount == balanceB2 , "Trader must receive his tokens";
 }
 
+
+// https://vaas-stg.certora.com/output/3106/382b72c05938613b855b/?anonymousKey=360dab9b8b5b5b809c2743eb41c30ee45712a3f1
 // Pool tokens are non-tradeable in Bancor Network. with assumption that pool is valid
 rule untradeablePT(address trader, address poolToken, uint amount, bool TKN_2_PT)
 {
@@ -580,6 +588,8 @@ invariant validPool(address token)
     filtered{f -> !depositLikeMethod(f) && !tradeLikeMethod(f)}
 
 
+
+// https://vaas-stg.certora.com/output/3106/5686e195ebc21e9ceec6/?anonymousKey=84e3279ddd5586914e78e55489c67ca3401a925d
 // Trading should never change the amount of pool tokens for any user.
 rule afterTradingPTBalanceIntact(address trader, uint amount)
 {
@@ -614,6 +624,8 @@ rule afterTradingPTBalanceIntact(address trader, uint amount)
     assert balancePT2 == balancePT1;
 }
 
+
+// violation https://vaas-stg.certora.com/output/3106/e54d1f0ba666a6dee8d3/?anonymousKey=7bd3174d6c57c4a6d505926bb7e580976ed5ad02
 // It is always possible to cancel a withdrawal request (without time limit).
 rule cancellingAlwaysPossible(address poolToken, uint256 amount)
 {
@@ -626,26 +638,27 @@ rule cancellingAlwaysPossible(address poolToken, uint256 amount)
 }
 
 
-// After initiating a withdrawal, the user must hand over his PTs.
-rule RequestRegisteredForValidProvider(uint tokenAmount)
-{
-    env e;
-    address poolToken = ptA;
-    address token = tokenA;
-    address provider = e.msg.sender;
-    require provider != PendWit;
-    setupTokenPoolCol(e, token, poolToken);
+// // After initiating a withdrawal, the user must hand over his PTs.
+// rule RequestRegisteredForValidProvider(uint tokenAmount)
+// {
+//     env e;
+//     address poolToken = ptA;
+//     address token = tokenA;
+//     address provider = e.msg.sender;
+//     require provider != PendWit;
+//     setupTokenPoolCol(e, token, poolToken);
 
-    uint balance1 = ptA.balanceOf(e, provider);
+//     uint balance1 = ptA.balanceOf(e, provider);
     
-    uint id = initWithdrawal(e, poolToken, tokenAmount);
+//     uint id = initWithdrawal(e, poolToken, tokenAmount);
     
-    uint balance2 = ptA.balanceOf(e, provider);
+//     uint balance2 = ptA.balanceOf(e, provider);
 
-    assert balance1 - balance2 == tokenAmount;
-}
+//     assert balance1 - balance2 == tokenAmount;
+// }
 
 
+// error (java.lang.StackOverflowError) https://vaas-stg.certora.com/output/3106/8388119147112366b71b/?anonymousKey=46f2ee068e7f4e238c552dcd7a51b0657d14e404
 // No user can withdraw twice staked BNTs.
 rule noDoubleWithdrawalBNT(uint256 id, uint amount)
 {
@@ -682,60 +695,62 @@ rule noDoubleWithdrawalBNT(uint256 id, uint amount)
     // Revert is guaranteed via verifiying the rule 'doubleWithdrawHelper'.
 }
 
-// A withdraw execution must revert if the request's provider is the zero address.
-rule doubleWithdrawHelper(uint256 id)
-{
-    env e;
-    address provider;
-    address poolToken;
-    address reserveToken;
-    uint32 createdAt;
-    uint256 poolTokenAmount;
-    uint256 reserveTokenAmount;
-    provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
-            reserveTokenAmount = PendWit.withdrawalRequest(id);
 
-    withdraw@withrevert(e, id);
-    assert provider == 0 => lastReverted, 
-            "Request to withdraw must revert for zero address provider";
-}
+// // A withdraw execution must revert if the request's provider is the zero address.
+// rule doubleWithdrawHelper(uint256 id)
+// {
+//     env e;
+//     address provider;
+//     address poolToken;
+//     address reserveToken;
+//     uint32 createdAt;
+//     uint256 poolTokenAmount;
+//     uint256 reserveTokenAmount;
+//     provider, poolToken, reserveToken, createdAt, poolTokenAmount, 
+//             reserveTokenAmount = PendWit.withdrawalRequest(id);
+
+//     withdraw@withrevert(e, id);
+//     assert provider == 0 => lastReverted, 
+//             "Request to withdraw must revert for zero address provider";
+// }
     
 
-// A provider of BNT must deposit his tokens and get his pool tokens.
-// Also, upon requesting to withdraw, the same gained pool tokens must be given 
-// back to the protocol.
-rule depositBntIntegrity(uint256 amount)
-{
-    env e;
-    require validUser(e, e.msg.sender);
-    require ptBNT.reserveToken(e) == bnt;
-    require VbntGovern._token() == _vbnt(e);
-    require BntGovern._token() == _bnt(e);
+// // A provider of BNT must deposit his tokens and get his pool tokens.
+// // Also, upon requesting to withdraw, the same gained pool tokens must be given 
+// // back to the protocol.
+// rule depositBntIntegrity(uint256 amount)
+// {
+//     env e;
+//     require validUser(e, e.msg.sender);
+//     require ptBNT.reserveToken(e) == bnt;
+//     require VbntGovern._token() == _vbnt(e);
+//     require BntGovern._token() == _bnt(e);
 
-    // Balances before deposit
-    uint balancePT1 = ptBNT.balanceOf(e, e.msg.sender);
-    uint balanceBNT1 = bnt.balanceOf(e, e.msg.sender);
-    // Deposit (amount) BNT to pool.
-    uint amountPT = deposit(e, bnt, amount);
-    // Balances after deposit, before withdrawal.
-    uint balancePT2 = ptBNT.balanceOf(e, e.msg.sender);
-    uint balanceBNT2 = bnt.balanceOf(e, e.msg.sender);
+//     // Balances before deposit
+//     uint balancePT1 = ptBNT.balanceOf(e, e.msg.sender);
+//     uint balanceBNT1 = bnt.balanceOf(e, e.msg.sender);
+//     // Deposit (amount) BNT to pool.
+//     uint amountPT = deposit(e, bnt, amount);
+//     // Balances after deposit, before withdrawal.
+//     uint balancePT2 = ptBNT.balanceOf(e, e.msg.sender);
+//     uint balanceBNT2 = bnt.balanceOf(e, e.msg.sender);
 
-    assert balanceBNT2 == balanceBNT1 - amount, 
-            "User's BNT balance did not decrease as expected";
-    assert balancePT2 == balancePT1 + amountPT, 
-            "User's PT balance did not increase as expected";
+//     assert balanceBNT2 == balanceBNT1 - amount, 
+//             "User's BNT balance did not decrease as expected";
+//     assert balancePT2 == balancePT1 + amountPT, 
+//             "User's PT balance did not increase as expected";
 
-    // Request to withdraw.
-    uint id = initWithdrawal(e, ptBNT, amountPT);
-    // Balances after withdraw request.
-    uint balancePT3 = ptBNT.balanceOf(e, e.msg.sender);
-    uint balanceBNT3 = bnt.balanceOf(e, e.msg.sender);
+//     // Request to withdraw.
+//     uint id = initWithdrawal(e, ptBNT, amountPT);
+//     // Balances after withdraw request.
+//     uint balancePT3 = ptBNT.balanceOf(e, e.msg.sender);
+//     uint balanceBNT3 = bnt.balanceOf(e, e.msg.sender);
 
-    assert balancePT3 == balancePT1 , "User's PT balance changed unexpectedly";
-}
+//     assert balancePT3 == balancePT1 , "User's PT balance changed unexpectedly";
+// }
 
 
+// violation https://vaas-stg.certora.com/output/3106/8ab9014f78d5fc4f7fc4/?anonymousKey=2c63ea90e20803b330e5c0a3dc57ae307a03266c
 // A provider of any TKN must deposit his tokens and get his pool tokens.
 // Also, upon requesting to withdraw, the same gained pool tokens must be given 
 rule depositTknIntegrity(uint256 amount)
@@ -772,6 +787,8 @@ rule depositTknIntegrity(uint256 amount)
     assert balancePT3 == balancePT1 , "User's PT balance changed unexpectedly";
 }
 
+
+// https://vaas-stg.certora.com/output/3106/722715d1d200b3c98fa7/?anonymousKey=3783bde992b6ba88432c3a058561a325af75912e
 // The sum of balances after a trade must not change.
 // Balance (trader) + Balance (vault) = const.
 rule afterTradeSumOfTokenBalanceIntact(address tknA, address tknB, uint amount)
@@ -809,35 +826,33 @@ rule afterTradeSumOfTokenBalanceIntact(address tknA, address tknB, uint amount)
 
 }
 
-// A provider of BNT must recieve pool tokens from the protocol.
-rule depositBNTtransferPTsToProvider(address provider, uint amount)
-{
-    env e;
-    address PT = _bntPoolToken(e);
-    address protocol = _bntPool(e);
-    require validUser(e, provider);
+// // A provider of BNT must recieve pool tokens from the protocol.
+// rule depositBNTtransferPTsToProvider(address provider, uint amount)
+// {
+//     env e;
+//     address PT = _bntPoolToken(e);
+//     address protocol = _bntPool(e);
+//     require validUser(e, provider);
 
-    uint256 providerPTBntBalance1 = PoolCol.tokenUserBalance(PT, provider);
-    uint256 networkPTBntBalance1 = PoolCol.tokenUserBalance(PT, protocol);
-    uint256 PTtotalSupply1 =  PendWit.poolTotalSupply(PT);
+//     uint256 providerPTBntBalance1 = PoolCol.tokenUserBalance(PT, provider);
+//     uint256 networkPTBntBalance1 = PoolCol.tokenUserBalance(PT, protocol);
+//     uint256 PTtotalSupply1 =  PendWit.poolTotalSupply(PT);
 
-        uint amountPT = depositFor(e,provider, _bnt(e), amount);
+//         uint amountPT = depositFor(e,provider, _bnt(e), amount);
 
-    uint256 providerPTBntBalance2 = PoolCol.tokenUserBalance(PT, provider);
-    uint256 networkPTBntBalance2 = PoolCol.tokenUserBalance(PT, protocol);
-    uint256 PTtotalSupply2 =  PendWit.poolTotalSupply(PT);
+//     uint256 providerPTBntBalance2 = PoolCol.tokenUserBalance(PT, provider);
+//     uint256 networkPTBntBalance2 = PoolCol.tokenUserBalance(PT, protocol);
+//     uint256 PTtotalSupply2 =  PendWit.poolTotalSupply(PT);
 
-    assert networkPTBntBalance2 + amountPT == networkPTBntBalance1,
-            "Protocol should transfer its pool tokens to provider";
+//     assert networkPTBntBalance2 + amountPT == networkPTBntBalance1,
+//             "Protocol should transfer its pool tokens to provider";
 
-    assert providerPTBntBalance1 + amountPT == providerPTBntBalance2,
-            "The amount of PTs minted to provider is wrong";
+//     assert providerPTBntBalance1 + amountPT == providerPTBntBalance2,
+//             "The amount of PTs minted to provider is wrong";
 
-    assert PTtotalSupply1 == PTtotalSupply2, 
-            "Total supply of BNT pool tokens should not change";
-}
-
-
+//     assert PTtotalSupply1 == PTtotalSupply2, 
+//             "Total supply of BNT pool tokens should not change";
+// }
 
 
 
@@ -846,370 +861,370 @@ rule depositBNTtransferPTsToProvider(address provider, uint amount)
 
 
 
-// STATUS - verified
-// No pool collection for non-valid pool.
-invariant noPoolNoParty1(address token)
-    !isPoolValid(token) => collectionByPool(token) == 0
-    filtered { f -> f.selector == addPoolCollection(address).selector 
-                        || f.selector == removePoolCollection(address, address).selector 
-                        || f.selector == setLatestPoolCollection(address).selector
-                        || f.selector == createPool(uint16, address).selector     // reachability fail
-                        || f.selector == createPools(uint16, address[]).selector
-    }
-
-// STATUS - verified
-invariant noPoolNoParty2(address token)
-    !isPoolValid(token) => collectionByPool(token) == 0
-    filtered { f -> f.selector == depositFor(address, address, uint256).selector
-                        || f.selector == deposit(address, uint256).selector 
-                        || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
-                        || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
-    }
-
-// STATUS - verified
-invariant noPoolNoParty3(address token)
-    !isPoolValid(token) => collectionByPool(token) == 0
-    filtered { f -> f.selector == initWithdrawal(address, uint256).selector
-                        || f.selector == initWithdrawalPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector
-                        || f.selector == cancelWithdrawal(uint256).selector
-    }
 
 
-// STATUS - verified
-invariant noPoolNoParty4(address token)
-    !isPoolValid(token) => collectionByPool(token) == 0
-    filtered { f -> f.selector == withdraw(uint256).selector}
+// // STATUS - verified
+// // No pool collection for non-valid pool.
+// invariant noPoolNoParty1(address token)
+//     !isPoolValid(token) => collectionByPool(token) == 0
+//     filtered { f -> f.selector == addPoolCollection(address).selector 
+//                         || f.selector == removePoolCollection(address, address).selector 
+//                         || f.selector == setLatestPoolCollection(address).selector
+//                         || f.selector == createPools(uint16, address[]).selector
+//     }
+
+// // STATUS - verified
+// invariant noPoolNoParty2(address token)
+//     !isPoolValid(token) => collectionByPool(token) == 0
+//     filtered { f -> f.selector == depositFor(address, address, uint256).selector
+//                         || f.selector == deposit(address, uint256).selector 
+//                         || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
+//                         || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+//     }
+
+// // STATUS - verified
+// invariant noPoolNoParty3(address token)
+//     !isPoolValid(token) => collectionByPool(token) == 0
+//     filtered { f -> f.selector == initWithdrawal(address, uint256).selector
+//                         || f.selector == initWithdrawalPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector
+//                         || f.selector == cancelWithdrawal(uint256).selector
+//     }
 
 
-// STATUS - verified
-invariant noPoolNoParty5(address token)
-    !isPoolValid(token) => collectionByPool(token) == 0
-    filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
-                        || f.selector == tradeByTargetAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector 
-    }
-
-// STATUS - verified
-invariant noPoolNoParty6(address token)
-    !isPoolValid(token) => collectionByPool(token) == 0
-    filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
-                        || f.selector == withdrawNetworkFees(address).selector
-                        || f.selector == pause().selector
-                        || f.selector == resume().selector
-    }
+// // STATUS - verified
+// invariant noPoolNoParty4(address token)
+//     !isPoolValid(token) => collectionByPool(token) == 0
+//     filtered { f -> f.selector == withdraw(uint256).selector}
 
 
+// // STATUS - verified
+// invariant noPoolNoParty5(address token)
+//     !isPoolValid(token) => collectionByPool(token) == 0
+//     filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
+//                         || f.selector == tradeByTargetAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector 
+//     }
 
+// // STATUS - verified
+// invariant noPoolNoParty6(address token)
+//     !isPoolValid(token) => collectionByPool(token) == 0
+//     filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
+//                         || f.selector == withdrawNetworkFees(address).selector
+//                         || f.selector == pause().selector
+//                         || f.selector == resume().selector
+//     }
 
 
 
-// STATUS - verified
+
+
+
+// // STATUS - verified
 // Check functions for non-reentracncy.
-rule reentrancyCheck1(env e, method f) 
-filtered { f -> f.selector == addPoolCollection(address).selector 
-                    || f.selector == removePoolCollection(address, address).selector 
-                    || f.selector == setLatestPoolCollection(address).selector
-                    || f.selector == createPool(uint16, address).selector 
-                    || f.selector == createPools(uint16, address[]).selector
-                    || f.selector == migratePools(address[]).selector 
-    }
-{                         
-    uint256 status = _status(e);
-    require status == 2;
+// rule reentrancyCheck1(env e, method f) 
+// filtered { f -> f.selector == addPoolCollection(address).selector 
+//                     || f.selector == removePoolCollection(address, address).selector 
+//                     || f.selector == setLatestPoolCollection(address).selector
+//                     || f.selector == createPool(uint16, address).selector 
+//                     || f.selector == createPools(uint16, address[]).selector
+//                     || f.selector == migratePools(address[]).selector 
+//     }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
-// STATUS - verified
-rule reentrancyCheck2(env e, method f)
-filtered { f -> f.selector == depositFor(address, address, uint256).selector
-                        || f.selector == deposit(address, uint256).selector 
-                        || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
-                        || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
-    }
-{                         
-    uint256 status = _status(e);
-    require status == 2;
+// // STATUS - verified
+// rule reentrancyCheck2(env e, method f)
+// filtered { f -> f.selector == depositFor(address, address, uint256).selector
+//                         || f.selector == deposit(address, uint256).selector 
+//                         || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
+//                         || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+//     }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
-// STATUS - verified
-rule reentrancyCheck3(env e, method f) 
-filtered { f -> f.selector == initWithdrawal(address, uint256).selector
-                        || f.selector == initWithdrawalPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
-                        || f.selector == cancelWithdrawal(uint256).selector
-    }
-{                         
-    uint256 status = _status(e);
-    require status == 2;
+// // STATUS - verified
+// rule reentrancyCheck3(env e, method f) 
+// filtered { f -> f.selector == initWithdrawal(address, uint256).selector
+//                         || f.selector == initWithdrawalPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+//                         || f.selector == cancelWithdrawal(uint256).selector
+//     }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
-// STATUS - verified
-rule reentrancyCheck4(env e, method f) 
-filtered { f -> f.selector == withdraw(uint256).selector}
-{                         
-    uint256 status = _status(e);
-    require status == 2;
+// // STATUS - verified
+// rule reentrancyCheck4(env e, method f) 
+// filtered { f -> f.selector == withdraw(uint256).selector}
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
-// STATUS - verified
-rule reentrancyCheck511(env e, method f) 
-filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
-}
-{                         
-    uint256 status = _status(e);
-    require status == 2;
+// // STATUS - verified
+// rule reentrancyCheck511(env e, method f) 
+// filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector
+// }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
-// STATUS - verified
-rule reentrancyCheck512(env e, method f) 
-filtered { f ->  f.selector == tradeBySourceAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector
-}
-{                         
-    uint256 status = _status(e);
-    require status == 2;
+// // STATUS - verified
+// rule reentrancyCheck512(env e, method f) 
+// filtered { f ->  f.selector == tradeBySourceAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector
+// }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
-// STATUS - verified
-rule reentrancyCheck521(env e, method f) 
-filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
-}
-{                         
-    uint256 status = _status(e);
-    require status == 2;
+// // STATUS - verified
+// rule reentrancyCheck521(env e, method f) 
+// filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
+// }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
-// STATUS - verified
-rule reentrancyCheck6(env e, method f) 
-filtered { f -> f.selector == flashLoan(address, uint256, address, bytes).selector
-                        || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
-    }
-{                         
-    uint256 status = _status(e);
-    require status == 2;
+// // STATUS - verified
+// rule reentrancyCheck6(env e, method f) 
+// filtered { f -> f.selector == flashLoan(address, uint256, address, bytes).selector
+//                         || f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
+//     }
+// {                         
+//     uint256 status = _status(e);
+//     require status == 2;
 
-    calldataarg args;
-    f@withrevert(e, args);
-    assert lastReverted, "Mortal soul cannot get God's power!";
-}
+//     calldataarg args;
+//     f@withrevert(e, args);
+//     assert lastReverted, "Mortal soul cannot get God's power!";
+// }
 
 
 
-// STATUS - verified
-// Only user with admin role can call certain functions
-rule almightyAdmin1(env e, method f) filtered 
-{ f -> f.selector == addPoolCollection(address).selector 
-        || f.selector == removePoolCollection(address, address).selector 
-        || f.selector == setLatestPoolCollection(address).selector
-        || f.selector == createPool(uint16, address).selector 
-        || f.selector == createPools(uint16, address[]).selector 
-} {
-    bool roleBefore = hasRole(roleAdmin(), e.msg.sender);
+// // STATUS - verified
+// // Only user with admin role can call certain functions
+// rule almightyAdmin1(env e, method f) filtered 
+// { f -> f.selector == addPoolCollection(address).selector 
+//         || f.selector == removePoolCollection(address, address).selector 
+//         || f.selector == setLatestPoolCollection(address).selector
+//         || f.selector == createPool(uint16, address).selector 
+//         || f.selector == createPools(uint16, address[]).selector 
+// } {
+//     bool roleBefore = hasRole(roleAdmin(), e.msg.sender);
     
-    calldataarg args;
-    f@withrevert(e, args);
+//     calldataarg args;
+//     f@withrevert(e, args);
 
-    bool isReverted = lastReverted;
+//     bool isReverted = lastReverted;
 
-    assert !roleBefore => isReverted, "With great power comes great responsibility";
-}
-
-
-
-// STATUS - verified
-// Only user with concrete role can call concrete functions.
-rule almightyAdmin2(method f, env e) filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
-                                            || f.selector == withdrawNetworkFees(address).selector
-                                            || f.selector == pause().selector
-                                            || f.selector == resume().selector} {
-    calldataarg args;
-    f@withrevert(e, args);
-
-    bool isReverted = lastReverted;
-
-    assert  (!isReverted && (f.selector == pause() .selector
-                                || f.selector == resume().selector))
-                => hasRole(roleEmergencyStopper(), e.msg.sender), "With great power comes great requestFunding/renounceFunding";
-    assert  (!isReverted && f.selector == withdrawNetworkFees(address).selector)
-                => hasRole(roleNetworkFeeManager(), e.msg.sender), "With great power comes great mint";
-    assert  (!isReverted && f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector)
-                => hasRole(roleMigrationManager(), e.msg.sender), "With great power comes great burnFromVault";
-}
+//     assert !roleBefore => isReverted, "With great power comes great responsibility";
+// }
 
 
 
-// STATUS - verified
-// There is no way to call certain functions when network is paused.
-rule whenPausedNothingToDo2(env e, method f) 
-filtered { f -> f.selector == depositFor(address, address, uint256).selector
-                        || f.selector == deposit(address, uint256).selector 
-                        || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
-                        || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
-    }
-{
-    require isPaused();
+// // STATUS - verified
+// // Only user with concrete role can call concrete functions.
+// rule almightyAdmin2(method f, env e) filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector
+//                                             || f.selector == withdrawNetworkFees(address).selector
+//                                             || f.selector == pause().selector
+//                                             || f.selector == resume().selector} {
+//     calldataarg args;
+//     f@withrevert(e, args);
 
-    calldataarg args;
-    f@withrevert(e, args);
+//     bool isReverted = lastReverted;
 
-    assert lastReverted, "Frozen!";
-}
-
-// STATUS - verified
-rule whenPausedNothingToDo3(env e, method f) 
-filtered { f -> f.selector == initWithdrawal(address, uint256).selector
-                        || f.selector == initWithdrawalPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
-                        || f.selector == cancelWithdrawal(uint256).selector
-    }
-{
-    require isPaused();
-
-    calldataarg args;
-    f@withrevert(e, args);
-
-    assert lastReverted, "Frozen!";
-}
-
-// STATUS - verified
-rule whenPausedNothingToDo4(env e, method f) 
-filtered { f -> f.selector == withdraw(uint256).selector}
-{
-    require isPaused();
-
-    calldataarg args;
-    f@withrevert(e, args);
-
-    assert lastReverted, "Frozen!";
-}
-
-
-rule whenPausedNothingToDo512(env e, method f) 
-filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector              
-    }
-{
-    require isPaused();
-
-    calldataarg args;
-    f@withrevert(e, args);
-
-    assert lastReverted, "Frozen!";
-}
-
-rule whenPausedNothingToDo521(env e, method f) 
-filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
-                            }
-{
-    require isPaused();
-
-    calldataarg args;
-    f@withrevert(e, args);
-
-    assert lastReverted, "Frozen!";
-}
-
-rule whenPausedNothingToDo522(env e, method f) 
-filtered { f -> f.selector == tradeByTargetAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector }
-{
-    require isPaused();
-
-    calldataarg args;
-    f@withrevert(e, args);
-
-    assert lastReverted, "Frozen!";
-}
-
-
-rule whenPausedNothingToDo61(env e, method f) 
-filtered { f -> f.selector == flashLoan(address, uint256, address, bytes).selector                       
-    }
-{
-    require isPaused();
-
-    calldataarg args;
-    f@withrevert(e, args);
-
-    assert lastReverted, "Frozen!";
-}
-
-rule whenPausedNothingToDo62(env e, method f) 
-filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector             
-    }
-{
-    require isPaused();
-
-    calldataarg args;
-    f@withrevert(e, args);
-
-    assert lastReverted, "Frozen!";
-}
-
-rule whenPausedNothingToDo63(env e, method f) 
-filtered { f -> f.selector == withdrawNetworkFees(address).selector
-    }
-{
-    require isPaused();
-
-    calldataarg args;
-    f@withrevert(e, args);
-
-    assert lastReverted, "Frozen!";
-}
+//     assert  (!isReverted && (f.selector == pause() .selector
+//                                 || f.selector == resume().selector))
+//                 => hasRole(roleEmergencyStopper(), e.msg.sender), "With great power comes great requestFunding/renounceFunding";
+//     assert  (!isReverted && f.selector == withdrawNetworkFees(address).selector)
+//                 => hasRole(roleNetworkFeeManager(), e.msg.sender), "With great power comes great mint";
+//     assert  (!isReverted && f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector)
+//                 => hasRole(roleMigrationManager(), e.msg.sender), "With great power comes great burnFromVault";
+// }
 
 
 
-// STATUS - proved
-// `flashLoan()` doesn't decrease network's balance (native or token). 
-rule flashLoanCompleteness(env e){
-    address token;
-    uint256 amount;
-    address recipient;
-    bytes calldata;
+// // STATUS - verified
+// // There is no way to call certain functions when network is paused.
+// rule whenPausedNothingToDo2(env e, method f) 
+// filtered { f -> f.selector == depositFor(address, address, uint256).selector
+//                         || f.selector == deposit(address, uint256).selector 
+//                         || f.selector == depositForPermitted(address, address, uint256, uint256, uint8, bytes32, bytes32).selector
+//                         || f.selector == depositPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+//     }
+// {
+//     require isPaused();
 
-    require token == tokenA || token == tokenB;
+//     calldataarg args;
+//     f@withrevert(e, args);
 
-    uint256 nativeBalanceBefore = ethBalance();
+//     assert lastReverted, "Frozen!";
+// }
 
-    uint256 tokenBalanceBefore;
-    if(token == tokenA){
-        tokenBalanceBefore = tokenA.balanceOf(e, currentContract);
-    } else {
-        tokenBalanceBefore = tokenB.balanceOf(e, currentContract);
-    }
+// // STATUS - verified
+// rule whenPausedNothingToDo3(env e, method f) 
+// filtered { f -> f.selector == initWithdrawal(address, uint256).selector
+//                         || f.selector == initWithdrawalPermitted(address, uint256, uint256, uint8, bytes32, bytes32).selector 
+//                         || f.selector == cancelWithdrawal(uint256).selector
+//     }
+// {
+//     require isPaused();
 
-    flashLoan(e, token, amount, recipient, calldata);
+//     calldataarg args;
+//     f@withrevert(e, args);
 
-    uint256 nativeBalanceAfter = ethBalance();
+//     assert lastReverted, "Frozen!";
+// }
+
+// // STATUS - verified
+// rule whenPausedNothingToDo4(env e, method f) 
+// filtered { f -> f.selector == withdraw(uint256).selector}
+// {
+//     require isPaused();
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     assert lastReverted, "Frozen!";
+// }
+
+
+// rule whenPausedNothingToDo512(env e, method f) 
+// filtered { f -> f.selector == tradeBySourceAmount(address, address, uint256, uint256, uint256, address).selector              
+//     }
+// {
+//     require isPaused();
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     assert lastReverted, "Frozen!";
+// }
+
+// rule whenPausedNothingToDo521(env e, method f) 
+// filtered { f -> f.selector == tradeByTargetAmount(address, address, uint256, uint256, uint256, address).selector
+//                             }
+// {
+//     require isPaused();
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     assert lastReverted, "Frozen!";
+// }
+
+// rule whenPausedNothingToDo522(env e, method f) 
+// filtered { f -> f.selector == tradeByTargetAmountPermitted(address, address, uint256, uint256, uint256, address, uint8, bytes32, bytes32).selector }
+// {
+//     require isPaused();
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     assert lastReverted, "Frozen!";
+// }
+
+
+// rule whenPausedNothingToDo61(env e, method f) 
+// filtered { f -> f.selector == flashLoan(address, uint256, address, bytes).selector                       
+//     }
+// {
+//     require isPaused();
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     assert lastReverted, "Frozen!";
+// }
+
+// rule whenPausedNothingToDo62(env e, method f) 
+// filtered { f -> f.selector == migrateLiquidity(address, address, uint256, uint256, uint256).selector             
+//     }
+// {
+//     require isPaused();
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     assert lastReverted, "Frozen!";
+// }
+
+// rule whenPausedNothingToDo63(env e, method f) 
+// filtered { f -> f.selector == withdrawNetworkFees(address).selector
+//     }
+// {
+//     require isPaused();
+
+//     calldataarg args;
+//     f@withrevert(e, args);
+
+//     assert lastReverted, "Frozen!";
+// }
+
+
+// // STATUS - proved
+// // `flashLoan()` doesn't decrease network's balance (native or token). 
+// rule flashLoanCompleteness(env e){
+//     address token;
+//     uint256 amount;
+//     address recipient;
+//     bytes calldata;
+
+//     require token == tokenA || token == tokenB;
+
+//     uint256 nativeBalanceBefore = ethBalance();
+
+//     uint256 tokenBalanceBefore;
+//     if(token == tokenA){
+//         tokenBalanceBefore = tokenA.balanceOf(e, currentContract);
+//     } else {
+//         tokenBalanceBefore = tokenB.balanceOf(e, currentContract);
+//     }
+
+//     flashLoan(e, token, amount, recipient, calldata);
+
+//     uint256 nativeBalanceAfter = ethBalance();
     
-    uint256 tokenBalanceAfter;
-    if(token == tokenA){
-        tokenBalanceAfter = tokenA.balanceOf(e, currentContract);
-    } else {
-        tokenBalanceAfter = tokenB.balanceOf(e, currentContract);
-    }
+//     uint256 tokenBalanceAfter;
+//     if(token == tokenA){
+//         tokenBalanceAfter = tokenA.balanceOf(e, currentContract);
+//     } else {
+//         tokenBalanceAfter = tokenB.balanceOf(e, currentContract);
+//     }
 
-    assert nativeBalanceBefore <= nativeBalanceAfter && tokenBalanceBefore <= tokenBalanceAfter, "Flash is a cheater!";
-}
+//     assert nativeBalanceBefore <= nativeBalanceAfter && tokenBalanceBefore <= tokenBalanceAfter, "Flash is a cheater!";
+// }

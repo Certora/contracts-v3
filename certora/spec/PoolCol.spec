@@ -67,7 +67,7 @@ function setUp() {
     require poolToken(tokenA) == ptA;
     require poolToken(tokenB) == ptB;
     require networkSettings.minLiquidityForTrading() > 0;
-    require networkSettings.networkFeePPM() <= 1000000;
+    // require networkSettings.networkFeePPM() <= 1000000;
 }
 
 // Set all withdrawal parameters, but (x,e), to constants (deficit)
@@ -235,96 +235,97 @@ function santasLittleHelper(method f, env e){
 }
 
 
-// `depositFor` should return positive number after successful call.
-rule afterDepositAmountGzero(method f)    filtered { f -> !f.isView && !f.isFallback }
-{
-    env e;
-        setUp();
+// // `depositFor` should return positive number after successful call.
+// rule afterDepositAmountGzero(method f)    filtered { f -> !f.isView && !f.isFallback }
+// {
+//     env e;
+//         setUp();
 
-    require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
+//     require e.msg.sender != currentContract && e.msg.sender != _bntPool(e) && e.msg.sender != _masterVault(e);
 
-        bytes32 contextId;
-        address provider = e.msg.sender;
-        address pool = tokenA;
-        uint256 tokenAmount;
+//         bytes32 contextId;
+//         address provider = e.msg.sender;
+//         address pool = tokenA;
+//         uint256 tokenAmount;
 
-        uint256 amount = depositFor(e, contextId, provider, pool, tokenAmount);   
+//         uint256 amount = depositFor(e, contextId, provider, pool, tokenAmount);   
 
-    assert amount > 0;
-}
-
-
-// It should be imposssible to trade all BNT tokens at once.
-rule tradeAllBntTokensShouldFail(method f) filtered { f -> !f.isView && !f.isFallback }
-{
-    env e;
-        setUp();
-
-    bytes32 contextId;
-    address sourceToken = tokenA;
-    address targetToken;// = tokenB;
-    uint256 targetAmount = getPoolDataBntTradingLiquidity(e,sourceToken);
-    uint256 maxSourceAmount;// = 2^255;
-
-    uint256 amount;
-    uint256 tradingFeeAmount;
-    uint256 networkFeeAmount;
-
-    amount,tradingFeeAmount,networkFeeAmount = tradeByTargetAmount@withrevert(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
-
-    assert  lastReverted;
-}
+//     assert amount > 0;
+// }
 
 
-// It should be imposssible to trade if BNT or TKN trading liquidity is 0.
-rule tradeWhenZeroTokensRevert(method f) filtered { f -> !f.isView && !f.isFallback }
-{
-    env e;
-        setUp();
+// // It should be imposssible to trade all BNT tokens at once.
+// rule tradeAllBntTokensShouldFail(method f) filtered { f -> !f.isView && !f.isFallback }
+// {
+//     env e;
+//         setUp();
 
-    bytes32 contextId;
-    address sourceToken = tokenA;
-    address targetToken;// = tokenB;
-    uint256 targetAmount;
-    uint256 maxSourceAmount;
+//     bytes32 contextId;
+//     address sourceToken = tokenA;
+//     address targetToken;// = tokenB;
+//     uint256 targetAmount = getPoolDataBntTradingLiquidity(e,sourceToken);
+//     uint256 maxSourceAmount;// = 2^255;
 
-    uint256 amount;
-    uint256 tradingFeeAmount;
-    uint256 networkFeeAmount;
+//     uint256 amount;
+//     uint256 tradingFeeAmount;
+//     uint256 networkFeeAmount;
 
-    require getPoolDataBntTradingLiquidity(e,sourceToken) == 0 || getPoolDataBaseTokenLiquidity(e,sourceToken) == 0;
+//     amount,tradingFeeAmount,networkFeeAmount = tradeByTargetAmount@withrevert(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
 
-    amount,tradingFeeAmount,networkFeeAmount = tradeByTargetAmount@withrevert(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
-
-    assert  lastReverted;
-}
+//     assert  lastReverted;
+// }
 
 
-// It should be imposssible to trade if BNT trading liquidity and `minLiquidityForTrading` is 0.
-rule tradeWhenZeroLiquidity(method f) filtered { f -> !f.isView && !f.isFallback }
-{
-    env e;
+// // It should be imposssible to trade if BNT or TKN trading liquidity is 0.
+// rule tradeWhenZeroTokensRevert(method f) filtered { f -> !f.isView && !f.isFallback }
+// {
+//     env e;
+//         setUp();
 
-    bytes32 contextId;
-    address sourceToken;
-    address targetToken;
-    uint256 targetAmount;
-    uint256 maxSourceAmount;
+//     bytes32 contextId;
+//     address sourceToken = tokenA;
+//     address targetToken;// = tokenB;
+//     uint256 targetAmount;
+//     uint256 maxSourceAmount;
 
-    uint256 amount;
-    uint256 tradingFeeAmount;
-    uint256 networkFeeAmount;
+//     uint256 amount;
+//     uint256 tradingFeeAmount;
+//     uint256 networkFeeAmount;
 
-    require sourceToken == tokenA || targetToken == tokenA; // the other token is BNT
-    require networkSettings.minLiquidityForTrading() == 0;
-    require getPoolDataBntTradingLiquidity(e, tokenA) == 0;
+//     require getPoolDataBntTradingLiquidity(e,sourceToken) == 0 || getPoolDataBaseTokenLiquidity(e,sourceToken) == 0;
 
-    amount,tradingFeeAmount,networkFeeAmount = tradeByTargetAmount@withrevert(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
+//     amount,tradingFeeAmount,networkFeeAmount = tradeByTargetAmount@withrevert(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
 
-    assert lastReverted;
-}
+//     assert  lastReverted;
+// }
 
 
+// // It should be imposssible to trade if BNT trading liquidity and `minLiquidityForTrading` is 0.
+// rule tradeWhenZeroLiquidity(method f) filtered { f -> !f.isView && !f.isFallback }
+// {
+//     env e;
+
+//     bytes32 contextId;
+//     address sourceToken;
+//     address targetToken;
+//     uint256 targetAmount;
+//     uint256 maxSourceAmount;
+
+//     uint256 amount;
+//     uint256 tradingFeeAmount;
+//     uint256 networkFeeAmount;
+
+//     require sourceToken == tokenA || targetToken == tokenA; // the other token is BNT
+//     require networkSettings.minLiquidityForTrading() == 0;
+//     require getPoolDataBntTradingLiquidity(e, tokenA) == 0;
+
+//     amount,tradingFeeAmount,networkFeeAmount = tradeByTargetAmount@withrevert(e,contextId, sourceToken, targetToken, targetAmount, maxSourceAmount);
+
+//     assert lastReverted;
+// }
+
+
+// violation - https://vaas-stg.certora.com/output/3106/ccdc0015806ebb231669/?anonymousKey=7990ab96938776b533796f559819d741e0ec1450
 // Average rate always remains positive.
 invariant rateIsPositive(env e, address pool)
     averageRateIsPositive(e, pool)
@@ -337,6 +338,7 @@ invariant rateIsPositive(env e, address pool)
         }
 
 
+// createPool reachability FAILED - https://vaas-stg.certora.com/output/3106/58058fbe68de3d5bc788/?anonymousKey=6a29d27e11e31d5600b26ef64a2ca3598346e8dc
 // Average rate cannot be 0.
 rule averageRateNonZero(env e, method f, address pool) filtered { f -> !f.isView && !f.isFallback &&
                 f.selector != migratePoolOut(address, address).selector}
@@ -354,6 +356,7 @@ rule averageRateNonZero(env e, method f, address pool) filtered { f -> !f.isView
 }
 
 
+// createPool reachability FAILED - https://vaas-stg.certora.com/output/3106/29226d6bc457a73e7007/?anonymousKey=0b534cefcc8c9221052516657958f0fd0e702dfa
 // Different pools have different pool tokens.
 invariant differentTokens(address tknA, address tknB)
     hasPool(tknA) && hasPool(tknB) && tknA != tknB => poolToken(tknA) != poolToken(tknB)
@@ -378,6 +381,8 @@ invariant differentTokens(address tknA, address tknB)
        }
     }
 
+
+// createPool reachability FAILED - https://vaas-stg.certora.com/output/3106/df666d19df791a579db2/?anonymousKey=3e30a9e0d767a0595e9d5c4bcd2d41760d22ab6e
 invariant notHasPoolNotHasPoolToken(address pool)
     !hasPool(pool) => poolToken(pool) == 0
     {
@@ -388,6 +393,7 @@ invariant notHasPoolNotHasPoolToken(address pool)
     }
 
 
+// createPool reachability FAILED - https://vaas-stg.certora.com/output/3106/bfb64477589e457178db/?anonymousKey=9a7fad30cd10597026e9f66ef8c4723bf042d282
 // If staked balance is zero, then pool token balance is zero too.
 invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
     getPoolDataStakedBalance(e,pool) == 0 => getPoolTokenTotalSupply(e,poolToken(pool))== 0
@@ -412,6 +418,7 @@ invariant zeroPoolTokensZeroStakedBalance(address pool, env e)
     }
 
 
+// // createPool reachability FAILED and timeout - https://vaas-stg.certora.com/output/3106/694f9f4b14f399d76c5f/?anonymousKey=09256410ddc49d1991d35fbcaa82efa7b659177e
 // If BNT trading liquidity is zero, then TKN trading liquidity is zero too and vice versa.
 invariant consistentTradingLiquidity(env e,address pool)
     getPoolDataBntTradingLiquidity(e,pool) == 0 <=> getPoolDataBaseTokenLiquidity(e,pool) == 0
@@ -425,11 +432,13 @@ invariant consistentTradingLiquidity(env e,address pool)
     }
 
 
+// createPool reachability FAILED - https://vaas-stg.certora.com/output/3106/e5653c98050150776d98/?anonymousKey=a8c2673dacc4c1c4a4b824861d108d9e17add86d
 // `networkFeePPM` cannot exceed 1000000.
 invariant networkFeePPM()
     networkSettings.networkFeePPM() <= 1000000
 
 
+// violation https://vaas-stg.certora.com/output/3106/6fb0c20eb74d409ff4f2/?anonymousKey=c1a14ee2c032d3fa30be61d631095b2e07f3b7cc
 // If BNT trading liquidity is 0, then we cannot withdraw anything.
 rule withdrawWhenBntIsZero(method f) filtered { f -> !f.isView && !f.isFallback }
 {
