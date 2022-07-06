@@ -22,15 +22,16 @@ contract PoolCollectionHarness is PoolCollection{
         IPoolMigrator initPoolMigrator
     ) PoolCollection(initNetwork, initBNT, initNetworkSettings, initMasterVault, initBNTPool, initExternalProtectionVault, initPoolTokenFactory, initPoolMigrator) {}
 
-       function depositFor(
+    /*   function depositFor(
         bytes32 contextId,
         address provider,
         Token pool,
         uint256 tokenAmount
     ) public override returns (uint256) {
         pool.safeTransferFrom(msg.sender, address(_masterVault) , tokenAmount);
-        return super.depositFor(contextId, msg.sender, pool, tokenAmount);
-    }
+        return super.depositFor(contextId, provider, pool, tokenAmount);
+    }*/
+    
     function getPoolDataTradingEnabled(Token pool) public view returns (bool) {
         return _poolData[pool].tradingEnabled;
     }

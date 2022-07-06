@@ -106,8 +106,8 @@ methods {
     destroy(address, uint256) => DISPATCHER(true)
     sendTo() returns(bool) => DISPATCHER(true)
     reserveToken() returns (address) => DISPATCHER(true)
-    mulDivF(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDiv(x,y,z)
-    mulDivC(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDiv(x,y,z)
+    mulDivF(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIfWithRemainder(x,y,z)
+    //mulDivC(uint256 x, uint256 y, uint256 z) returns (uint256) => simpleMulDivIfWithRemainder(x,y,z)
     hasRole(bytes32, address) returns(bool) envfree
     roleAdmin() returns(bytes32) envfree
     roleMigrationManager() returns(bytes32) envfree
@@ -248,61 +248,79 @@ function setupTokenPoolCol(env env1, address token, address PT)
 }
 
 // Summary for mulDivF:
-// A function which assumes a constant quotient y/z or x/z q (or 1/q).
-function constQuotientMulDiv(uint256 x, uint256 y, uint256 z, uint256 q)
-returns uint256
-{
-    uint256 f;
-    require z != 0;
-    require constQuotient(q);
-    return f;
-}
-
-// Summary for mulDivF:
-// Quotients x/z, y/z are either 0,1,2,3,10 or 1/2, 1/3, 1/10.
-// We assume also no division remainders.
-function simpleMulDiv(uint256 x, uint256 y, uint256 z) returns uint256 
-{
-    uint f;
-    bool dontDividebyZero = z != 0;
-    // We restrict to no remainders
-    // Possible quotients : Qut[q] means that y/z or x/z is q.
-    bool Qut0 = ( x ==0 || y ==0) && (f == 0);
-    bool Qut1 = ( x == z && f == y ) || ( y == z && f == x );
-    bool Qut2 = constQuotient(x, y, z, 2, f);
-    bool Qut3 = constQuotient(x, y, z, 3, f);
-    bool Qut10 = constQuotient(x, y, z, 10, f);
-    bool Qut100 = constQuotient(x, y, z, 100, f);
-    bool Qut250 = constQuotient(x, y, z, 250, f);
-    bool Qut400 = constQuotient(x, y, z, 400, f);
-    bool Qut500 = constQuotient(x, y, z, 500, f);
-    bool Qut1000 = constQuotient(x, y, z, 1000, f);
-    bool Qut2000 = constQuotient(x, y, z, 2000, f);
-
-    require dontDividebyZero;
-    require Qut0 || Qut1 || Qut2 || Qut3 || Qut10 || Qut100 || Qut250 || Qut400 ||
-    Qut500 || Qut1000 || Qut2000;
-    return f;
-}
-
-// Summary for mulDivF:
 // quotient y/z is either 0,1,2,3,10 or 1/2, 1/3, 1/10.
-// Nothing resticts the value of x/z;
 function simpleMulDivIf(uint256 x, uint256 y, uint256 z) returns uint256 
 {
     uint f;
     bool dontDividebyZero = z != 0;
-    bool Success = true;
-    require dontDividebyZero;
+    bool Success = dontDividebyZero;
+    uint256 qs = 400; // My special quotient
 
     if (x ==0 || y ==0)      {f = 0;}
-    else if (y == 2 * z)     {f = 2 * x;}
-    else if (y == 3 * z)     {f = 3 * x;}
-    else if (y == 10 * z)    {f = 10 * x;}
-    else if (2 * y == z && x % 2 == 0)  {f = x / 2;}
-    else if (3 * y == z && x % 3 == 0)  {f = x / 3;}
-    else if (10 * y == z && x % 10 == 0)    {f = x / 10;}
     else if (y == z)   { f = x;}
+    else if (x == z)   { f = y;}
+    // Qut = 2, 1/2
+    else if (y == 2 * z)     {f = 2 * x;}
+    else if (x == 2 * z)     {f = 2 * y;}
+    else if (2 * y == z && x % 2 == 0)  {f = x / 2;}
+    else if (2 * x == z && y % 2 == 0)  {f = y / 2;}
+    // Qut = 3, 1/3
+    else if (y == 3 * z)     {f = 3 * x;}
+    else if (x == 3 * z)     {f = 3 * y;}
+    else if (3 * y == z && x % 3 == 0)  {f = x / 3;}
+    else if (3 * x == z && y % 3 == 0)  {f = y / 3;}
+    // Qut = 10, 1/10
+    else if (y == 10 * z)     {f = 10 * x;}
+    else if (x == 10 * z)     {f = 10 * y;}
+    else if (10 * y == z && x % 10 == 0)  {f = x / 10;}
+    else if (10 * x == z && y % 10 == 0)  {f = y / 10;}
+    // Qut = 500, 1/500
+    else if (y == 500 * z)     {f = 500 * x;}
+    else if (x == 500 * z)     {f = 500 * y;}
+    else if (500 * y == z && x % 500 == 0)  {f = x / 500;}
+    else if (500 * x == z && y % 500 == 0)  {f = y / 500;}
+    // Qut = qs, 1/qs
+    else if (y == qs * z)     {f = qs * x;}
+    else if (x == qs * z)     {f = qs * y;}
+    else if (qs * y == z && x % qs == 0)  {f = x / qs;}
+    else if (qs * x == z && y % qs == 0)  {f = y / qs;}
+    //
+    else    {f = 0; Success = false;}
+    require Success;
+    return f;
+}
+// Summary for mulDivF (with remainders)
+function simpleMulDivIfWithRemainder(uint256 x, uint256 y, uint256 z) returns uint256 
+{
+    uint f;
+    bool dontDividebyZero = z != 0;
+    bool Success = dontDividebyZero;
+
+    if (x ==0 || y ==0)      {f = 0;}
+    else if (y == z)   { f = x;}
+    else if (x == z)   { f = y;}
+    // Qut = 2, 1/2
+    else if (y == 2 * z)     {f = 2 * x;}
+    else if (x == 2 * z)     {f = 2 * y;}
+    else if (2 * y == z )  {f = x / 2;}
+    else if (2 * x == z )  {f = y / 2;}
+    // Qut = 3, 1/3
+    else if (y == 3 * z)     {f = 3 * x;}
+    else if (x == 3 * z)     {f = 3 * y;}
+    else if (3 * y == z )  {f = x / 3;}
+    else if (3 * x == z )  {f = y / 3;}
+    // Qut = 10, 1/10
+    else if (y == 10 * z)     {f = 10 * x;}
+    else if (x == 10 * z)     {f = 10 * y;}
+    else if (10 * y == z )  {f = x / 10;}
+    else if (10 * x == z )  {f = y / 10;}
+    // Qut = 500, 1/500
+    else if (y == 500 * z)     {f = 500 * x;}
+    else if (x == 500 * z)     {f = 500 * y;}
+    else if (500 * y == z )  {f = x / 500;}
+    else if (500 * x == z )  {f = y / 500;}
+    // Z = 1000000
+    else if (z == 1000000) { f = (x * y) / 1000000;}
     else    {f = 0; Success = false;}
 
     require Success;
@@ -310,22 +328,20 @@ function simpleMulDivIf(uint256 x, uint256 y, uint256 z) returns uint256
 }
 
 // Summary for mulDivF:
-// quotient y/z is either 0, 1, 2 or half.
-function mulDivFactor2(uint256 x,uint256 y, uint256 z) returns uint256 
+// A function which assumes a constant quotient y/z or x/z q (or 1/q).
+function constQuotientMulDiv(uint256 x, uint256 y, uint256 z, uint256 qs)
+returns uint256
 {
-    require z !=0;
-    if (x == 0 || y == 0){
-        return 0;
-    }
-    else if (y > z){
-        return to_uint256(2 * x);
-    }
-    else if (y < z){
-        return to_uint256(x / 2);
-    }
-    else{
-        return x;
-    }
+    uint256 f;
+    bool Success =  z != 0;
+    // Qut = qs, 1/qs
+    if (y == qs * z)     {f = qs * x;}
+    else if (x == qs * z)     {f = qs * y;}
+    else if (qs * y == z && x % qs == 0)  {f = x / qs;}
+    else if (qs * x == z && y % qs == 0)  {f = y / qs;}
+    else { f = 0; Success = false;}
+    require Success;
+    return f;
 }
 
 function identity(uint256 x) returns uint256 
@@ -853,14 +869,6 @@ rule afterTradeSumOfTokenBalanceIntact(address tknA, address tknB, uint amount)
 //     assert PTtotalSupply1 == PTtotalSupply2, 
 //             "Total supply of BNT pool tokens should not change";
 // }
-
-
-
-
-
-
-
-
 
 
 // // STATUS - verified
